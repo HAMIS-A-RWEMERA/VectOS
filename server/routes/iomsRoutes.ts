@@ -1347,7 +1347,7 @@ router.get('/orders/:id/delivery-note', requirePermission('can_print_delivery_no
 
     const shopInfo = await queryOne('SELECT * FROM shops WHERE id = ?', [shopId]);
 
-    res.render('order_delivery_note', { order, items, shopInfo });
+    res.render('delivery_note', { order, items, shopInfo });
   } catch (err: any) {
     res.status(500).render('error', { title: 'Delivery Slip Error', message: err.message, path: req.path });
   }

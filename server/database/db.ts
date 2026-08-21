@@ -1,12 +1,27 @@
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
 
 const { Pool } = pg;
 
-const DB_FILE = path.join(process.cwd(), 'database', 'quincaille.db');
+// Resolve a writable location for the SQLite file. On serverless platforms
+// (Netlify Lambda) process.cwd() is read-only, so fall back to /tmp.
+function resolveDbFile(): string {
+  const preferredDir = path.join(process.cwd(), 'database');
+  try {
+    fs.mkdirSync(preferredDir, { recursive: true });
+    fs.accessSync(preferredDir, fs.constants.W_OK);
+    return path.join(preferredDir, 'quincaille.db');
+  } catch {
+    return path.join(os.tmpdir(), 'quincaille.db');
+  }
+}
+
+const DB_FILE = resolveDbFile();
+let warnedReadOnly = false;
 
 let dbInstance: SqlJsDatabase | null = null;
 let pgPoolInstance: pg.Pool | null = null;
@@ -110,9 +125,22 @@ export function saveDb(dbToSave?: SqlJsDatabase) {
   if (isPostgres()) return;
   const target = dbToSave || dbInstance;
   if (!target) return;
-  const data = target.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(DB_FILE, buffer);
+  try {
+    const data = target.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(DB_FILE, buffer);
+  } catch (err) {
+    // Read-only filesystem (e.g. serverless without DATABASE_URL): warn once
+    // instead of crashing every request. Data will not persist in this mode.
+    if (!warnedReadOnly) {
+      warnedReadOnly = true;
+      console.warn(
+        'Warning: Could not persist database file (' + DB_FILE + '). ' +
+        'Set DATABASE_URL to a Supabase/PostgreSQL connection string for persistent storage.',
+        err
+      );
+    }
+  }
 }
 
 export async function queryAll<T = any>(sql: string, params: any[] = []): Promise<T[]> {
