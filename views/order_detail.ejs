@@ -1,0 +1,164 @@
+<%- include('partials/header', { title: 'Order Details — Quincaille IOMS' }) %>
+<%- include('partials/sidebar') %>
+
+<div class="space-y-6 max-w-5xl mx-auto">
+  <!-- Top Bar -->
+  <div class="pb-4 border-b border-[#222732] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <div class="flex items-center space-x-3">
+        <h1 class="text-2xl font-extrabold text-white tracking-tight font-display font-mono text-amber-400">
+          <%= order.order_number %>
+        </h1>
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider <%= order.fulfillment_status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20' %>">
+          <%= (order.fulfillment_status || 'pending').replace('_', ' ') %>
+        </span>
+      </div>
+      <p class="text-xs text-slate-400 mt-1">
+        Created on <%= new Date(order.created_at).toLocaleString() %> by <span class="font-bold text-white"><%= order.salesperson_name %></span> (<span class="uppercase text-[10px] text-amber-400 font-mono"><%= order.salesperson_role || 'staff' %></span>)
+      </p>
+    </div>
+
+    <!-- Dual Action Print Buttons -->
+    <div class="flex flex-wrap items-center gap-2.5">
+      <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_print_full_receipt) { %>
+        <a href="/orders/<%= order.id %>/receipt" target="_blank"
+          class="inline-flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer">
+          <i data-lucide="printer" class="w-4 h-4"></i>
+          <span>Financial Receipt (RWF)</span>
+        </a>
+      <% } %>
+
+      <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_print_delivery_note || user.can_release_stock) { %>
+        <a href="/orders/<%= order.id %>/delivery-note" target="_blank"
+          class="inline-flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-[#1F242E] hover:bg-[#2B313E] text-slate-200 border border-[#2B313E] font-bold text-xs transition-all cursor-pointer">
+          <i data-lucide="truck" class="w-4 h-4 text-amber-400"></i>
+          <span>Delivery Slip (Qty Only)</span>
+        </a>
+      <% } %>
+
+      <a href="/orders" class="px-3.5 py-2.5 rounded-xl bg-[#1E232E] hover:bg-[#282F3D] text-xs font-bold text-slate-300 transition-colors">
+        &larr; Back
+      </a>
+    </div>
+  </div>
+
+  <!-- Order Overview Summary Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div class="bg-[#13161C] border border-[#222732] p-4 rounded-2xl shadow-xl">
+      <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Client Information</span>
+      <p class="text-sm font-bold text-white mt-1"><%= order.customer_name %></p>
+      <p class="text-xs text-slate-400 font-mono"><%= order.customer_phone %></p>
+      <p class="text-xs text-slate-400 mt-1"><%= order.customer_address || 'Kigali, Rwanda' %></p>
+    </div>
+
+    <div class="bg-[#13161C] border border-[#222732] p-4 rounded-2xl shadow-xl">
+      <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Financial Overview</span>
+      <p class="text-lg font-black text-amber-400 font-mono mt-1">RWF <%= (order.total_amount || 0).toLocaleString('en-US') %></p>
+      <p class="text-xs text-slate-300">Paid: RWF <%= (order.paid_amount || 0).toLocaleString('en-US') %></p>
+      <p class="text-xs text-rose-400 font-bold">Debt Balance: RWF <%= (order.debt_amount || 0).toLocaleString('en-US') %></p>
+    </div>
+
+    <div class="bg-[#13161C] border border-[#222732] p-4 rounded-2xl shadow-xl">
+      <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Internal Workflow Status</span>
+      <p class="text-xs font-bold text-white mt-1 capitalize">Payment: <span class="text-amber-400"><%= order.payment_status %></span></p>
+      <p class="text-xs text-slate-400 mt-1">Fulfillment: <%= order.fulfillment_status %></p>
+      <% if (order.notes) { %>
+        <p class="text-[11px] text-slate-500 italic mt-1 truncate">"<%= order.notes %>"</p>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- INTERNAL Order Items Table (Includes Buying Price & Dynamic Profit) -->
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden p-5 space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider text-amber-500">
+        Internal Line Item Breakdown (Privileged View)
+      </h3>
+      <span class="text-[10px] text-amber-400/80 uppercase font-semibold">Includes Buying Price & Profit Margin</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="border-b border-[#222732] bg-[#181C24] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            <th class="py-3 px-3">Product Line</th>
+            <th class="py-3 px-3 text-center">Qty</th>
+            <th class="py-3 px-3 text-right">Buying Cost</th>
+            <th class="py-3 px-3 text-right">Selling Price</th>
+            <th class="py-3 px-3 text-right">Line Subtotal</th>
+            <th class="py-3 px-3 text-right">Calculated Profit</th>
+            <th class="py-3 px-3 text-center">Fulfillment Source</th>
+            <th class="py-3 px-3 text-center">Item Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#1D222B] text-xs font-mono">
+          <% items.forEach(item => { %>
+            <tr class="hover:bg-[#1A1E26] transition-colors">
+              <td class="py-3.5 px-3 font-sans font-bold text-white"><%= item.product_name %></td>
+              <td class="py-3.5 px-3 text-center font-bold text-slate-200"><%= item.quantity %> <%= item.product_unit %></td>
+              <td class="py-3.5 px-3 text-right text-slate-400"><%= (item.buying_price || 0).toLocaleString('en-US') %></td>
+              <td class="py-3.5 px-3 text-right text-amber-400 font-bold"><%= (item.selling_price || 0).toLocaleString('en-US') %></td>
+              <td class="py-3.5 px-3 text-right text-white font-bold"><%= (item.subtotal || 0).toLocaleString('en-US') %></td>
+              <td class="py-3.5 px-3 text-right font-bold <%= item.profit >= 0 ? 'text-emerald-400' : 'text-rose-400' %>">
+                <%= (item.profit || 0).toLocaleString('en-US') %>
+              </td>
+              <td class="py-3.5 px-3 text-center font-sans">
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#222834] text-slate-300">
+                  <%= item.fulfillment_source || 'store' %>
+                </span>
+              </td>
+              <td class="py-3.5 px-3 text-center font-sans">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider <%= item.item_status === 'approved' || item.item_status === 'partner_fulfilled' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : item.item_status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20' %>">
+                  <%= item.item_status %>
+                </span>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Payments Log Section -->
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden p-5 space-y-4">
+    <h3 class="text-sm font-bold text-white uppercase tracking-wider text-amber-500">
+      Order Payment Transactions
+    </h3>
+
+    <% if (payments && payments.length > 0) { %>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-[#222732] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <th class="py-2.5 px-3">Date</th>
+              <th class="py-2.5 px-3">Amount (RWF)</th>
+              <th class="py-2.5 px-3">Method</th>
+              <th class="py-2.5 px-3">Reference No</th>
+              <th class="py-2.5 px-3">Recorded By</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#1D222B]">
+            <% payments.forEach(p => { %>
+              <tr>
+                <td class="py-2.5 px-3 text-slate-400"><%= new Date(p.created_at).toLocaleString() %></td>
+                <td class="py-2.5 px-3 font-mono font-bold text-emerald-400">RWF <%= (p.amount || 0).toLocaleString('en-US') %></td>
+                <td class="py-2.5 px-3 font-semibold text-slate-200 uppercase"><%= p.payment_method %></td>
+                <td class="py-2.5 px-3 font-mono text-slate-300"><%= p.reference_no || '-' %></td>
+                <td class="py-2.5 px-3 text-slate-300 font-medium">
+                  <%= p.recorded_by_name %>
+                  <span class="ml-1 text-[10px] uppercase font-mono text-amber-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                    <%= p.recorded_by_role || 'staff' %>
+                  </span>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } else { %>
+      <p class="text-xs text-slate-500">No payment records logged for this order yet.</p>
+    <% } %>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,236 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<!-- Hero Section -->
+<section class="hero">
+  <img src="/src/assets/images/hero_background_1785877478689.jpg" alt="Kigali Cinema Background" class="hero-bg-media">
+  <div class="hero-overlay"></div>
+  <div class="hero-content">
+    <p class="section-subtitle" style="letter-spacing: 0.3em; margin-bottom: 16px;">RWANDAN FILMMAKER & PHOTOGRAPHER</p>
+    <h1 class="hero-title gold-gradient-text">WESLEY</h1>
+    <p class="hero-tagline">"Stories of Africa Through Cinema and Photography"</p>
+    <div class="hero-actions">
+      <a href="/films" class="btn btn-gold"><i class="fa-solid fa-film"></i> Watch Films</a>
+      <a href="/landscape" class="btn btn-outline"><i class="fa-solid fa-camera"></i> View Portfolio</a>
+      <a href="/booking" class="btn btn-gold-outline"><i class="fa-solid fa-calendar-days"></i> Book a Session</a>
+    </div>
+  </div>
+</section>
+
+<!-- About Preview Section -->
+<section class="section section-darker">
+  <div class="container">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 60px; align-items: center;">
+      <div style="position: relative;">
+        <div style="border: 2px solid var(--border-gold); padding: 12px; border-radius: 8px;">
+          <img src="/src/assets/images/wesley_profile_1785877494136.jpg" alt="Wesley Director Portrait" style="width: 100%; border-radius: 6px; display: block; filter: contrast(1.05);">
+        </div>
+        <div style="position: absolute; bottom: -20px; right: -20px; background: var(--bg-card); border: 1px solid var(--accent-gold); padding: 16px 24px; border-radius: 6px; box-shadow: var(--shadow-gold);">
+          <span style="font-family: var(--font-heading); font-size: 1.8rem; font-weight: 700; color: var(--accent-gold);">KIGALI</span>
+          <span style="display: block; font-size: 0.75rem; letter-spacing: 0.15em; color: var(--text-secondary);">BASED STUDIO</span>
+        </div>
+      </div>
+
+      <div>
+        <span class="section-subtitle">CREATIVE IDENTITY</span>
+        <h2 class="section-title">AUTHENTIC AFRICAN STORYTELLING</h2>
+        <div style="width: 50px; height: 2px; background: var(--accent-gold); margin-bottom: 24px;"></div>
+        <p style="font-size: 1.05rem; line-height: 1.8; margin-bottom: 20px;">
+          Wesley is a young Rwandan filmmaker and photographer based in Kigali, dedicated to capturing the human spirit, resilience, hope, and cultural beauty across Africa.
+        </p>
+        <p style="line-height: 1.8; margin-bottom: 30px;">
+          Believing firmly that African stories must be told authentically by Africans, Wesley creates films and photography for local and global audiences who seek truth, emotion, and cinematic depth.
+        </p>
+
+        <div style="display: flex; gap: 30px; margin-bottom: 36px;">
+          <div>
+            <h3 class="gold-text" style="font-size: 2rem; font-family: var(--font-heading);">10+</h3>
+            <p style="font-size: 0.85rem; text-transform: uppercase;">Films & Documentaries</p>
+          </div>
+          <div>
+            <h3 class="gold-text" style="font-size: 2rem; font-family: var(--font-heading);">500+</h3>
+            <p style="font-size: 0.85rem; text-transform: uppercase;">Portraits & Landscapes</p>
+          </div>
+          <div>
+            <h3 class="gold-text" style="font-size: 2rem; font-family: var(--font-heading);">4</h3>
+            <p style="font-size: 0.85rem; text-transform: uppercase;">Festival Awards</p>
+          </div>
+        </div>
+
+        <a href="/about" class="btn btn-outline"><i class="fa-solid fa-user-ninja"></i> Discover Wesley's Journey</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Featured Films Section -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-subtitle">CINEMATIC SHOWCASE</span>
+      <h2 class="section-title">FEATURED FILMS</h2>
+      <div class="section-divider"></div>
+    </div>
+
+    <div class="film-grid">
+      <% featuredFilms.forEach(film => { %>
+        <div class="film-card">
+          <div class="film-poster-wrap">
+            <img src="<%= film.poster %>" alt="<%= film.title %>" class="film-poster">
+            <div class="film-poster-overlay">
+              <button class="play-btn" data-lightbox data-src="<%= film.video || 'https://www.youtube.com/embed/dQw4w9WgXcQ' %>" data-title="<%= film.title %>" data-desc="<%= film.genre %> • <%= film.duration %>" data-is-video="true">
+                <i class="fa-solid fa-play"></i>
+              </button>
+            </div>
+          </div>
+          <div class="film-info">
+            <div class="film-meta">
+              <span><%= film.genre %></span> • <span><%= film.year %></span> • <span><%= film.duration %></span>
+            </div>
+            <h3 class="film-title"><%= film.title %></h3>
+            <p class="film-description"><%= film.description %></p>
+            <% if (film.awards) { %>
+              <div class="film-awards">
+                <i class="fa-solid fa-trophy" style="margin-right: 6px;"></i> <%= film.awards %>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+
+    <div style="text-align: center; margin-top: 50px;">
+      <a href="/films" class="btn btn-gold-outline"><i class="fa-solid fa-film"></i> View Full Cinema Catalogue</a>
+    </div>
+  </div>
+</section>
+
+<!-- Featured Photography Section -->
+<section class="section section-darker">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-subtitle">VISUAL GALLERY</span>
+      <h2 class="section-title">FEATURED PHOTOGRAPHY</h2>
+      <div class="section-divider"></div>
+    </div>
+
+    <div class="gallery-filter">
+      <a href="/landscape" class="filter-btn active">Landscape Collection</a>
+      <a href="/portrait" class="filter-btn">Portrait Collection</a>
+    </div>
+
+    <div class="masonry-grid">
+      <% featuredPhotos.forEach(photo => { %>
+        <div class="gallery-item" data-category="<%= photo.category %>" data-lightbox data-src="<%= photo.filename %>" data-title="<%= photo.title %>" data-desc="<%= photo.location %> — <%= photo.description %>">
+          <img src="<%= photo.filename %>" alt="<%= photo.title %>" class="gallery-img">
+          <div class="gallery-caption">
+            <h4><%= photo.title %></h4>
+            <p><i class="fa-solid fa-location-dot" style="margin-right: 4px;"></i> <%= photo.location %></p>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+
+    <div style="text-align: center; margin-top: 40px; display: flex; justify-content: center; gap: 20px;">
+      <a href="/landscape" class="btn btn-outline">Explore Landscape Gallery</a>
+      <a href="/portrait" class="btn btn-outline">Explore Portrait Gallery</a>
+    </div>
+  </div>
+</section>
+
+<!-- Creative Philosophy Section -->
+<section class="section" style="background: radial-gradient(circle at center, rgba(212, 175, 55, 0.08) 0%, rgba(17, 17, 17, 1) 70%); border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle);">
+  <div class="container">
+    <div style="max-width: 850px; margin: 0 auto; text-align: center;">
+      <span class="section-subtitle">THE VISION</span>
+      <h2 class="section-title" style="margin-bottom: 24px;">CREATIVE PHILOSOPHY</h2>
+      <p style="font-size: 1.25rem; font-family: var(--font-heading); color: var(--accent-gold); line-height: 1.8; margin-bottom: 30px;">
+        "Cinema is not just moving pictures; it is the heartbeat of a nation's soul. In every Rwandan hill and every human face lies a masterpiece waiting to inspire the world."
+      </p>
+      <p style="font-size: 1.05rem; line-height: 1.8; color: var(--text-secondary); margin-bottom: 40px;">
+        Drawing inspiration from impactful African cinema such as <em>The Boy Who Harnessed the Wind</em>, <em>The Woman King</em>, and <em>Beasts of No Nation</em>, Wesley crafts stories centered on resilience, dignity, human warmth, and hope.
+      </p>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; text-align: left;">
+        <div style="background: var(--bg-card); padding: 24px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <i class="fa-solid fa-heart-pulse gold-text" style="font-size: 1.8rem; margin-bottom: 12px; display: block;"></i>
+          <h4 style="margin-bottom: 8px;">Humanity</h4>
+          <p style="font-size: 0.85rem;">Honoring the deep emotions and lived experiences of everyday people.</p>
+        </div>
+        <div style="background: var(--bg-card); padding: 24px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <i class="fa-solid fa-earth-africa gold-text" style="font-size: 1.8rem; margin-bottom: 12px; display: block;"></i>
+          <h4 style="margin-bottom: 8px;">African Identity</h4>
+          <p style="font-size: 0.85rem;">Rooted in genuine Rwandan culture, language, and heritage.</p>
+        </div>
+        <div style="background: var(--bg-card); padding: 24px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+          <i class="fa-solid fa-clapperboard gold-text" style="font-size: 1.8rem; margin-bottom: 12px; display: block;"></i>
+          <h4 style="margin-bottom: 8px;">Excellence</h4>
+          <p style="font-size: 0.85rem;">World-class lighting, sound design, color grading, and framing.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Testimonials Section -->
+<section class="section section-darker">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-subtitle">CLIENT & FESTIVAL RECOGNITION</span>
+      <h2 class="section-title">TESTIMONIALS</h2>
+      <div class="section-divider"></div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px;">
+      <div style="background: var(--bg-card); padding: 32px; border-radius: 8px; border: 1px solid var(--border-subtle); position: relative;">
+        <i class="fa-solid fa-quote-left gold-text" style="font-size: 2rem; opacity: 0.3; position: absolute; top: 20px; right: 20px;"></i>
+        <p style="font-style: italic; margin-bottom: 24px; line-height: 1.7;">
+          "Wesley captured our documentary feature with a emotional brilliance I have rarely seen. His sensitivity to local communities in Rwanda made the film unforgettable."
+        </p>
+        <div>
+          <h4 style="color: var(--text-primary);">Aline Mukamana</h4>
+          <span style="font-size: 0.8rem; color: var(--accent-gold);">Cultural Heritage Producer, Kigali</span>
+        </div>
+      </div>
+
+      <div style="background: var(--bg-card); padding: 32px; border-radius: 8px; border: 1px solid var(--border-subtle); position: relative;">
+        <i class="fa-solid fa-quote-left gold-text" style="font-size: 2rem; opacity: 0.3; position: absolute; top: 20px; right: 20px;"></i>
+        <p style="font-style: italic; margin-bottom: 24px; line-height: 1.7;">
+          "Our portrait session with Wesley in Kigali was effortless and deeply artistic. He knows how to play with golden light and natural character."
+        </p>
+        <div>
+          <h4 style="color: var(--text-primary);">David K. Ndayishimiye</h4>
+          <span style="font-size: 0.8rem; color: var(--accent-gold);">Fashion Designer & Artist</span>
+        </div>
+      </div>
+
+      <div style="background: var(--bg-card); padding: 32px; border-radius: 8px; border: 1px solid var(--border-subtle); position: relative;">
+        <i class="fa-solid fa-quote-left gold-text" style="font-size: 2rem; opacity: 0.3; position: absolute; top: 20px; right: 20px;"></i>
+        <p style="font-style: italic; margin-bottom: 24px; line-height: 1.7;">
+          "The Echoes of Akagera received standing ovations at our festival preview. Wesley represents the exciting future of Pan-African cinema."
+        </p>
+        <div>
+          <h4 style="color: var(--text-primary);">Samuel O.</h4>
+          <span style="font-size: 0.8rem; color: var(--accent-gold);">African Film Festival Curator</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Contact CTA Banner -->
+<section class="section" style="background: linear-gradient(135deg, #181818 0%, #111111 100%); border-top: 1px solid var(--border-gold); text-align: center;">
+  <div class="container">
+    <span class="section-subtitle">LET'S CREATE TOGETHER</span>
+    <h2 class="section-title" style="margin-bottom: 20px;">HAVE A STORY TO TELL?</h2>
+    <p style="max-width: 600px; margin: 0 auto 36px; font-size: 1.1rem; color: var(--text-secondary);">
+      Whether you need a full documentary crew, commercial video production, or an artistic portrait session, Wesley Studio is ready in Kigali.
+    </p>
+    <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
+      <a href="/booking" class="btn btn-gold"><i class="fa-solid fa-calendar-plus"></i> Reserve Appointment</a>
+      <a href="/contact" class="btn btn-outline"><i class="fa-solid fa-paper-plane"></i> Send Direct Message</a>
+    </div>
+  </div>
+</section>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,6 @@
+{
+  "name": "Quincaille IOMS - Kigali Construction ERP",
+  "description": "VectOS - Multi-tenant Operating System & ERP for Hardware (Quincaillerie) & Electronics/Tech retail stores in Rwanda with multi-stock tracking, granular roles, and SuperAdmin billing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

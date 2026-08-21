@@ -1,0 +1,22 @@
+<header style="background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); padding: 16px 0; position: sticky; top: 0; z-index: 100;">
+  <div class="container" style="display: flex; align-items: center; justify-content: space-between;">
+    <a href="/admin/dashboard" style="display: flex; align-items: center; gap: 12px; text-decoration: none;">
+      <div>
+        <span class="brand-title" style="font-size: 1.4rem;">WESLEY CMS</span>
+        <span class="brand-subtitle">STUDIO MANAGEMENT</span>
+      </div>
+    </a>
+
+    <div style="display: flex; align-items: center; gap: 20px;">
+      <span style="font-size: 0.85rem; color: var(--text-secondary);">
+        <i class="fa-solid fa-user-gear gold-text"></i> <%= user ? user.name : 'Admin' %>
+      </span>
+      <a href="/" target="_blank" class="btn btn-outline" style="padding: 8px 16px; font-size: 0.8rem;">
+        <i class="fa-solid fa-globe"></i> View Website
+      </a>
+      <a href="/admin/logout" class="btn btn-gold-outline" style="padding: 8px 16px; font-size: 0.8rem;">
+        <i class="fa-solid fa-right-from-bracket"></i> Logout
+      </a>
+    </div>
+  </div>
+</header>

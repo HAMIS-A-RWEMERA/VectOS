@@ -1,0 +1,105 @@
+<%- include('../partials/header') %>
+<%- include('../partials/admin_header') %>
+
+<div class="admin-layout">
+  <div class="admin-sidebar">
+    <ul class="footer-links" style="display: flex; flex-direction: column; gap: 16px;">
+      <li><a href="/admin/dashboard"><i class="fa-solid fa-chart-line" style="margin-right: 8px;"></i> Overview</a></li>
+      <li><a href="/admin/photos"><i class="fa-solid fa-camera" style="margin-right: 8px;"></i> Photos</a></li>
+      <li><a href="/admin/films" style="color: var(--accent-gold); font-weight: 600;"><i class="fa-solid fa-film" style="margin-right: 8px;"></i> Films (<%= films.length %>)</a></li>
+      <li><a href="/admin/bookings"><i class="fa-solid fa-calendar-check" style="margin-right: 8px;"></i> Bookings</a></li>
+      <li><a href="/admin/availability"><i class="fa-solid fa-clock" style="margin-right: 8px;"></i> Availability</a></li>
+      <li><a href="/admin/messages"><i class="fa-solid fa-envelope" style="margin-right: 8px;"></i> Messages</a></li>
+    </ul>
+  </div>
+
+  <div class="admin-main">
+    <h1 style="font-size: 2rem; margin-bottom: 24px;">FILM PORTFOLIO MANAGEMENT</h1>
+
+    <!-- Add Film Form -->
+    <div class="admin-card">
+      <h3 style="margin-bottom: 16px;"><i class="fa-solid fa-clapperboard gold-text"></i> Add New Film / Trailer</h3>
+      <form action="/admin/films/add" method="POST" enctype="multipart/form-data">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+          <div class="form-group">
+            <label class="form-label">Film Title *</label>
+            <input type="text" name="title" class="form-input" placeholder="e.g. The Echoes of Akagera" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Genre</label>
+            <input type="text" name="genre" class="form-input" placeholder="e.g. Drama / Cultural Narrative">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Duration</label>
+            <input type="text" name="duration" class="form-input" placeholder="e.g. 24 min">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Release Year</label>
+            <input type="number" name="year" class="form-input" value="2026">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+          <div class="form-group">
+            <label class="form-label">Poster Image File OR URL *</label>
+            <input type="file" name="poster_file" accept="image/*" class="form-input">
+            <input type="text" name="poster_url" class="form-input" placeholder="OR Poster URL..." style="margin-top: 8px;">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Trailer Video File OR Embed URL</label>
+            <input type="file" name="video_file" accept="video/*" class="form-input">
+            <input type="text" name="video_url" class="form-input" placeholder="e.g. https://www.youtube.com/embed/..." style="margin-top: 8px;">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Awards / Festival Recognition</label>
+          <input type="text" name="awards" class="form-input" placeholder="e.g. FESPACO Official Selection • Durban Int Film Fest Award">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Film Synopsis / Production Details</label>
+          <textarea name="description" class="form-textarea" placeholder="Detailed storyline and production context..."></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-gold"><i class="fa-solid fa-plus-circle"></i> Add Film to Portfolio</button>
+      </form>
+    </div>
+
+    <!-- Films List -->
+    <div class="admin-card">
+      <h3 style="margin-bottom: 20px;"><i class="fa-solid fa-film gold-text"></i> Catalogue Films (<%= films.length %>)</h3>
+
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        <% films.forEach(film => { %>
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 20px; display: flex; gap: 20px; align-items: flex-start;">
+            <img src="<%= film.poster %>" alt="<%= film.title %>" style="width: 120px; height: 160px; object-fit: cover; border-radius: 6px;">
+            
+            <div style="flex-grow: 1;">
+              <span class="gold-text" style="font-size: 0.8rem; font-weight: 600;"><%= film.genre %> • <%= film.year %> • <%= film.duration %></span>
+              <h3 style="margin: 4px 0 8px;"><%= film.title %></h3>
+              <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 12px;"><%= film.description %></p>
+              
+              <% if (film.awards) { %>
+                <p style="font-size: 0.8rem; color: var(--accent-gold); margin-bottom: 12px;"><i class="fa-solid fa-trophy"></i> <%= film.awards %></p>
+              <% } %>
+
+              <form action="/admin/films/delete/<%= film.id %>" method="POST" onsubmit="return confirm('Delete film from catalogue?');">
+                <button type="submit" class="btn btn-outline" style="padding: 6px 14px; font-size: 0.8rem; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">
+                  <i class="fa-solid fa-trash"></i> Delete Film
+                </button>
+              </form>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

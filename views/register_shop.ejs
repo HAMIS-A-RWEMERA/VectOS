@@ -1,0 +1,264 @@
+<%- include('partials/header', { title: 'Register Your Company — VectOS Rwanda' }) %>
+
+<div class="min-h-screen bg-[#0A0C0F] py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-2xl mx-auto space-y-6">
+    
+    <!-- Top Branding Header -->
+    <div class="text-center space-y-2 pt-2">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black shadow-xl shadow-amber-500/20 mb-1">
+        <i data-lucide="layers" class="w-8 h-8"></i>
+      </div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight font-display">
+        Register on VectOS
+      </h1>
+      <p class="text-xs sm:text-sm text-amber-400 font-semibold uppercase tracking-wider">
+        Operating System for Hardware (Quincaillerie) & Electronics Depots in Rwanda
+      </p>
+      <p class="text-xs text-slate-400 max-w-lg mx-auto">
+        Complete your company profile and choose your required initial staff accounts and warehouse stock locations.
+      </p>
+    </div>
+
+    <!-- Registration Card -->
+    <div class="bg-[#13161C] py-8 px-6 sm:px-10 shadow-2xl rounded-2xl border border-[#222732] space-y-6">
+      
+      <% if (typeof error !== 'undefined' && error) { %>
+        <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start space-x-2.5">
+          <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0 mt-0.5"></i>
+          <span class="leading-relaxed"><%= error %></span>
+        </div>
+      <% } %>
+
+      <% if (typeof success !== 'undefined' && success) { %>
+        <div class="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs space-y-3">
+          <div class="flex items-center space-x-2.5 font-bold text-emerald-400 text-sm">
+            <i data-lucide="check-circle" class="w-5 h-5"></i>
+            <span>Registration Submitted for VectOS Activation!</span>
+          </div>
+          <p class="leading-relaxed text-slate-300 text-xs"><%= success %></p>
+          <div class="p-3 bg-[#171C24] rounded-xl border border-[#2B313E] text-[11px] text-slate-300 space-y-1">
+            <p class="font-bold text-amber-400">Next Steps for Activation:</p>
+            <p>1. The VectOS Administrator will review your account and warehouse setup.</p>
+            <p>2. Subscription fees (Base RWF 15,000 + RWF 5,000/account + RWF 5,000/stock) will be settled with VectOS support.</p>
+            <p>3. Your account will be activated immediately to start logging inventory, sales, and printing receipts.</p>
+          </div>
+          <div class="pt-2">
+            <a href="/login" class="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-lg">
+              <span>Go to Sign In</span>
+              <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+            </a>
+          </div>
+        </div>
+      <% } else { %>
+
+        <form action="/register-shop" method="POST" class="space-y-6 text-xs" id="registerForm">
+          
+          <!-- Section 1: Company / Store Profile -->
+          <div class="border-b border-[#222732] pb-6 space-y-4">
+            <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
+              <i data-lucide="building-2" class="w-4 h-4"></i>
+              <span>1. Company & Store Information</span>
+            </div>
+
+            <!-- Business Type -->
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1.5">Business Industry / Store Category *</label>
+              <select name="business_type" class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+                <option value="Hardware & Construction (Quincaillerie)">Hardware & Construction Materials (Quincaillerie)</option>
+                <option value="Electronics & Electrical Supplies">Electronics, Appliances & Electrical Retail</option>
+                <option value="Plumbing & Sanitary Supplies">Plumbing & Sanitary Fixtures Depot</option>
+                <option value="Tools, Machinery & Spare Parts">Tools, Machinery & Industrial Parts</option>
+                <option value="General Wholesale & Retail Depot">General Wholesale & Retail Depot</option>
+              </select>
+            </div>
+
+            <!-- Company Name -->
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1.5">Company / Store Legal Trade Name *</label>
+              <input type="text" name="shop_name" required placeholder="e.g. Kigali Steel & Hardware Supplies Ltd"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all">
+              <p class="text-[11px] text-slate-500 mt-1">This exact company name will appear at the top of your private portal, invoices, sales receipts, and delivery notes.</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">RRA TIN Number (Tax Identification)</label>
+                <input type="text" name="tin_number" placeholder="e.g. 102938475"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                <p class="text-[10px] text-slate-500 mt-1">Optional. Printed on customer fiscal sales receipts.</p>
+              </div>
+
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">Company Contact Phone *</label>
+                <input type="text" name="phone" required placeholder="e.g. +250 788 123 456"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1.5">Physical Head Depot Location / Address *</label>
+              <input type="text" name="location" required placeholder="e.g. Gisozi Hardware Market, Gasabo, Kigali"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+          </div>
+
+          <!-- Section 2: Store Owner / Manager Credentials -->
+          <div class="border-b border-[#222732] pb-6 space-y-4">
+            <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
+              <i data-lucide="user-check" class="w-4 h-4"></i>
+              <span>2. Store Owner / Manager Profile</span>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1.5">Manager Full Name *</label>
+              <input type="text" name="owner_name" required placeholder="e.g. Jean-Luc Hakizimana"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1.5">Manager Work Email (Sign In ID) *</label>
+              <input type="email" name="email" required placeholder="e.g. manager@kigalisteel.rw"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">Password *</label>
+                <input type="password" name="password" required placeholder="••••••••"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+              </div>
+
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">Confirm Password *</label>
+                <input type="password" name="confirm_password" required placeholder="••••••••"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: VectOS Transparent Pricing & Scale Calculator -->
+          <div class="border-b border-[#222732] pb-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
+                <i data-lucide="calculator" class="w-4 h-4"></i>
+                <span>3. Subscription & Multi-Stock Configuration</span>
+              </div>
+              <span class="text-[10px] text-slate-400 font-mono">Transparent Billing Formula</span>
+            </div>
+
+            <!-- Pricing Breakdown Pill Grid -->
+            <div class="grid grid-cols-3 gap-2.5 text-center">
+              <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl">
+                <span class="text-[10px] text-slate-400 font-semibold block">Business Base</span>
+                <span class="font-bold text-white font-mono text-xs mt-0.5">RWF 15,000</span>
+                <span class="text-[9px] text-slate-500 block">per shop / mo</span>
+              </div>
+              <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl">
+                <span class="text-[10px] text-slate-400 font-semibold block">Per Staff User</span>
+                <span class="font-bold text-amber-400 font-mono text-xs mt-0.5">+ RWF 5,000</span>
+                <span class="text-[9px] text-slate-500 block">per user / mo</span>
+              </div>
+              <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl">
+                <span class="text-[10px] text-slate-400 font-semibold block">Per Warehouse</span>
+                <span class="font-bold text-emerald-400 font-mono text-xs mt-0.5">+ RWF 5,000</span>
+                <span class="text-[9px] text-slate-500 block">per stock / mo</span>
+              </div>
+            </div>
+
+            <!-- Interactive Inputs -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">
+                  Number of Staff User Accounts Needed:
+                </label>
+                <div class="flex items-center space-x-2">
+                  <input type="number" id="accountCount" name="account_count" min="1" max="50" value="1"
+                    class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500">
+                </div>
+                <p class="text-[10px] text-slate-500 mt-1">Starts with 1 (Manager). You can add sales, cashier, storekeeper accounts.</p>
+              </div>
+
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1.5">
+                  Number of Physical Stocks / Warehouses:
+                </label>
+                <div class="flex items-center space-x-2">
+                  <input type="number" id="stockCount" name="stock_count" min="1" max="20" value="1"
+                    class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500">
+                </div>
+                <p class="text-[10px] text-slate-500 mt-1">Main depot + additional branch warehouses.</p>
+              </div>
+            </div>
+
+            <!-- Real-time Monthly Total Display -->
+            <div class="p-4 rounded-xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-[#1A1E26] border border-amber-500/30 flex items-center justify-between">
+              <div>
+                <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Estimated Monthly Subscription:</span>
+                <span class="text-[10px] text-slate-400" id="calculationBreakdown">
+                  RWF 15,000 (Base) + 1 Account (RWF 5,000) + 1 Stock (RWF 5,000)
+                </span>
+              </div>
+              <div class="text-right font-mono">
+                <span class="text-xl sm:text-2xl font-black text-amber-400 block" id="totalMonthlyDisplay">
+                  RWF 25,000
+                </span>
+                <span class="text-[10px] text-slate-400">per month</span>
+              </div>
+            </div>
+
+            <!-- Periodic & Flexible Usage Info -->
+            <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl text-[11px] text-slate-400 space-y-1">
+              <p class="font-bold text-slate-300 flex items-center space-x-1.5">
+                <i data-lucide="info" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span>Flexible On-Demand Account Activations</span>
+              </p>
+              <p class="leading-relaxed">
+                Need extra temporary staff accounts for specific periods (such as RRA tax declaration deadlines, peak seasonal demand, or weekend cashiers)? You can request ad-hoc account activations with the VectOS Administrator on-demand.
+              </p>
+            </div>
+          </div>
+
+          <button type="submit"
+            class="w-full py-4 px-4 rounded-xl shadow-xl text-sm font-bold text-slate-950 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 focus:outline-none transition-all cursor-pointer">
+            Register Company on VectOS & Submit for Activation
+          </button>
+        </form>
+
+      <% } %>
+
+      <div class="pt-4 border-t border-[#222732] text-center text-xs">
+        <span class="text-slate-400">Already registered your hardware or electronics company?</span>
+        <a href="/login" class="ml-1.5 font-bold text-amber-400 hover:underline">Sign In to VectOS</a>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  function updatePricing() {
+    const accInput = document.getElementById('accountCount');
+    const stockInput = document.getElementById('stockCount');
+    const breakdown = document.getElementById('calculationBreakdown');
+    const totalDisplay = document.getElementById('totalMonthlyDisplay');
+
+    if (!accInput || !stockInput || !totalDisplay) return;
+
+    const accounts = Math.max(1, parseInt(accInput.value) || 1);
+    const stocks = Math.max(1, parseInt(stockInput.value) || 1);
+
+    const baseFee = 15000;
+    const accountFee = accounts * 5000;
+    const stockFee = stocks * 5000;
+    const total = baseFee + accountFee + stockFee;
+
+    breakdown.textContent = `RWF 15,000 (Base) + ${accounts} Account(s) (RWF ${accountFee.toLocaleString()}) + ${stocks} Stock(s) (RWF ${stockFee.toLocaleString()})`;
+    totalDisplay.textContent = `RWF ${total.toLocaleString()}`;
+  }
+
+  document.getElementById('accountCount')?.addEventListener('input', updatePricing);
+  document.getElementById('stockCount')?.addEventListener('input', updatePricing);
+  updatePricing();
+</script>
+
+<%- include('partials/footer') %>

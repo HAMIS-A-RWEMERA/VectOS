@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Note <%= order.order_number %> — Stock Dispatch</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @page {
+      size: 80mm auto;
+      margin: 0;
+    }
+    @media print {
+      body {
+        background: white !important;
+        color: black !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 80mm !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .slip-card {
+        box-shadow: none !important;
+        border: none !important;
+        padding: 4mm !important;
+        width: 80mm !important;
+        max-width: 80mm !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-900 min-h-screen py-8 px-2 flex flex-col items-center justify-start font-mono text-slate-800 antialiased">
+
+  <!-- Print Action Bar (Screen Only) -->
+  <div class="no-print mb-4 flex flex-wrap items-center justify-center gap-2">
+    <button onclick="window.print()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-1.5 cursor-pointer">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+      <span>Print Delivery Note</span>
+    </button>
+
+    <button onclick="togglePaperSize('58mm')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold text-xs rounded-xl border border-slate-700 transition-all cursor-pointer">
+      58mm Paper
+    </button>
+
+    <button onclick="togglePaperSize('80mm')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold text-xs rounded-xl border border-slate-700 transition-all cursor-pointer">
+      80mm Paper
+    </button>
+
+    <a href="/orders/<%= order.id %>" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 transition-all">
+      Back to Order
+    </a>
+  </div>
+
+  <!-- Delivery Slip Container (Prices Excluded for Logistics & Tax Compliance) -->
+  <div id="slipContainer" class="slip-card w-full max-w-[340px] bg-white text-black p-5 shadow-2xl border border-slate-300 text-xs leading-tight rounded-sm font-mono">
+    
+    <!-- Store & Delivery Header -->
+    <div class="text-center pb-3 border-b-2 border-black">
+      <h1 class="text-sm font-black tracking-tighter uppercase"><%= shop ? shop.name : 'QUINCAILLE DEPOT' %></h1>
+      <p class="text-[10px] text-slate-700 mt-0.5 font-bold uppercase tracking-wider">STOCK DISPATCH & DELIVERY NOTE</p>
+      <p class="text-[9px] text-slate-500 font-semibold">(PHYSICAL GOODS MOVEMENT • NO PRICES)</p>
+    </div>
+
+    <!-- Slip Meta -->
+    <div class="py-2.5 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
+      <div class="flex justify-between font-bold">
+        <span>ORDER REF #:</span>
+        <span class="font-black"><%= order.order_number %></span>
+      </div>
+      <div class="flex justify-between text-slate-700">
+        <span>DISPATCH DATE:</span>
+        <span><%= new Date().toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+      </div>
+      <div class="flex justify-between text-slate-700">
+        <span>CLIENT / RECEIVER:</span>
+        <span class="font-bold text-black uppercase"><%= order.customer_name %></span>
+      </div>
+      <% if (order.customer_phone) { %>
+        <div class="flex justify-between text-slate-700">
+          <span>CONTACT TEL:</span>
+          <span><%= order.customer_phone %></span>
+        </div>
+      <% } %>
+      <% if (order.notes) { %>
+        <div class="text-slate-700 text-[10px] pt-1">
+          <span class="font-bold">DELIVERY SITE / NOTE:</span>
+          <p class="italic"><%= order.notes %></p>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- Items List (Quantities Only) -->
+    <div class="py-2.5 border-b border-dashed border-slate-400">
+      <table class="w-full text-left text-[11px]">
+        <thead>
+          <tr class="border-b border-black text-[10px] uppercase font-bold">
+            <th class="py-1">ITEM MATERIAL</th>
+            <th class="py-1 text-center w-16">DISPATCH QTY</th>
+            <th class="py-1 text-right w-16">STATUS</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200">
+          <% items.forEach((item, index) => { %>
+            <tr class="py-1">
+              <td class="py-1.5 pr-1 font-bold">
+                <%= index + 1 %>. <%= item.product_name %>
+                <% if (item.fulfillment_source && item.fulfillment_source !== 'store') { %>
+                  <span class="block text-[9px] font-normal text-slate-600">Source: <%= item.fulfillment_source %></span>
+                <% } %>
+              </td>
+              <td class="py-1.5 text-center font-black text-sm">
+                <%= item.quantity %> <span class="text-[10px] font-normal"><%= item.product_unit %></span>
+              </td>
+              <td class="py-1.5 text-right text-[10px] font-semibold uppercase">
+                <%= item.item_status === 'approved' || item.item_status === 'partner_fulfilled' ? 'RELEASED' : 'PENDING' %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Total Item Lines Summary -->
+    <div class="py-2 border-b border-dashed border-slate-400 text-[11px] font-bold flex justify-between">
+      <span>TOTAL ITEMS / PACKAGES:</span>
+      <span class="font-black text-sm"><%= items.reduce((acc, i) => acc + i.quantity, 0) %> Units (<%= items.length %> Lines)</span>
+    </div>
+
+    <!-- Signatures for Logistics Security -->
+    <div class="pt-4 space-y-4 text-[10px]">
+      <div class="border-t border-slate-400 pt-1 flex justify-between">
+        <span>Storekeeper Dispatch Sign:</span>
+        <span>____________________</span>
+      </div>
+
+      <div class="border-t border-slate-400 pt-1 flex justify-between">
+        <span>Transporter / Driver Sign:</span>
+        <span>____________________</span>
+      </div>
+
+      <div class="border-t border-slate-400 pt-1 flex justify-between">
+        <span>Client Received Good Condition:</span>
+        <span>____________________</span>
+      </div>
+    </div>
+
+    <!-- Footer Notice -->
+    <div class="mt-4 pt-2 border-t-2 border-black text-center text-[9px] text-slate-600">
+      <p class="font-bold">Goods once received in good condition cannot be returned without original dispatch slip.</p>
+      <p class="mt-1">Powered by Quincaille IOMS Rwanda</p>
+    </div>
+  </div>
+
+  <script>
+    function togglePaperSize(size) {
+      const container = document.getElementById('slipContainer');
+      if (size === '58mm') {
+        container.style.maxWidth = '230px';
+      } else {
+        container.style.maxWidth = '340px';
+      }
+    }
+  </script>
+</body>
+</html>

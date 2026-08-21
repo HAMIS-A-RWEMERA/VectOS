@@ -1,0 +1,183 @@
+<%- include('partials/header', { title: 'Resolve Rejected Items — Quincaille IOMS' }) %>
+<%- include('partials/sidebar') %>
+
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="pb-4 border-b border-[#222732] flex items-center space-x-3">
+    <div class="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center font-bold">
+      <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+    </div>
+    <div>
+      <h1 class="text-2xl font-extrabold text-white tracking-tight font-display">
+        Accountant Procurement & Rejection Resolution
+      </h1>
+      <p class="text-xs text-slate-400 mt-0.5">
+        Resolve storekeeper rejected line items: Procure directly from a Partner Shop or zero out as Unavailable.
+      </p>
+    </div>
+  </div>
+
+  <% if (user.role !== 'accountant' && user.role !== 'manager') { %>
+    <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-xs text-amber-300 flex items-start space-x-3 shadow-lg">
+      <i data-lucide="shield-alert" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
+      <div>
+        <p class="font-bold text-sm text-amber-400">Read-Only View Mode (<%= user.role.toUpperCase() %>)</p>
+        <p class="mt-0.5 text-amber-200/80">You are monitoring storekeeper rejected items. Sourcing and procurement resolutions are managed by Accountant and Manager accounts.</p>
+      </div>
+    </div>
+  <% } %>
+
+  <!-- Rejected Items Table -->
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden p-5 space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider text-rose-400">
+        Items Requiring Resolution
+      </h3>
+      <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300">
+        <%= rejectedItems.length %> Rejected Line Item(s)
+      </span>
+    </div>
+
+    <% if (rejectedItems && rejectedItems.length > 0) { %>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-[#222732] bg-[#181C24] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <th class="py-3 px-3">Order No</th>
+              <th class="py-3 px-3">Customer</th>
+              <th class="py-3 px-3">Product Description</th>
+              <th class="py-3 px-3 text-center">Qty</th>
+              <th class="py-3 px-3 text-right">Selling Price</th>
+              <th class="py-3 px-3">Store Rejection Reason</th>
+              <th class="py-3 px-3 text-right">Accountant Action</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#1D222B] text-xs">
+            <% rejectedItems.forEach(item => { %>
+              <tr class="hover:bg-[#1A1E26] transition-colors">
+                <td class="py-3.5 px-3 font-mono font-bold text-amber-400"><%= item.order_number %></td>
+                <td class="py-3.5 px-3 font-bold text-white"><%= item.customer_name %></td>
+                <td class="py-3.5 px-3 text-slate-200 font-medium"><%= item.product_name %></td>
+                <td class="py-3.5 px-3 text-center font-mono font-bold text-amber-300"><%= item.quantity %></td>
+                <td class="py-3.5 px-3 text-right font-mono font-bold text-white">RWF <%= item.selling_price.toLocaleString('en-US') %></td>
+                <td class="py-3.5 px-3 text-rose-300 italic font-medium"><%= item.rejection_reason || 'Out of store stock' %></td>
+                <td class="py-3.5 px-3 text-right">
+                  <% if (user.role === 'accountant' || user.role === 'manager') { %>
+                    <button onclick="openResolveModal('<%= item.id %>', '<%= item.product_name.replace(/'/g, "\\'") %>', '<%= item.quantity %>', '<%= item.order_number %>', '<%= item.buying_price * item.quantity %>')"
+                      class="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition-all">
+                      Resolve Item
+                    </button>
+                  <% } else { %>
+                    <span class="text-[11px] font-medium text-slate-400 italic">
+                      Awaiting Accountant
+                    </span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          <% } else { %>
+            <div class="p-8 text-center text-slate-500 text-xs">
+              <i data-lucide="check-circle-2" class="w-8 h-8 text-emerald-500/50 mx-auto mb-2"></i>
+              No rejected items awaiting accountant resolution.
+            </div>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Accountant Resolution Modal -->
+<div id="resolveModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl w-full max-w-lg p-6 space-y-5 shadow-2xl">
+    <div class="flex items-center justify-between pb-3 border-b border-[#222732]">
+      <h3 class="text-base font-bold text-white" id="modalTitle">Resolve Line Item</h3>
+      <button onclick="document.getElementById('resolveModal').classList.add('hidden')" class="text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <form action="/accountant/resolve-item" method="POST" class="space-y-4">
+      <input type="hidden" id="modalItemId" name="item_id">
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Select Resolution Method</label>
+        
+        <div class="grid grid-cols-2 gap-3">
+          <label class="p-3 rounded-xl bg-[#1A1E26] border border-[#2B313E] flex items-center space-x-3 cursor-pointer hover:border-amber-500 transition-colors">
+            <input type="radio" name="resolution" value="partner_shop" checked onclick="toggleResolution('partner')" class="text-amber-500">
+            <div>
+              <p class="text-xs font-bold text-white">Buy from Partner Shop</p>
+              <p class="text-[10px] text-slate-400">Inventory unchanged</p>
+            </div>
+          </label>
+
+          <label class="p-3 rounded-xl bg-[#1A1E26] border border-[#2B313E] flex items-center space-x-3 cursor-pointer hover:border-amber-500 transition-colors">
+            <input type="radio" name="resolution" value="unavailable" onclick="toggleResolution('unavailable')" class="text-amber-500">
+            <div>
+              <p class="text-xs font-bold text-rose-400">Mark Unavailable</p>
+              <p class="text-[10px] text-slate-400">Zero price on receipt</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Partner Shop Options Block -->
+      <div id="partnerBlock" class="space-y-3 p-3.5 rounded-xl bg-[#181C24] border border-[#2B313E]">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Select External Partner Supplier</label>
+          <select name="partner_shop_id" class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
+            <% partners.forEach(p => { %>
+              <option value="<%= p.id %>"><%= p.name %> (<%= p.contact_person %> • <%= p.phone %>)</option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Partner Purchase Cost (RWF)</label>
+          <input type="number" step="0.01" name="partner_cost" id="partnerCostInput"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
+          <p class="text-[10px] text-slate-500 mt-1">This cost increases the internal partner shop debt balance.</p>
+        </div>
+      </div>
+
+      <!-- Unavailable Option Warning Block -->
+      <div id="unavailableBlock" class="hidden p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs space-y-1">
+        <p class="font-bold flex items-center space-x-1">
+          <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+          <span>Business Rule Notice:</span>
+        </p>
+        <p>This item will remain listed on the customer's receipt, but its selling price and subtotal will be zeroed out (0 RWF). The total order amount will be updated accordingly.</p>
+      </div>
+
+      <div class="pt-3 flex justify-end space-x-3">
+        <button type="button" onclick="document.getElementById('resolveModal').classList.add('hidden')"
+          class="px-4 py-2 rounded-xl bg-[#222834] text-xs font-bold text-slate-300">Cancel</button>
+        <button type="submit"
+          class="px-5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400">Save & Apply Resolution</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function openResolveModal(id, name, qty, orderNum, defaultCost) {
+    document.getElementById('modalItemId').value = id;
+    document.getElementById('partnerCostInput').value = defaultCost;
+    document.getElementById('modalTitle').innerText = `Resolve: ${name} (${qty} qty) for ${orderNum}`;
+    document.getElementById('resolveModal').classList.remove('hidden');
+    toggleResolution('partner');
+  }
+
+  function toggleResolution(type) {
+    if (type === 'partner') {
+      document.getElementById('partnerBlock').classList.remove('hidden');
+      document.getElementById('unavailableBlock').classList.add('hidden');
+    } else {
+      document.getElementById('partnerBlock').classList.add('hidden');
+      document.getElementById('unavailableBlock').classList.remove('hidden');
+    }
+  }
+</script>
+
+<%- include('partials/footer') %>

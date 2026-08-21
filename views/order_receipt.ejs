@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Receipt <%= order.order_number %> — Quincaille Kigali</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @page {
+      size: 80mm auto;
+      margin: 0;
+    }
+    @media print {
+      body {
+        background: white !important;
+        color: black !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 80mm !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .receipt-card {
+        box-shadow: none !important;
+        border: none !important;
+        padding: 4mm !important;
+        width: 80mm !important;
+        max-width: 80mm !important;
+        margin: 0 !important;
+        border-radius: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-900 min-h-screen py-8 px-2 flex flex-col items-center justify-start font-mono text-slate-800 antialiased">
+
+  <!-- Print Action Bar (Screen Only) -->
+  <div class="no-print mb-4 flex flex-wrap items-center justify-center gap-2">
+    <button onclick="window.print()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-1.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+      <span>Print (Browser / PDF)</span>
+    </button>
+
+    <button id="btPrintBtn" onclick="printBluetoothThermal()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center space-x-1.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071a10 10 0 0114.142 0M1.05 6.93a15 15 0 0121.9 0"></path></svg>
+      <span>Print Bluetooth ESC/POS Thermal</span>
+    </button>
+
+    <button onclick="togglePaperSize('58mm')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold text-xs rounded-xl border border-slate-700 transition-all">
+      58mm Paper
+    </button>
+
+    <button onclick="togglePaperSize('80mm')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold text-xs rounded-xl border border-slate-700 transition-all">
+      80mm Paper
+    </button>
+
+    <a href="/orders" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 transition-all">
+      Back to Orders
+    </a>
+  </div>
+
+  <div id="btStatus" class="no-print mb-3 text-center text-xs text-emerald-400 font-mono hidden"></div>
+
+  <!-- Thermal Receipt Paper Slip Container (80mm / 58mm width) -->
+  <div id="receiptContainer" class="receipt-card w-full max-w-[340px] bg-white text-black p-5 shadow-2xl border border-slate-300 text-xs leading-tight rounded-sm font-mono">
+
+    
+    <!-- Store Header -->
+    <div class="text-center pb-3 border-b border-dashed border-slate-400">
+      <h1 class="text-sm font-black tracking-tighter uppercase"><%= typeof shop !== 'undefined' && shop ? shop.name : 'VectOS Store' %></h1>
+      <p class="text-[10px] text-slate-700 mt-0.5 font-bold"><%= typeof shop !== 'undefined' && shop && shop.business_type ? shop.business_type : 'Hardware & General Depot' %></p>
+      <p class="text-[10px] text-slate-600 mt-0.5"><%= typeof shop !== 'undefined' && shop && (shop.location || shop.address) ? (shop.location || shop.address) : 'Kigali, Rwanda' %></p>
+      <p class="text-[10px] text-slate-600">Tel: <%= typeof shop !== 'undefined' && shop && shop.phone ? shop.phone : '+250 788 100 001' %> • TIN: <%= typeof shop !== 'undefined' && shop && shop.tin_number ? shop.tin_number : '102938475' %></p>
+    </div>
+
+    <!-- Receipt Meta -->
+    <div class="py-2 border-b border-dashed border-slate-400 space-y-1 text-[11px]">
+      <div class="flex justify-between font-bold">
+        <span>RECEIPT #:</span>
+        <span class="font-black"><%= order.order_number %></span>
+      </div>
+      <div class="flex justify-between text-slate-700">
+        <span>DATE / TIME:</span>
+        <span><%= new Date(order.created_at).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+      </div>
+      <div class="flex justify-between text-slate-700">
+        <span>CLIENT:</span>
+        <span class="font-bold text-black uppercase"><%= order.customer_name %></span>
+      </div>
+      <% if (order.customer_phone) { %>
+        <div class="flex justify-between text-slate-700">
+          <span>PHONE:</span>
+          <span><%= order.customer_phone %></span>
+        </div>
+      <% } %>
+      <% if (order.customer_id_number) { %>
+        <div class="flex justify-between text-slate-700">
+          <span>ID NO:</span>
+          <span class="font-bold"><%= order.customer_id_number %></span>
+        </div>
+      <% } %>
+      <div class="flex justify-between text-slate-700">
+        <span>SALESPERSON:</span>
+        <span><%= order.salesperson_name %></span>
+      </div>
+    </div>
+
+    <!-- Items Header -->
+    <div class="py-1.5 border-b border-slate-900 flex justify-between text-[10px] font-black uppercase tracking-wider">
+      <span class="w-1/2">ITEM</span>
+      <span class="w-1/4 text-center">QTY</span>
+      <span class="w-1/4 text-right">TOTAL</span>
+    </div>
+
+    <!-- Items List -->
+    <div class="py-2 border-b border-dashed border-slate-400 space-y-2 text-[11px]">
+      <% items.forEach((item) => { %>
+        <div>
+          <div class="font-bold text-slate-900 leading-tight">
+            <%= item.product_name %>
+            <% if (item.item_status === 'unavailable') { %>
+              <span class="text-[9px] text-rose-600 italic block">(Pending Stock)</span>
+            <% } %>
+          </div>
+          <div class="flex justify-between text-[10px] text-slate-700 mt-0.5">
+            <span><%= item.quantity %> <%= item.product_unit %> x RWF <%= item.selling_price.toLocaleString('en-US') %></span>
+            <span class="font-bold text-black font-mono">RWF <%= item.subtotal.toLocaleString('en-US') %></span>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+
+    <!-- Totals Summary -->
+    <div class="py-3 border-b border-dashed border-slate-400 space-y-1.5 text-[11px]">
+      <div class="flex justify-between font-bold text-slate-800">
+        <span>SUBTOTAL:</span>
+        <span class="font-mono">RWF <%= order.total_amount.toLocaleString('en-US') %></span>
+      </div>
+
+      <div class="flex justify-between font-bold text-slate-800">
+        <span>AMOUNT PAID:</span>
+        <span class="font-mono">RWF <%= order.paid_amount.toLocaleString('en-US') %></span>
+      </div>
+
+      <div class="flex justify-between font-black text-xs pt-1 border-t border-slate-300 text-black">
+        <span>BALANCE DUE:</span>
+        <span class="font-mono">RWF <%= order.debt_amount.toLocaleString('en-US') %></span>
+      </div>
+
+      <div class="flex justify-between text-[10px] text-slate-600 pt-1">
+        <span>STATUS:</span>
+        <span class="font-bold uppercase text-black"><%= order.payment_status %></span>
+      </div>
+    </div>
+
+    <!-- Footer Notice -->
+    <div class="pt-3 text-center text-[10px] text-slate-600 space-y-1">
+      <p class="font-bold">Goods verified upon dispatch.</p>
+      <p class="italic">"Thank you for choosing Quincaille Kigali!"</p>
+      <p class="text-[9px] text-slate-500 pt-1">*** System Generated Official Slip ***</p>
+    </div>
+
+  </div>
+
+  <!-- Bluetooth ESC/POS Printing Script -->
+  <script>
+    function togglePaperSize(size) {
+      const container = document.getElementById('receiptContainer');
+      if (size === '58mm') {
+        container.style.maxWidth = '250px';
+        container.classList.remove('max-w-[340px]');
+      } else {
+        container.style.maxWidth = '340px';
+      }
+    }
+
+    async function printBluetoothThermal() {
+      const statusDiv = document.getElementById('btStatus');
+      statusDiv.classList.remove('hidden');
+      
+      if (!navigator.bluetooth) {
+        statusDiv.innerText = "Web Bluetooth is not supported on this browser/device. Please use standard Print or Chrome/Edge on Android.";
+        statusDiv.className = "no-print mb-3 text-center text-xs text-rose-400 font-mono";
+        return;
+      }
+
+      try {
+        statusDiv.innerText = "Searching for Bluetooth Thermal Printer...";
+        statusDiv.className = "no-print mb-3 text-center text-xs text-amber-400 font-mono animate-pulse";
+
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '49535343-fe7d-4ae5-8fa9-9fafd205e455', 'e7810a71-73ae-499d-8c15-faa9aef0c3f2']
+        });
+
+        statusDiv.innerText = `Connecting to ${device.name || 'Thermal Printer'}...`;
+        const server = await device.gatt.connect();
+
+        // Get primary service
+        const services = await server.getPrimaryServices();
+        if (services.length === 0) throw new Error("No GATT services found on printer");
+
+        let printChar = null;
+        for (const service of services) {
+          const chars = await service.getCharacteristics();
+          for (const char of chars) {
+            if (char.properties.write || char.properties.writeWithoutResponse) {
+              printChar = char;
+              break;
+            }
+          }
+          if (printChar) break;
+        }
+
+        if (!printChar) throw new Error("No writable characteristic found on printer");
+
+        statusDiv.innerText = "Sending ESC/POS raw payload to printer...";
+
+        // Construct raw ESC/POS text command
+        let encoder = new TextEncoder();
+        let escInit = new Uint8Array([0x1B, 0x40]); // ESC @ (Initialize)
+        let escCenter = new Uint8Array([0x1B, 0x61, 0x01]); // Center align
+        let escLeft = new Uint8Array([0x1B, 0x61, 0x00]); // Left align
+        let escBoldOn = new Uint8Array([0x1B, 0x45, 0x01]);
+        let escBoldOff = new Uint8Array([0x1B, 0x45, 0x00]);
+        let escFeedCut = new Uint8Array([0x1D, 0x56, 0x41, 0x10]); // Cut paper
+
+        let headerText = encoder.encode("QUINCAILLE KIGALI\nConstruction & Hardware Depot\nGikondo Industrial Zone, Kigali\nTel: +250 788 100 001\n--------------------------------\n");
+        let bodyText = encoder.encode(`RECEIPT: <%= order.order_number %>\nDATE: ${new Date("<%= order.created_at %>").toLocaleDateString()}\nCLIENT: <%= order.customer_name %>\n--------------------------------\n`);
+        
+        let itemsTextStr = "";
+        <% items.forEach((item) => { %>
+          itemsTextStr += "<%= item.product_name.replace(/"/g, '') %>\n";
+          itemsTextStr += "  <%= item.quantity %> x <%= item.selling_price %> = RWF <%= item.subtotal %>\n";
+        <% }) %>;
+        itemsTextStr += "--------------------------------\n";
+        itemsTextStr += "TOTAL PAID: RWF <%= order.paid_amount %>\n";
+        itemsTextStr += "BALANCE:    RWF <%= order.debt_amount %>\n";
+        itemsTextStr += "================================\nThank you for your business!\n\n\n";
+
+        let itemsText = encoder.encode(itemsTextStr);
+
+        // Combine buffers
+        let totalLen = escInit.length + escCenter.length + headerText.length + escLeft.length + bodyText.length + itemsText.length + escFeedCut.length;
+        let payload = new Uint8Array(totalLen);
+        let offset = 0;
+
+        [escInit, escCenter, headerText, escLeft, bodyText, itemsText, escFeedCut].forEach(arr => {
+          payload.set(arr, offset);
+          offset += arr.length;
+        });
+
+        // Chunked send (20 bytes per BLE packet)
+        const chunkSize = 20;
+        for (let i = 0; i < payload.length; i += chunkSize) {
+          const chunk = payload.slice(i, i + chunkSize);
+          await printChar.writeValue(chunk);
+        }
+
+        statusDiv.innerText = "Receipt printed successfully over Bluetooth!";
+        statusDiv.className = "no-print mb-3 text-center text-xs text-emerald-400 font-mono font-bold";
+
+      } catch (err) {
+        console.error("Bluetooth print error:", err);
+        statusDiv.innerText = "Bluetooth Error: " + err.message + ". Falling back to browser standard printing...";
+        statusDiv.className = "no-print mb-3 text-center text-xs text-rose-400 font-mono";
+        setTimeout(() => window.print(), 1500);
+      }
+    }
+  </script>
+
+</body>
+</html>
+

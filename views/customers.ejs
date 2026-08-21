@@ -1,0 +1,113 @@
+<%- include('partials/header', { title: 'Customers & Debt Balances — Quincaille IOMS' }) %>
+<%- include('partials/sidebar') %>
+
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#222732]">
+    <div>
+      <h1 class="text-2xl font-extrabold text-white tracking-tight font-display">
+        Client Accounts & Credit Balances
+      </h1>
+      <p class="text-xs text-slate-400 mt-1">
+        Track customer contact information, lifetime purchases, and outstanding credit balances.
+      </p>
+    </div>
+
+    <% if (user.role === 'salesperson' || user.role === 'manager') { %>
+      <button onclick="document.getElementById('addCustomerModal').classList.remove('hidden')"
+        class="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition-all">
+        <i data-lucide="user-plus" class="w-4 h-4"></i>
+        <span>Register New Customer</span>
+      </button>
+    <% } %>
+  </div>
+
+  <!-- Customers Directory Table -->
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="border-b border-[#222732] bg-[#181C24] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            <th class="py-3.5 px-4">Client ID</th>
+            <th class="py-3.5 px-4">Customer Name</th>
+            <th class="py-3.5 px-4">Phone Number</th>
+            <th class="py-3.5 px-4">National ID / ID No.</th>
+            <th class="py-3.5 px-4 text-center">Orders Placed</th>
+            <th class="py-3.5 px-4 text-right">Lifetime Spent (RWF)</th>
+            <th class="py-3.5 px-4 text-right">Credit Debt (RWF)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#1D222B] text-xs">
+          <% if (customers && customers.length > 0) { %>
+            <% customers.forEach(c => { %>
+              <tr class="hover:bg-[#1A1E26] transition-colors">
+                <td class="py-3.5 px-4 font-mono font-bold text-amber-400">CUST-<%= String(c.id).padStart(3, '0') %></td>
+                <td class="py-3.5 px-4 font-bold text-white"><%= c.name %></td>
+                <td class="py-3.5 px-4 font-mono text-slate-300"><%= c.phone %></td>
+                <td class="py-3.5 px-4 font-mono text-amber-300 font-semibold"><%= c.id_number || 'N/A' %></td>
+                <td class="py-3.5 px-4 text-center font-bold text-slate-200"><%= c.total_orders %></td>
+                <td class="py-3.5 px-4 text-right font-mono font-bold text-slate-200">
+                  <%= c.total_spent.toLocaleString('en-US') %>
+                </td>
+                <td class="py-3.5 px-4 text-right font-mono font-bold">
+                  <% if (c.credit_balance > 0) { %>
+                    <span class="text-rose-400">RWF <%= c.credit_balance.toLocaleString('en-US') %></span>
+                  <% } else { %>
+                    <span class="text-emerald-400">RWF 0</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          <% } else { %>
+            <tr>
+              <td colspan="7" class="py-8 text-center text-slate-500 text-xs">No registered customers found.</td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add Customer Modal -->
+<% if (user.role === 'salesperson' || user.role === 'manager') { %>
+<div id="addCustomerModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+    <div class="flex items-center justify-between pb-3 border-b border-[#222732]">
+      <h3 class="text-base font-bold text-white">Register New Client Account</h3>
+      <button onclick="document.getElementById('addCustomerModal').classList.add('hidden')" class="text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <form action="/customers/add" method="POST" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Full Name <span class="text-rose-400">*</span></label>
+        <input type="text" name="name" required placeholder="e.g. Eric Mugisha"
+          class="mt-1.5 w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Phone Number <span class="text-rose-400">*</span></label>
+        <input type="text" name="phone" required placeholder="e.g. +250 788 123 456"
+          class="mt-1.5 w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">National ID / Passport No. <span class="text-slate-500">(To differentiate duplicate names)</span></label>
+        <input type="text" name="id_number" placeholder="e.g. 1 1990 8 0012345 1 22"
+          class="mt-1.5 w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+      </div>
+
+      <div class="pt-3 flex justify-end space-x-3">
+        <button type="button" onclick="document.getElementById('addCustomerModal').classList.add('hidden')"
+          class="px-4 py-2 rounded-xl bg-[#222834] text-xs font-bold text-slate-300">Cancel</button>
+        <button type="submit"
+          class="px-5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400">Save Customer</button>
+      </div>
+    </form>
+  </div>
+</div>
+<% } %>
+
+<%- include('partials/footer') %>

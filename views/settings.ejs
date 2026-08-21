@@ -1,0 +1,204 @@
+<%- include('partials/header', { title: 'Company Profile & Settings — Quincaille IOMS' }) %>
+<%- include('partials/sidebar') %>
+
+<div class="space-y-6 max-w-4xl mx-auto">
+  <!-- Header Banner -->
+  <div class="pb-4 border-b border-[#222732] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <div class="flex items-center space-x-3">
+        <h1 class="text-2xl font-extrabold text-white tracking-tight font-display">
+          Hardware Company Settings & Profile
+        </h1>
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          Depot Branding & Security
+        </span>
+      </div>
+      <p class="text-xs text-slate-400 mt-1">
+        Update your Quincaillerie company branding (Company Name, TIN, Phone, Address) displayed on receipts and delivery slips, or manage your personal login credentials.
+      </p>
+    </div>
+
+    <a href="/dashboard" class="px-3.5 py-2 rounded-xl bg-[#1E232E] hover:bg-[#282F3D] text-xs font-bold text-slate-300 transition-colors">
+      &larr; Back to Dashboard
+    </a>
+  </div>
+
+  <% if (typeof msg !== 'undefined' && msg) { %>
+    <div class="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs flex items-center space-x-2">
+      <i data-lucide="check-circle-2" class="w-4 h-4 flex-shrink-0"></i>
+      <span><%= msg %></span>
+    </div>
+  <% } %>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center space-x-2">
+      <i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>
+      <span><%= error %></span>
+    </div>
+  <% } %>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Left Column: Company & Subscription Summary Card -->
+    <div class="space-y-4">
+      <div class="bg-[#13161C] border border-[#222732] p-5 rounded-2xl shadow-xl space-y-4">
+        <div class="flex items-center space-x-3">
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20">
+            <i data-lucide="building-2" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-sm"><%= shop ? shop.name : 'Quincaille Depot' %></h3>
+            <p class="text-[11px] text-amber-500 font-mono">Code: <%= shop ? shop.code : 'central' %></p>
+          </div>
+        </div>
+
+        <div class="pt-3 border-t border-[#222732] space-y-2 text-xs">
+          <div class="flex justify-between">
+            <span class="text-slate-400">Account Status:</span>
+            <span class="font-bold uppercase text-[10px] px-2 py-0.5 rounded-full <%= shop && shop.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20' %>">
+              <%= shop ? shop.status : 'active' %>
+            </span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Subscription:</span>
+            <span class="font-semibold text-slate-200 text-right"><%= shop && shop.subscription_plan ? shop.subscription_plan : 'Standard' %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">RRA TIN Number:</span>
+            <span class="font-mono font-bold text-amber-400"><%= shop && shop.tin_number ? shop.tin_number : 'Not configured' %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Company Phone:</span>
+            <span class="font-mono text-slate-300"><%= shop && shop.phone ? shop.phone : '-' %></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Receipt Preview Preview Tip -->
+      <div class="bg-[#13161C] border border-[#222732] p-4 rounded-2xl text-xs space-y-2 text-slate-400">
+        <p class="font-bold text-slate-200 flex items-center space-x-1.5">
+          <i data-lucide="printer" class="w-4 h-4 text-amber-400"></i>
+          <span>Receipt Header Synchronization</span>
+        </p>
+        <p class="text-[11px] leading-relaxed">
+          Updating your company details below instantly updates the printed header on all customer financial receipts and driver delivery slips across your business.
+        </p>
+      </div>
+    </div>
+
+    <!-- Right Column: Settings Forms -->
+    <div class="md:col-span-2 space-y-6">
+      
+      <!-- Card 1: Company Profile Branding Details -->
+      <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_edit_company_settings) { %>
+        <div class="bg-[#13161C] border border-[#222732] p-6 rounded-2xl shadow-xl space-y-5">
+          <div class="flex items-center justify-between pb-3 border-b border-[#222732]">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+              <i data-lucide="briefcase" class="w-4 h-4 text-amber-400"></i>
+              <span>Hardware Company Information</span>
+            </h3>
+            <span class="text-[10px] text-amber-400 font-semibold uppercase">Manager Access</span>
+          </div>
+
+          <form action="/settings/company" method="POST" class="space-y-4 text-xs">
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Company / Hardware Store Name *</label>
+              <input type="text" name="company_name" required value="<%= shop ? shop.name : '' %>"
+                placeholder="e.g. Kigali Steel & Cement Depot Ltd"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">RRA TIN Number (Printed on Receipts)</label>
+                <input type="text" name="tin_number" value="<%= shop && shop.tin_number ? shop.tin_number : '' %>"
+                  placeholder="e.g. 102938475"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+              </div>
+
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Company Official Phone *</label>
+                <input type="text" name="phone" required value="<%= shop ? shop.phone : '' %>"
+                  placeholder="e.g. +250 788 123 456"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Depot Physical Address / Location *</label>
+              <input type="text" name="location" required value="<%= shop ? shop.location : '' %>"
+                placeholder="e.g. Gisozi Hardware Market, Gasabo, Kigali"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div class="pt-2 flex justify-end">
+              <button type="submit"
+                class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition-all cursor-pointer">
+                Save Company Information
+              </button>
+            </div>
+          </form>
+        </div>
+      <% } %>
+
+      <!-- Card 2: Personal Profile & Change Password -->
+      <div class="bg-[#13161C] border border-[#222732] p-6 rounded-2xl shadow-xl space-y-5">
+        <div class="flex items-center justify-between pb-3 border-b border-[#222732]">
+          <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+            <i data-lucide="lock" class="w-4 h-4 text-emerald-400"></i>
+            <span>Security & Change Password</span>
+          </h3>
+          <span class="text-[10px] text-slate-400 font-mono"><%= user.email %></span>
+        </div>
+
+        <form action="/settings/password" method="POST" class="space-y-4 text-xs">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Your Full Name</label>
+              <input type="text" name="name" required value="<%= user.name %>"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Contact Phone</label>
+              <input type="text" name="user_phone" value="<%= user.phone || '' %>"
+                placeholder="e.g. +250 788 000 000"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-[#222732] space-y-4">
+            <div>
+              <label class="block font-semibold text-slate-300 mb-1">Current Password (To Confirm Changes)</label>
+              <input type="password" name="current_password" required placeholder="••••••••"
+                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">New Password (Leave blank to keep current)</label>
+                <input type="password" name="new_password" placeholder="••••••••"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+              </div>
+
+              <div>
+                <label class="block font-semibold text-slate-300 mb-1">Confirm New Password</label>
+                <input type="password" name="confirm_password" placeholder="••••••••"
+                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-2 flex justify-end">
+            <button type="submit"
+              class="px-5 py-2.5 rounded-xl bg-[#1E232E] hover:bg-[#2B313E] text-slate-200 font-bold text-xs border border-[#2B313E] transition-all cursor-pointer">
+              Update Profile & Password
+            </button>
+          </div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

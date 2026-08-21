@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["views/**", "public/**", "database/**", "supabase-schema.sql"]
+
+[functions.server]
+  external_node_modules = ["pg", "bcryptjs", "ejs", "express", "sql.js", "xlsx"]
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/server"
+  status = 200

@@ -1,0 +1,93 @@
+<%- include('../partials/header') %>
+<%- include('../partials/admin_header') %>
+
+<div class="admin-layout">
+  <div class="admin-sidebar">
+    <ul class="footer-links" style="display: flex; flex-direction: column; gap: 16px;">
+      <li><a href="/admin/dashboard"><i class="fa-solid fa-chart-line" style="margin-right: 8px;"></i> Overview</a></li>
+      <li><a href="/admin/photos" style="color: var(--accent-gold); font-weight: 600;"><i class="fa-solid fa-camera" style="margin-right: 8px;"></i> Photos (<%= photos.length %>)</a></li>
+      <li><a href="/admin/films"><i class="fa-solid fa-film" style="margin-right: 8px;"></i> Films</a></li>
+      <li><a href="/admin/bookings"><i class="fa-solid fa-calendar-check" style="margin-right: 8px;"></i> Bookings</a></li>
+      <li><a href="/admin/availability"><i class="fa-solid fa-clock" style="margin-right: 8px;"></i> Availability</a></li>
+      <li><a href="/admin/messages"><i class="fa-solid fa-envelope" style="margin-right: 8px;"></i> Messages</a></li>
+    </ul>
+  </div>
+
+  <div class="admin-main">
+    <h1 style="font-size: 2rem; margin-bottom: 24px;">PHOTO GALLERY MANAGEMENT</h1>
+
+    <!-- Upload Form -->
+    <div class="admin-card">
+      <h3 style="margin-bottom: 16px;"><i class="fa-solid fa-cloud-arrow-up gold-text"></i> Upload New Photograph</h3>
+      <form action="/admin/photos/upload" method="POST" enctype="multipart/form-data">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 16px;">
+          <div class="form-group">
+            <label class="form-label">Title *</label>
+            <input type="text" name="title" class="form-input" placeholder="e.g. Nyungwe Morning Canopy" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Category *</label>
+            <select name="category" class="form-select" required>
+              <option value="landscape">Landscape Photography</option>
+              <option value="portrait">Portrait Photography</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Location</label>
+            <input type="text" name="location" class="form-input" placeholder="e.g. Musanze, Rwanda">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+          <div class="form-group">
+            <label class="form-label">Upload Image File (Multer)</label>
+            <input type="file" name="photo_file" accept="image/*" class="form-input">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">OR Image Web URL</label>
+            <input type="text" name="photo_url" class="form-input" placeholder="https://images.unsplash.com/...">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Description / Story Context</label>
+          <textarea name="description" class="form-textarea" placeholder="Brief story behind this shot..."></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-gold"><i class="fa-solid fa-upload"></i> Publish Photograph</button>
+      </form>
+    </div>
+
+    <!-- Photos Grid -->
+    <div class="admin-card">
+      <h3 style="margin-bottom: 20px;"><i class="fa-solid fa-images gold-text"></i> Published Photography (<%= photos.length %>)</h3>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+        <% photos.forEach(photo => { %>
+          <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden;">
+            <img src="<%= photo.filename %>" alt="<%= photo.title %>" style="width: 100%; height: 180px; object-fit: cover;">
+            <div style="padding: 16px;">
+              <span class="status-badge" style="background: rgba(212, 175, 55, 0.15); color: var(--accent-gold); margin-bottom: 8px;"><%= photo.category %></span>
+              <h4 style="margin: 6px 0;"><%= photo.title %></h4>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;"><i class="fa-solid fa-location-dot"></i> <%= photo.location %></p>
+
+              <div style="display: flex; gap: 10px;">
+                <form action="/admin/photos/delete/<%= photo.id %>" method="POST" onsubmit="return confirm('Delete photo?');" style="width: 100%;">
+                  <button type="submit" class="btn btn-outline" style="width: 100%; padding: 6px; font-size: 0.8rem; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">
+                    <i class="fa-solid fa-trash"></i> Delete
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

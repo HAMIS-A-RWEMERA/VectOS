@@ -1,0 +1,92 @@
+<%- include('../partials/header') %>
+<%- include('../partials/admin_header') %>
+
+<div class="admin-layout">
+  <div class="admin-sidebar">
+    <ul class="footer-links" style="display: flex; flex-direction: column; gap: 16px;">
+      <li><a href="/admin/dashboard"><i class="fa-solid fa-chart-line" style="margin-right: 8px;"></i> Overview</a></li>
+      <li><a href="/admin/photos"><i class="fa-solid fa-camera" style="margin-right: 8px;"></i> Photos</a></li>
+      <li><a href="/admin/films"><i class="fa-solid fa-film" style="margin-right: 8px;"></i> Films</a></li>
+      <li><a href="/admin/bookings" style="color: var(--accent-gold); font-weight: 600;"><i class="fa-solid fa-calendar-check" style="margin-right: 8px;"></i> Bookings (<%= bookings.length %>)</a></li>
+      <li><a href="/admin/availability"><i class="fa-solid fa-clock" style="margin-right: 8px;"></i> Availability</a></li>
+      <li><a href="/admin/messages"><i class="fa-solid fa-envelope" style="margin-right: 8px;"></i> Messages</a></li>
+    </ul>
+  </div>
+
+  <div class="admin-main">
+    <h1 style="font-size: 2rem; margin-bottom: 24px;">CLIENT BOOKINGS & APPOINTMENT MANAGEMENT</h1>
+
+    <div class="admin-card">
+      <h3 style="margin-bottom: 20px;"><i class="fa-solid fa-calendar-days gold-text"></i> All Appointments (<%= bookings.length %>)</h3>
+
+      <% if (bookings.length === 0) { %>
+        <p style="color: var(--text-muted);">No client bookings logged yet.</p>
+      <% } else { %>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Client Info</th>
+                <th>Requested Service</th>
+                <th>Date & Time</th>
+                <th>Location & Vision</th>
+                <th>Status</th>
+                <th>Change Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% bookings.forEach(b => { %>
+                <tr>
+                  <td>#<%= b.id %></td>
+                  <td>
+                    <strong><%= b.client_name %></strong><br>
+                    <span style="font-size: 0.8rem; color: var(--accent-gold);"><%= b.email %></span><br>
+                    <span style="font-size: 0.8rem; color: var(--text-secondary);"><%= b.phone %></span>
+                  </td>
+                  <td>
+                    <strong><%= b.service_name %></strong><br>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);"><%= b.service_price %></span>
+                  </td>
+                  <td>
+                    <strong style="color: var(--text-primary);"><%= b.date %></strong><br>
+                    <span style="font-size: 0.85rem; color: var(--accent-gold);"><%= b.time %></span>
+                  </td>
+                  <td style="max-width: 200px;">
+                    <span style="font-size: 0.8rem; color: var(--text-primary);"><i class="fa-solid fa-location-dot"></i> <%= b.location || 'Kigali Studio' %></span><br>
+                    <span style="font-size: 0.8rem; color: var(--text-muted);"><%= b.message ? b.message.substring(0, 80) : 'No extra notes' %></span>
+                  </td>
+                  <td>
+                    <span class="status-badge status-<%= b.status %>"><%= b.status %></span>
+                  </td>
+                  <td>
+                    <form action="/admin/bookings/status/<%= b.id %>" method="POST" style="display: flex; gap: 6px; flex-wrap: wrap;">
+                      <% if (b.status !== 'confirmed') { %>
+                        <button type="submit" name="status" value="confirmed" class="btn btn-gold" style="padding: 4px 8px; font-size: 0.75rem;">
+                          <i class="fa-solid fa-check"></i> Confirm
+                        </button>
+                      <% } %>
+                      <% if (b.status !== 'completed') { %>
+                        <button type="submit" name="status" value="completed" class="btn btn-outline" style="padding: 4px 8px; font-size: 0.75rem; border-color: #3b82f6; color: #3b82f6;">
+                          Complete
+                        </button>
+                      <% } %>
+                      <% if (b.status !== 'cancelled') { %>
+                        <button type="submit" name="status" value="cancelled" class="btn btn-outline" style="padding: 4px 8px; font-size: 0.75rem; border-color: #ef4444; color: #ef4444;">
+                          Reject
+                        </button>
+                      <% } %>
+                    </form>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

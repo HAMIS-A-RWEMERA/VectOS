@@ -1,0 +1,52 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<!-- Header Banner -->
+<section style="padding: 140px 0 60px; background: linear-gradient(to bottom, rgba(17, 17, 17, 0.8), var(--bg-primary)), url('/src/assets/images/landscape_rwanda_1785877535052.jpg') center/cover; text-align: center; border-bottom: 1px solid var(--border-subtle);">
+  <div class="container">
+    <span class="section-subtitle">THE LAND OF A THOUSAND HILLS</span>
+    <h1 class="section-title gold-gradient-text" style="font-size: 3.2rem;">LANDSCAPE PHOTOGRAPHY</h1>
+    <div class="section-divider"></div>
+    <p style="max-width: 650px; margin: 20px auto 0; font-size: 1.05rem; color: var(--text-secondary);">
+      Capturing the mist, sacred volcanoes, tranquil lakes, and rolling vistas of Rwanda and East Africa in timeless high-resolution prints.
+    </p>
+  </div>
+</section>
+
+<!-- Landscape Gallery -->
+<section class="section">
+  <div class="container">
+    <% if (photos.length === 0) { %>
+      <div style="text-align: center; padding: 60px 0; color: var(--text-secondary);">
+        <i class="fa-solid fa-mountain-sun gold-text" style="font-size: 3rem; margin-bottom: 16px; display: block;"></i>
+        <h3>No landscape photos uploaded yet.</h3>
+        <p>Check back soon or upload new works from the admin panel.</p>
+      </div>
+    <% } else { %>
+      <div class="masonry-grid">
+        <% photos.forEach(photo => { %>
+          <div class="gallery-item" data-lightbox data-src="<%= photo.filename %>" data-title="<%= photo.title %>" data-desc="<%= photo.location %> — <%= photo.description %>">
+            <img src="<%= photo.filename %>" alt="<%= photo.title %>" class="gallery-img">
+            <div class="gallery-caption">
+              <h4><%= photo.title %></h4>
+              <p><i class="fa-solid fa-location-dot" style="margin-right: 4px;"></i> <%= photo.location %></p>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</section>
+
+<!-- Call to action -->
+<section class="section section-darker" style="text-align: center;">
+  <div class="container">
+    <h2 class="section-title">NEED HIGH-RES LANDSCAPE PRINTS OR LOCATIONS?</h2>
+    <p style="max-width: 600px; margin: 0 auto 30px; color: var(--text-secondary);">
+      Wesley Studio offers fine-art archival prints and location scouting services for international film productions across Rwanda.
+    </p>
+    <a href="/booking" class="btn btn-gold"><i class="fa-solid fa-compass"></i> Request Location & Print Licensing</a>
+  </div>
+</section>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,123 @@
+<%- include('partials/header') %>
+<%- include('partials/navbar') %>
+
+<!-- Header Banner -->
+<section style="padding: 140px 0 50px; background: linear-gradient(to bottom, rgba(17, 17, 17, 0.8), var(--bg-primary)), url('/src/assets/images/hero_background_1785877478689.jpg') center/cover; text-align: center; border-bottom: 1px solid var(--border-subtle);">
+  <div class="container">
+    <span class="section-subtitle">GET IN TOUCH</span>
+    <h1 class="section-title gold-gradient-text" style="font-size: 3.2rem;">CONTACT WESLEY STUDIO</h1>
+    <div class="section-divider"></div>
+    <p style="max-width: 650px; margin: 20px auto 0; font-size: 1.05rem; color: var(--text-secondary);">
+      We welcome inquiries for film commissions, co-productions, documentary shoots, press interviews, and exhibition collaborations.
+    </p>
+  </div>
+</section>
+
+<!-- Contact Form & Info -->
+<section class="section">
+  <div class="container">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 60px;">
+      
+      <!-- Studio Info Column -->
+      <div>
+        <span class="section-subtitle">STUDIO LOCATION</span>
+        <h2 class="section-title" style="margin-bottom: 24px;">KIGALI HEADQUARTERS</h2>
+        <div style="width: 50px; height: 2px; background: var(--accent-gold); margin-bottom: 30px;"></div>
+
+        <div style="display: flex; flex-direction: column; gap: 24px; margin-bottom: 40px;">
+          <div style="display: flex; gap: 20px; align-items: flex-start;">
+            <div style="width: 48px; height: 48px; border-radius: 8px; background: rgba(212, 175, 55, 0.1); color: var(--accent-gold); display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              <i class="fa-solid fa-location-dot"></i>
+            </div>
+            <div>
+              <h4 style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 4px;">Address</h4>
+              <p style="color: var(--text-secondary);">KG 7 Ave, Kacyiru, Kigali, Rwanda</p>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 20px; align-items: flex-start;">
+            <div style="width: 48px; height: 48px; border-radius: 8px; background: rgba(212, 175, 55, 0.1); color: var(--accent-gold); display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              <i class="fa-solid fa-envelope"></i>
+            </div>
+            <div>
+              <h4 style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 4px;">Email</h4>
+              <p style="color: var(--text-secondary);">wesley@wesley.rw / info@wesley.rw</p>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 20px; align-items: flex-start;">
+            <div style="width: 48px; height: 48px; border-radius: 8px; background: rgba(212, 175, 55, 0.1); color: var(--accent-gold); display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              <i class="fa-solid fa-phone"></i>
+            </div>
+            <div>
+              <h4 style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 4px;">Phone / WhatsApp</h4>
+              <p style="color: var(--text-secondary);">+250 788 000 123 / +250 789 999 888</p>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 20px; align-items: flex-start;">
+            <div style="width: 48px; height: 48px; border-radius: 8px; background: rgba(212, 175, 55, 0.1); color: var(--accent-gold); display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+              <i class="fa-solid fa-clock"></i>
+            </div>
+            <div>
+              <h4 style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 4px;">Working Hours</h4>
+              <p style="color: var(--text-secondary);">Monday – Saturday: 08:30 AM – 06:00 PM (GMT+2)</p>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--bg-card); border: 1px solid var(--border-subtle); padding: 24px; border-radius: 8px;">
+          <h4 class="gold-text" style="margin-bottom: 8px;">Studio Press & Licensing</h4>
+          <p style="font-size: 0.9rem; color: var(--text-secondary);">
+            For film festival invitations, media press kits, or archival footage licensing across East Africa, email <strong>licensing@wesley.rw</strong>.
+          </p>
+        </div>
+      </div>
+
+      <!-- Contact Form Column -->
+      <div style="background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 40px;">
+        <h3 style="font-size: 1.5rem; margin-bottom: 8px; color: var(--text-primary);">SEND DIRECT MESSAGE</h3>
+        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 24px;">Fill out the form below and Wesley Studio will respond promptly.</p>
+
+        <% if (sent) { %>
+          <div id="contactSuccessAlert" style="background: rgba(34, 197, 94, 0.15); border: 1px solid var(--status-green); color: #22c55e; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
+            <i class="fa-solid fa-circle-check"></i> Thank you! Your message has been sent successfully.
+          </div>
+        <% } %>
+
+        <div id="contactSuccessAlert" style="display: none; background: rgba(34, 197, 94, 0.15); border: 1px solid var(--status-green); color: #22c55e; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
+          <i class="fa-solid fa-circle-check"></i> Your inquiry has been transmitted to Wesley's studio inbox!
+        </div>
+
+        <form id="contactForm" action="/contact" method="POST">
+          <div class="form-group">
+            <label class="form-label">Your Name *</label>
+            <input type="text" name="name" class="form-input" placeholder="e.g. Marie-Claire Umutoni" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Your Email *</label>
+            <input type="email" name="email" class="form-input" placeholder="e.g. marie@domain.com" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Subject *</label>
+            <input type="text" name="subject" class="form-input" placeholder="e.g. Documentary Film Co-Production Inquiry" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Message *</label>
+            <textarea name="message" class="form-textarea" placeholder="Write your message or project requirements here..." required></textarea>
+          </div>
+
+          <button type="submit" class="btn btn-gold" style="width: 100%; padding: 16px;">
+            <i class="fa-solid fa-paper-plane"></i> Send Message
+          </button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<%- include('partials/footer') %>

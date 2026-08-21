@@ -1,0 +1,50 @@
+<%- include('partials/header', { title: 'Security Audit Trail — Quincaille IOMS' }) %>
+<%- include('partials/sidebar') %>
+
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="pb-4 border-b border-[#222732] flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-extrabold text-white tracking-tight font-display">
+        System Audit Logs & Security Activity
+      </h1>
+      <p class="text-xs text-slate-400 mt-1">
+        Immutable system events, inventory adjustments, order reviews, and resolution logs.
+      </p>
+    </div>
+  </div>
+
+  <!-- Audit Table -->
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="border-b border-[#222732] bg-[#181C24] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            <th class="py-3.5 px-4">Timestamp</th>
+            <th class="py-3.5 px-4">User</th>
+            <th class="py-3.5 px-4 text-center">Action Executed</th>
+            <th class="py-3.5 px-4">Details / Payload</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#1D222B] text-xs">
+          <% logs.forEach(log => { %>
+            <tr class="hover:bg-[#1A1E26] transition-colors">
+              <td class="py-3.5 px-4 font-mono text-slate-400"><%= new Date(log.created_at).toLocaleString() %></td>
+              <td class="py-3.5 px-4 font-bold text-white"><%= log.user_name %></td>
+              <td class="py-3.5 px-4 text-center">
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <%= log.action %>
+                </span>
+              </td>
+              <td class="py-3.5 px-4 font-mono text-slate-300 text-[11px] max-w-md truncate">
+                <%= log.details %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

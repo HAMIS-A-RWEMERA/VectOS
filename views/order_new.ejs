@@ -1,0 +1,542 @@
+<%- include('partials/header', { title: 'Create Order & Price Negotiation — Quincaille IOMS' }) %>
+<%- include('partials/sidebar') %>
+
+<div class="space-y-6 max-w-5xl mx-auto">
+  <!-- Header -->
+  <div class="pb-4 border-b border-[#222732] flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-extrabold text-white tracking-tight font-display">
+        Create Order & Negotiate Prices
+      </h1>
+      <p class="text-xs text-slate-400 mt-1">
+        Select client, add catalog materials or ad-hoc custom/partner-sourced items, and enter negotiated selling prices per line item.
+      </p>
+    </div>
+    <a href="/orders" class="px-3.5 py-2 rounded-xl bg-[#1E232E] hover:bg-[#282F3D] text-xs font-bold text-slate-300 transition-colors">
+      &larr; Back to Orders
+    </a>
+  </div>
+
+  <form id="orderForm" action="/orders/create" method="POST" class="space-y-6">
+    <!-- Customer Selection & Quick Registration Card -->
+    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 space-y-4 shadow-xl">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#222732]">
+        <div>
+          <h3 class="text-sm font-bold text-white uppercase tracking-wider text-amber-500">1. Client Identification & Notes</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Select an existing customer or enter client details to auto-register them seamlessly at checkout.</p>
+        </div>
+
+        <!-- Mode Toggle Buttons -->
+        <div class="inline-flex bg-[#181C24] p-1 rounded-xl border border-[#2B313E] text-xs font-bold shrink-0">
+          <button type="button" id="tabSelectExisting" onclick="switchCustomerMode('existing')"
+            class="px-3.5 py-1.5 rounded-lg transition-all bg-amber-500 text-slate-950 font-extrabold shadow cursor-pointer">
+            Registered Client
+          </button>
+          <button type="button" id="tabQuickRegister" onclick="switchCustomerMode('new')"
+            class="px-3.5 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white cursor-pointer">
+            + Quick Register Client
+          </button>
+        </div>
+      </div>
+
+      <input type="hidden" name="customer_mode" id="customerModeInput" value="existing">
+
+      <!-- Existing Customer Section -->
+      <div id="existingCustomerSection" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Select Registered Client</label>
+          <select name="customer_id" id="customerSelect" class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+            <option value="">-- Choose Customer --</option>
+            <% customers.forEach(c => { %>
+              <option value="<%= c.id %>"><%= c.name %> (<%= c.phone %>) <%= c.id_number ? '• ID: ' + c.id_number : '' %></option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Delivery Site / Order Notes</label>
+          <input type="text" name="notes" placeholder="e.g. Site delivery to Gacuriro Villa Project (Driver: Jean)"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+        </div>
+      </div>
+
+      <!-- New Customer Quick Auto-Registration Section -->
+      <div id="newCustomerSection" class="hidden space-y-3 bg-[#181C24]/80 p-4 rounded-xl border border-amber-500/20">
+        <div class="flex items-center space-x-2 text-xs font-bold text-amber-400 mb-1">
+          <i data-lucide="user-plus" class="w-4 h-4"></i>
+          <span>Counter Sales Registration (Auto-registers customer upon order creation)</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-amber-300 uppercase tracking-wider mb-1.5">Full Name <span class="text-rose-400">*</span></label>
+            <input type="text" name="new_customer_name" id="newCustomerName" placeholder="e.g. Eric Mugisha"
+              class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-amber-300 uppercase tracking-wider mb-1.5">Phone Number <span class="text-rose-400">*</span></label>
+            <input type="text" name="new_customer_phone" id="newCustomerPhone" placeholder="e.g. +250 788 123 456"
+              class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">National ID / Passport No. <span class="text-slate-500">(Differentiator)</span></label>
+            <input type="text" name="new_customer_id_number" id="newCustomerIdNumber" placeholder="e.g. 1 1990 8 0012345 1 22"
+              class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Product Selection & Price Negotiation Table -->
+    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 space-y-4 shadow-xl">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 class="text-sm font-bold text-white uppercase tracking-wider text-amber-500">2. Order Line Items & Dynamic Price Setting</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Pick from warehouse catalog or add custom/partner-sourced items on the fly.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <!-- Add Custom / Partner Item Button -->
+          <button type="button" onclick="openCustomItemModal()"
+            class="px-3 py-2 rounded-xl bg-[#1E232E] hover:bg-[#2A3140] text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer">
+            <i data-lucide="plus-circle" class="w-4 h-4 text-amber-400"></i>
+            <span>+ Custom / Partner Item</span>
+          </button>
+
+          <!-- Add Catalog Item Button -->
+          <button type="button" onclick="addOrderItemRow()"
+            class="px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 text-amber-400 text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>+ Catalog Item</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse" id="itemsTable">
+          <thead>
+            <tr class="border-b border-[#222732] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <th class="py-2.5 px-3 w-2/5">Product Material / Source</th>
+              <th class="py-2.5 px-3 text-center">Available Stock</th>
+              <th class="py-2.5 px-3 w-24">Quantity</th>
+              <th class="py-2.5 px-3 w-32 text-right">Buying Cost</th>
+              <th class="py-2.5 px-3 w-36 text-right">Negotiated Price (RWF)</th>
+              <th class="py-2.5 px-3 w-36 text-right">Line Subtotal</th>
+              <th class="py-2.5 px-3 text-center w-12">Action</th>
+            </tr>
+          </thead>
+          <tbody id="itemsTableBody" class="divide-y divide-[#1D222B] text-xs">
+            <!-- Dynamic Rows Injected via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Live Calculations Footer -->
+      <div class="pt-4 border-t border-[#222732] flex flex-col sm:flex-row justify-between items-end gap-4">
+        <div class="text-xs text-slate-400 space-y-1">
+          <p><span class="font-bold text-slate-300">Segregation Rule:</span> Buying price is fixed or partner-agreed; Profit is dynamically derived.</p>
+          <p id="totalProfitDisplay" class="font-mono text-emerald-400 font-bold">Estimated Order Profit: RWF 0</p>
+        </div>
+
+        <div class="bg-[#181C24] border border-[#2B313E] p-4 rounded-xl text-right min-w-[240px]">
+          <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Order Grand Total</p>
+          <p class="text-2xl font-black text-amber-400 font-mono mt-1" id="grandTotalDisplay">RWF 0</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Financial Separation Notice -->
+    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 space-y-3 shadow-xl">
+      <div class="flex items-start space-x-3 text-xs text-amber-300">
+        <i data-lucide="wallet" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
+        <div>
+          <p class="font-bold text-sm text-amber-400">Financial Segregation of Duties</p>
+          <p class="mt-0.5 text-slate-300">
+            Sales reps configure line items and negotiate prices. All cash, MoMo payments, and debt ledger balances are recorded by the 
+            <span class="text-amber-300 font-semibold">Cashier / Accountant</span> to ensure strict internal financial control.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form Hidden Serialized Field -->
+    <input type="hidden" name="items" id="itemsJsonInput">
+
+    <div class="flex justify-end space-x-4 pt-2">
+      <a href="/orders" class="px-6 py-3 rounded-xl bg-[#222834] text-xs font-bold text-slate-300 hover:text-white transition-colors">
+        Cancel
+      </a>
+      <button type="submit" onclick="prepareSubmit(event)"
+        class="px-8 py-3 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/20 transition-all cursor-pointer">
+        Submit Order for Fulfillment &rarr;
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- Modal: Add Custom / Partner Item On-The-Fly -->
+<div id="customItemModal" class="hidden fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+  <div class="bg-[#13161C] border border-[#222732] rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+    <div class="flex items-center justify-between pb-3 border-b border-[#222732]">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-white">Add Custom / Partner-Sourced Item</h3>
+          <p class="text-[11px] text-slate-400">Add an ad-hoc product or material sourced from a partner shop</p>
+        </div>
+      </div>
+      <button onclick="closeCustomItemModal()" class="text-slate-400 hover:text-white cursor-pointer">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <div class="space-y-3 text-xs">
+      <div>
+        <label class="block font-semibold text-slate-400 uppercase tracking-wider mb-1">Item Description / Name *</label>
+        <input type="text" id="ci_name" placeholder="e.g. Granite Floor Tile 60x60 (Special Beige)"
+          class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500">
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block font-semibold text-slate-400 uppercase tracking-wider mb-1">Category</label>
+          <input type="text" id="ci_cat" placeholder="Tiles / Special" value="Special Order"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-400 uppercase tracking-wider mb-1">Unit</label>
+          <input type="text" id="ci_unit" placeholder="sqm, pcs, box" value="pcs"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block font-semibold text-slate-400 uppercase tracking-wider mb-1">Sourcing Source</label>
+          <select id="ci_source_type" onchange="togglePartnerSelect()"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500">
+            <option value="partner">Partner Hardware Shop</option>
+            <option value="store">Store Custom Order</option>
+          </select>
+        </div>
+
+        <div id="ci_partner_wrapper">
+          <label class="block font-semibold text-slate-400 uppercase tracking-wider mb-1">Select Partner Shop</label>
+          <select id="ci_partner_id" class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white focus:border-amber-500">
+            <% partners.forEach(p => { %>
+              <option value="<%= p.id %>"><%= p.name %></option>
+            <% }) %>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="block font-semibold text-slate-400 uppercase tracking-wider mb-1">Quantity *</label>
+          <input type="number" id="ci_qty" value="1" min="1"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-white font-mono font-bold focus:border-amber-500">
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-400 uppercase tracking-wider mb-1">Cost Price (RWF)</label>
+          <input type="number" id="ci_buy_price" placeholder="15000"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-slate-300 font-mono focus:border-amber-500">
+        </div>
+        <div>
+          <label class="block font-semibold text-amber-400 uppercase tracking-wider mb-1">Selling Price *</label>
+          <input type="number" id="ci_sell_price" placeholder="18500"
+            class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-3 py-2 text-sm text-amber-400 font-mono font-bold focus:border-amber-500">
+        </div>
+      </div>
+
+      <div class="pt-3 flex justify-end space-x-3 border-t border-[#222732]">
+        <button type="button" onclick="closeCustomItemModal()"
+          class="px-4 py-2.5 rounded-xl bg-[#222834] font-bold text-slate-300 hover:bg-[#2B313E] cursor-pointer">Cancel</button>
+        <button type="button" onclick="insertCustomItemRow()"
+          class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-600 text-slate-950 font-bold hover:from-amber-300 hover:to-amber-500 shadow-md shadow-amber-500/20 cursor-pointer">
+          Add to Order
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Raw Products Data Passed to Client JS -->
+<script>
+  const productsCatalog = <%- JSON.stringify(products) %>;
+  const partnersCatalog = <%- JSON.stringify(partners) %>;
+  let rowCounter = 0;
+
+  function addOrderItemRow() {
+    rowCounter++;
+    const tbody = document.getElementById('itemsTableBody');
+    const tr = document.createElement('tr');
+    tr.id = `row-${rowCounter}`;
+    tr.className = 'hover:bg-[#1A1E26] transition-colors';
+    tr.setAttribute('data-row-id', rowCounter);
+
+    let optionsHtml = '<option value="">-- Select Material --</option>';
+    productsCatalog.forEach(p => {
+      optionsHtml += `<option value="${p.id}" data-buying="${p.buying_price}" data-stock="${p.quantity}">${p.name} (${p.category})</option>`;
+    });
+
+    tr.innerHTML = `
+      <td class="py-2.5 px-3">
+        <select class="prod-select w-full bg-[#1A1E26] border border-[#2B313E] rounded-lg px-2.5 py-2 text-xs text-white focus:border-amber-500" onchange="onProdSelect(${rowCounter})">
+          ${optionsHtml}
+        </select>
+      </td>
+      <td class="py-2.5 px-3 text-center font-mono font-bold text-slate-300 text-xs" id="stock-val-${rowCounter}">-</td>
+      <td class="py-2.5 px-3">
+        <input type="number" min="1" value="1" class="qty-input w-full bg-[#1A1E26] border border-[#2B313E] rounded-lg px-2 py-2 text-xs text-white text-center font-mono font-bold" oninput="recalcTotals()">
+      </td>
+      <td class="py-2.5 px-3 text-right font-mono text-slate-400 text-xs" id="buying-val-${rowCounter}">0</td>
+      <td class="py-2.5 px-3 text-right">
+        <input type="number" step="0.01" placeholder="0" class="price-input w-full bg-[#1A1E26] border border-[#2B313E] rounded-lg px-2 py-2 text-xs text-amber-400 text-right font-mono font-bold" oninput="recalcTotals()">
+      </td>
+      <td class="py-2.5 px-3 text-right font-mono font-bold text-white text-xs" id="subtotal-val-${rowCounter}">0</td>
+      <td class="py-2.5 px-3 text-center">
+        <button type="button" onclick="removeRow(${rowCounter})" class="text-rose-400 hover:text-rose-300 p-1 cursor-pointer">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function openCustomItemModal() {
+    document.getElementById('customItemModal').classList.remove('hidden');
+  }
+  function closeCustomItemModal() {
+    document.getElementById('customItemModal').classList.add('hidden');
+  }
+  function togglePartnerSelect() {
+    const type = document.getElementById('ci_source_type').value;
+    const wrapper = document.getElementById('ci_partner_wrapper');
+    if (type === 'partner') {
+      wrapper.classList.remove('hidden');
+    } else {
+      wrapper.classList.add('hidden');
+    }
+  }
+
+  function insertCustomItemRow() {
+    const name = document.getElementById('ci_name').value.trim();
+    const cat = document.getElementById('ci_cat').value.trim();
+    const unit = document.getElementById('ci_unit').value.trim();
+    const qty = parseInt(document.getElementById('ci_qty').value, 10) || 1;
+    const buyPrice = parseFloat(document.getElementById('ci_buy_price').value) || 0;
+    const sellPrice = parseFloat(document.getElementById('ci_sell_price').value) || 0;
+    const sourceType = document.getElementById('ci_source_type').value;
+    const partnerId = document.getElementById('ci_partner_id').value;
+
+    if (!name || sellPrice <= 0) {
+      alert('Please enter product name and selling price.');
+      return;
+    }
+
+    rowCounter++;
+    const tbody = document.getElementById('itemsTableBody');
+    const tr = document.createElement('tr');
+    tr.id = `row-${rowCounter}`;
+    tr.className = 'hover:bg-[#1A1E26] bg-[#161B24] transition-colors custom-adhoc-row';
+    tr.setAttribute('data-row-id', rowCounter);
+    tr.setAttribute('data-is-adhoc', 'true');
+    tr.setAttribute('data-adhoc-name', name);
+    tr.setAttribute('data-adhoc-cat', cat);
+    tr.setAttribute('data-adhoc-unit', unit);
+    tr.setAttribute('data-adhoc-buy', buyPrice);
+    tr.setAttribute('data-adhoc-source', sourceType);
+    tr.setAttribute('data-adhoc-partner-id', partnerId);
+
+    const partnerObj = partnersCatalog.find(p => p.id == partnerId);
+    const badgeText = sourceType === 'partner' ? `Partner: ${partnerObj ? partnerObj.name : 'Shop'}` : 'Special Order';
+
+    const subtotal = qty * sellPrice;
+
+    tr.innerHTML = `
+      <td class="py-2.5 px-3">
+        <div class="flex items-center space-x-2">
+          <span class="px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-bold shrink-0">${badgeText}</span>
+          <span class="font-bold text-white text-xs">${name}</span>
+        </div>
+      </td>
+      <td class="py-2.5 px-3 text-center font-mono font-bold text-cyan-400 text-xs">Direct Source</td>
+      <td class="py-2.5 px-3">
+        <input type="number" min="1" value="${qty}" class="qty-input w-full bg-[#1A1E26] border border-[#2B313E] rounded-lg px-2 py-2 text-xs text-white text-center font-mono font-bold" oninput="recalcTotals()">
+      </td>
+      <td class="py-2.5 px-3 text-right font-mono text-slate-400 text-xs" id="buying-val-${rowCounter}">${buyPrice.toLocaleString('en-US')}</td>
+      <td class="py-2.5 px-3 text-right">
+        <input type="number" step="0.01" value="${sellPrice}" class="price-input w-full bg-[#1A1E26] border border-[#2B313E] rounded-lg px-2 py-2 text-xs text-amber-400 text-right font-mono font-bold" oninput="recalcTotals()">
+      </td>
+      <td class="py-2.5 px-3 text-right font-mono font-bold text-white text-xs" id="subtotal-val-${rowCounter}">${subtotal.toLocaleString('en-US')}</td>
+      <td class="py-2.5 px-3 text-center">
+        <button type="button" onclick="removeRow(${rowCounter})" class="text-rose-400 hover:text-rose-300 p-1 cursor-pointer">
+          <i data-lucide="trash-2" class="w-4 h-4"></i>
+        </button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+    closeCustomItemModal();
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    recalcTotals();
+  }
+
+  function removeRow(id) {
+    const tr = document.getElementById(`row-${id}`);
+    if (tr) tr.remove();
+    recalcTotals();
+  }
+
+  function onProdSelect(id) {
+    const tr = document.getElementById(`row-${id}`);
+    const select = tr.querySelector('.prod-select');
+    const selectedOpt = select.options[select.selectedIndex];
+    
+    if (selectedOpt && selectedOpt.value) {
+      const buying = parseFloat(selectedOpt.getAttribute('data-buying')) || 0;
+      const stock = selectedOpt.getAttribute('data-stock');
+      
+      document.getElementById(`buying-val-${id}`).innerText = buying.toLocaleString('en-US');
+      document.getElementById(`stock-val-${id}`).innerText = stock;
+      
+      const priceInput = tr.querySelector('.price-input');
+      if (!priceInput.value) {
+        priceInput.value = Math.round(buying * 1.15); // Suggest standard baseline margin
+      }
+    } else {
+      document.getElementById(`buying-val-${id}`).innerText = '0';
+      document.getElementById(`stock-val-${id}`).innerText = '-';
+    }
+    recalcTotals();
+  }
+
+  function recalcTotals() {
+    let grandTotal = 0;
+    let totalProfit = 0;
+
+    const rows = document.querySelectorAll('#itemsTableBody tr');
+    rows.forEach(tr => {
+      const isAdhoc = tr.getAttribute('data-is-adhoc') === 'true';
+      const qtyInput = tr.querySelector('.qty-input');
+      const priceInput = tr.querySelector('.price-input');
+      const qty = parseInt(qtyInput ? qtyInput.value : 0, 10) || 0;
+      const selPrice = parseFloat(priceInput ? priceInput.value : 0) || 0;
+
+      let buyPrice = 0;
+      if (isAdhoc) {
+        buyPrice = parseFloat(tr.getAttribute('data-adhoc-buy')) || 0;
+      } else {
+        const select = tr.querySelector('.prod-select');
+        if (select && select.value && select.selectedIndex >= 0) {
+          buyPrice = parseFloat(select.options[select.selectedIndex].getAttribute('data-buying')) || 0;
+        }
+      }
+
+      if (qty > 0 && selPrice > 0) {
+        const subtotal = qty * selPrice;
+        const profit = (selPrice - buyPrice) * qty;
+
+        grandTotal += subtotal;
+        totalProfit += profit;
+
+        const subEl = tr.querySelector(`[id^="subtotal-val-"]`);
+        if (subEl) subEl.innerText = subtotal.toLocaleString('en-US');
+      }
+    });
+
+    document.getElementById('grandTotalDisplay').innerText = 'RWF ' + grandTotal.toLocaleString('en-US');
+    document.getElementById('totalProfitDisplay').innerText = 'Estimated Order Profit: RWF ' + totalProfit.toLocaleString('en-US');
+  }
+
+  function switchCustomerMode(mode) {
+    document.getElementById('customerModeInput').value = mode;
+    const tabExist = document.getElementById('tabSelectExisting');
+    const tabNew = document.getElementById('tabQuickRegister');
+    const sectionExist = document.getElementById('existingCustomerSection');
+    const sectionNew = document.getElementById('newCustomerSection');
+
+    if (mode === 'new') {
+      tabNew.className = 'px-3.5 py-1.5 rounded-lg transition-all bg-amber-500 text-slate-950 font-extrabold shadow cursor-pointer';
+      tabExist.className = 'px-3.5 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white cursor-pointer';
+      sectionNew.classList.remove('hidden');
+    } else {
+      tabExist.className = 'px-3.5 py-1.5 rounded-lg transition-all bg-amber-500 text-slate-950 font-extrabold shadow cursor-pointer';
+      tabNew.className = 'px-3.5 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white cursor-pointer';
+      sectionNew.classList.add('hidden');
+    }
+  }
+
+  function prepareSubmit(e) {
+    e.preventDefault();
+
+    const mode = document.getElementById('customerModeInput').value;
+    if (mode === 'existing') {
+      const custSelect = document.getElementById('customerSelect');
+      if (!custSelect.value) {
+        alert('Please select a registered client or click "+ Quick Register Client" to register a new customer.');
+        return;
+      }
+    } else {
+      const name = document.getElementById('newCustomerName').value.trim();
+      const phone = document.getElementById('newCustomerPhone').value.trim();
+      if (!name || !phone) {
+        alert('Please enter both Full Name and Phone Number to auto-register the customer.');
+        return;
+      }
+    }
+
+    const rows = document.querySelectorAll('#itemsTableBody tr');
+    const items = [];
+
+    rows.forEach(tr => {
+      const isAdhoc = tr.getAttribute('data-is-adhoc') === 'true';
+      const qtyInput = tr.querySelector('.qty-input');
+      const priceInput = tr.querySelector('.price-input');
+      const qty = parseInt(qtyInput ? qtyInput.value : 0, 10);
+      const selPrice = parseFloat(priceInput ? priceInput.value : 0);
+
+      if (isAdhoc) {
+        items.push({
+          is_adhoc: true,
+          product_name: tr.getAttribute('data-adhoc-name'),
+          category: tr.getAttribute('data-adhoc-cat'),
+          unit: tr.getAttribute('data-adhoc-unit'),
+          buying_price: parseFloat(tr.getAttribute('data-adhoc-buy')) || 0,
+          quantity: qty,
+          selling_price: selPrice,
+          source_type: tr.getAttribute('data-adhoc-source'),
+          partner_shop_id: tr.getAttribute('data-adhoc-partner-id') || null
+        });
+      } else {
+        const select = tr.querySelector('.prod-select');
+        if (select && select.value && qty > 0 && selPrice > 0) {
+          items.push({
+            product_id: parseInt(select.value, 10),
+            quantity: qty,
+            selling_price: selPrice
+          });
+        }
+      }
+    });
+
+    if (items.length === 0) {
+      alert('Please add at least one valid product line item.');
+      return;
+    }
+
+    document.getElementById('itemsJsonInput').value = JSON.stringify(items);
+    document.getElementById('orderForm').submit();
+  }
+
+  // Initialize with one empty row
+  document.addEventListener('DOMContentLoaded', function() {
+    addOrderItemRow();
+  });
+</script>
+
+<%- include('partials/footer') %>
