@@ -49,6 +49,14 @@
         <a href="/forgot-password" class="text-xs text-slate-400 hover:text-amber-400 transition-colors">Forgot your password?</a>
       </div>
 
+      <!-- Demo Access (for live presentations) -->
+      <div class="text-center pt-1">
+        <button type="button" onclick="fillDemo()" class="inline-flex items-center space-x-1.5 px-3 py-2 bg-[#1E232E] hover:bg-[#2B313E] text-slate-300 hover:text-white border border-[#2B313E] rounded-lg text-xs font-semibold transition-all cursor-pointer">
+          <i data-lucide="play-circle" class="w-3.5 h-3.5 text-amber-400"></i>
+          <span>Try the Live Demo</span>
+        </button>
+      </div>
+
       <!-- Register New Depot Link -->
       <div class="p-4 bg-gradient-to-b from-[#181D26] to-[#141820] border border-[#2B313E] rounded-xl text-center space-y-2">
         <p class="text-xs font-bold text-white">Own a Hardware (Quincaillerie) or Electronics Store?</p>
@@ -73,5 +81,13 @@
     </div>
   </div>
 </div>
+
+<script>
+  function fillDemo() {
+    var e = document.getElementById('email');
+    var p = document.getElementById('password');
+    if (e && p) { e.value = 'manager@quincaille.rw'; p.value = 'password123'; }
+  }
+</script>
 
 <%- include('partials/footer') %>

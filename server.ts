@@ -44,8 +44,8 @@ app.use(
   session({
     store: sessionStore,
     secret: process.env.SESSION_SECRET || 'quincaille-kigali-ioms-secret-2026',
-    resave: true,
-    saveUninitialized: true,
+    resave: false,
+    saveUninitialized: false,
     proxy: true,
     cookie: {
       secure: true,
@@ -82,6 +82,10 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
 
 // View Engine Setup (EJS)
 app.set('view engine', 'ejs');
+// Cache compiled templates in production for faster page renders on Lambda
+if (process.env.NODE_ENV === 'production') {
+  app.set('view cache', true);
+}
 app.set('views', path.join(process.cwd(), 'views'));
 
 // Static Assets Serving

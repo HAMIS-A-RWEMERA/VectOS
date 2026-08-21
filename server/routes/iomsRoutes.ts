@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
 import bcrypt from 'bcryptjs';
-import * as XLSX from 'xlsx';
 import { queryAll, queryOne, execute } from '../database/db';
 import { 
   requireAuth, 
@@ -655,7 +654,7 @@ router.get('/products', requireAuth, async (req: Request, res: Response) => {
 });
 
 // Download Sample Spreadsheet Template
-router.get('/products/sample-template', requireAuth, (req: Request, res: Response) => {
+router.get('/products/sample-template', requireAuth, async (req: Request, res: Response) => {
   const sampleData = [
     {
       'Product Name': 'CIMERWA Cement 32.5R (50kg)',
@@ -699,6 +698,7 @@ router.get('/products/sample-template', requireAuth, (req: Request, res: Respons
     }
   ];
 
+  const XLSX = await import('xlsx');
   const ws = XLSX.utils.json_to_sheet(sampleData);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Products');
@@ -723,6 +723,7 @@ router.post('/products/import-excel', requirePermission('can_manage_stock'), upl
   }
 
   try {
+    const XLSX = await import('xlsx');
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];

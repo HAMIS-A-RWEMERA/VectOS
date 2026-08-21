@@ -151,9 +151,19 @@
 
               <!-- Status -->
               <td class="py-4 px-4 text-center">
-                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase <%= u.is_active ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20' %>">
-                  <%= u.is_active ? 'Active' : 'Deactivated' %>
-                </span>
+                <% if (!u.is_active) { %>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                    Deactivated
+                  </span>
+                <% } else if (u.activation_status === 'pending_approval') { %>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
+                    Pending Activation
+                  </span>
+                <% } else { %>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    Active
+                  </span>
+                <% } %>
               </td>
 
               <!-- Actions -->
@@ -166,7 +176,7 @@
                     <span>Edit Checklists</span>
                   </button>
 
-                  <% if (u.id !== user.id && u.role !== 'superadmin') { %>
+                  <% if (u.id !== user.id && u.role !== 'superadmin' && (u.role === 'employee' || user.role === 'superadmin')) { %>
                     <form action="/users/delete/<%= u.id %>" method="POST" onsubmit="return confirm('Are you sure you want to deactivate/remove <%= u.name %>?')" class="inline">
                       <button type="submit" class="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all cursor-pointer" title="Deactivate / Remove">
                         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>

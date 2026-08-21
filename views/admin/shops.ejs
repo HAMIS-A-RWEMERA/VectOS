@@ -325,6 +325,14 @@
                         </button>
                       </form>
                     <% } %>
+
+                    <form action="/admin/users/reset-password/<%= u.id %>" method="POST" class="inline"
+                      onsubmit="var p = prompt('Optional: type a new password for <%= u.name %> (leave empty to auto-generate a temporary one):', ''); if (p === null) return false; this.new_password.value = p; return true;">
+                      <input type="hidden" name="new_password" value="">
+                      <button type="submit" class="px-2.5 py-1 rounded-lg bg-[#1E232E] hover:bg-[#2B313E] text-slate-300 hover:text-white border border-[#2B313E] font-semibold text-[11px] transition-all cursor-pointer" title="Reset password and reactivate account">
+                        Reset Password
+                      </button>
+                    </form>
                   </div>
                 </td>
               </tr>
