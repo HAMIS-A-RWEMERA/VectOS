@@ -53,7 +53,7 @@ router.get('/login', async (req: Request, res: Response) => {
   if (req.session && req.session.user) {
     return res.redirect('/dashboard');
   }
-  const shops = await queryAll('SELECT id, name, code, location, status FROM shops WHERE status = "active" ORDER BY name ASC');
+  const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
   res.render('login', { error: null, shops });
 });
 
@@ -77,23 +77,23 @@ router.post('/login', async (req: Request, res: Response) => {
     `, [email]);
 
     if (!user) {
-      const shops = await queryAll('SELECT id, name, code, location, status FROM shops WHERE status = "active" ORDER BY name ASC');
+      const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
       return res.render('login', { error: 'Account not found. Please verify the email address.', shops });
     }
 
     if (Number(user.is_active) !== 1 || (user.activation_status && user.activation_status !== 'active')) {
-      const shops = await queryAll('SELECT id, name, code, location, status FROM shops WHERE status = "active" ORDER BY name ASC');
+      const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
       return res.render('login', { error: 'Your user account is inactive or pending approval. Please contact your manager or platform administrator.', shops });
     }
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
-      const shops = await queryAll('SELECT id, name, code, location, status FROM shops WHERE status = "active" ORDER BY name ASC');
+      const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
       return res.render('login', { error: 'Invalid password. Please check your credentials.', shops });
     }
 
     if (user.role !== 'superadmin' && user.shop_status === 'pending') {
-      const shops = await queryAll('SELECT id, name, code, location, status FROM shops WHERE status = "active" ORDER BY name ASC');
+      const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
       return res.render('login', { 
         error: 'Your Hardware Store registration is pending approval by the Platform Super Administrator. Access will be unlocked upon payment confirmation.', 
         shops 
@@ -101,7 +101,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     if (user.role !== 'superadmin' && user.shop_status === 'suspended') {
-      const shops = await queryAll('SELECT id, name, code, location, status FROM shops WHERE status = "active" ORDER BY name ASC');
+      const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
       return res.render('login', { 
         error: 'Your Hardware Store subscription is currently suspended. Please contact the platform admin for renewal.', 
         shops 
@@ -147,7 +147,7 @@ router.post('/login', async (req: Request, res: Response) => {
       }
     });
   } catch (err: any) {
-    const shops = await queryAll('SELECT id, name, code, location, status FROM shops WHERE status = "active" ORDER BY name ASC');
+    const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
     res.render('login', { error: 'Authentication error: ' + err.message, shops });
   }
 });
@@ -412,9 +412,9 @@ router.post('/admin/shops/approve/:id', requireSuperAdmin, async (req: Request, 
     const shop = await queryOne('SELECT * FROM shops WHERE id = ?', [shopId]);
     if (!shop) return res.status(404).send('Shop not found');
 
-    await execute('UPDATE shops SET status = "active" WHERE id = ?', [shopId]);
+    await execute("UPDATE shops SET status = 'active' WHERE id = ?", [shopId]);
     // Also activate the manager user
-    await execute('UPDATE users SET is_active = 1, activation_status = "active" WHERE shop_id = ? AND role = "manager"', [shopId]);
+    await execute("UPDATE users SET is_active = 1, activation_status = 'active' WHERE shop_id = ? AND role = 'manager'", [shopId]);
 
     await logAudit(req.session.user!.id, 'SUPERADMIN_APPROVE_SHOP', `SuperAdmin approved and activated company: "${shop.name}" (#${shopId})`, req, shopId);
 
@@ -439,7 +439,7 @@ router.post('/admin/shops/toggle-status/:id', requireSuperAdmin, async (req: Req
       await execute('UPDATE users SET is_active = 0 WHERE shop_id = ?', [shopId]);
     } else if (new_status === 'active') {
       // Reactivate manager
-      await execute('UPDATE users SET is_active = 1 WHERE shop_id = ? AND role = "manager"', [shopId]);
+      await execute("UPDATE users SET is_active = 1 WHERE shop_id = ? AND role = 'manager'", [shopId]);
     }
 
     await logAudit(req.session.user!.id, 'SUPERADMIN_STATUS_CHANGE', `SuperAdmin set company "${shop.name}" status to ${new_status.toUpperCase()} (Cascade applied to all staff accounts)`, req, shopId);
@@ -1985,7 +1985,7 @@ router.get('/users', requireManager, async (req: Request, res: Response) => {
       sql += ' WHERE shop_id = ?';
       params.push(shopId);
     }
-    sql += ' ORDER BY role = "manager" DESC, name ASC';
+    sql += " ORDER BY role = 'manager' DESC, name ASC";
 
     const users = await queryAll(sql, params);
     res.render('users', { user, users, msg: req.query.msg || null });

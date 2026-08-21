@@ -7,6 +7,11 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
+// Postgres returns NUMERIC/BIGINT as strings by default, which breaks
+// arithmetic in dashboards/reports (string concatenation). Parse them as numbers.
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
+pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
+
 // Resolve a writable location for the SQLite file. On serverless platforms
 // (Netlify Lambda) process.cwd() is read-only, so fall back to /tmp.
 function resolveDbFile(): string {
