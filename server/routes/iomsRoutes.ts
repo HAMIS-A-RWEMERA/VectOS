@@ -462,6 +462,11 @@ router.post('/admin/users/toggle-activation/:id', requireSuperAdmin, async (req:
     const targetUser = await queryOne('SELECT u.*, s.name as shop_name FROM users u LEFT JOIN shops s ON u.shop_id = s.id WHERE u.id = ?', [userId]);
     if (!targetUser) return res.status(404).send('User not found');
 
+    // Prevent the SuperAdmin from deactivating their own account
+    if (targetUser.id === req.session.user!.id && new_status !== 'active') {
+      return res.redirect('/admin/shops?msg=You+cannot+deactivate+your+own+superadmin+account');
+    }
+
     const isActive = new_status === 'active' ? 1 : 0;
     await execute(
       'UPDATE users SET is_active = ?, activation_status = ?, activation_note = ? WHERE id = ?',
@@ -2097,6 +2102,17 @@ router.post('/users/edit/:id', requireManager, async (req: Request, res: Respons
       return res.status(403).send('Forbidden');
     }
 
+    // Managers may only manage EMPLOYEE accounts: they can never edit,
+    // deactivate or lock out manager/superadmin accounts (including their own).
+    // Only the VectOS SuperAdmin controls those.
+    if (currentUser.role !== 'superadmin' && target.role !== 'employee') {
+      return res.status(403).render('error', {
+        title: 'Action Prohibited',
+        message: 'Only the VectOS Administrator can modify manager accounts. You can manage employee accounts only.',
+        path: req.path
+      });
+    }
+
     let passwordClause = '';
     const params: any[] = [
       name.trim(),
@@ -2167,6 +2183,24 @@ router.post('/users/delete/:id', requireManager, async (req: Request, res: Respo
   try {
     const targetUser = await queryOne('SELECT * FROM users WHERE id = ?', [targetId]);
     if (!targetUser) return res.status(404).send('User not found.');
+
+    const currentUser = req.session.user!;
+    const shopId = getActiveShopId(req);
+
+    // Security check: non-superadmin cannot remove users from other shops
+    if (currentUser.role !== 'superadmin' && targetUser.shop_id !== shopId) {
+      return res.status(403).send('Forbidden');
+    }
+
+    // Managers may only remove EMPLOYEE accounts. Manager and superadmin
+    // accounts can only be deactivated or deleted by the VectOS SuperAdmin.
+    if (currentUser.role !== 'superadmin' && targetUser.role !== 'employee') {
+      return res.status(403).render('error', {
+        title: 'Action Prohibited',
+        message: 'Only the VectOS Administrator can deactivate or delete manager accounts.',
+        path: req.path
+      });
+    }
 
     try {
       await execute('DELETE FROM users WHERE id = ?', [targetId]);

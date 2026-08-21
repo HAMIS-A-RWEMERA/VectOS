@@ -289,24 +289,28 @@
                 </td>
 
                 <td class="py-3.5 px-4 text-center">
-                  <% if (u.activation_status === 'active') { %>
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      Active
+                  <% if (!u.is_active) { %>
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                      Deactivated
                     </span>
                   <% } else if (u.activation_status === 'pending_approval') { %>
                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
                       Pending Activation
                     </span>
-                  <% } else { %>
+                  <% } else if (u.activation_status === 'suspended') { %>
                     <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
                       Suspended
+                    </span>
+                  <% } else { %>
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Active
                     </span>
                   <% } %>
                 </td>
 
                 <td class="py-3.5 px-4 text-right">
                   <div class="flex items-center justify-end space-x-2">
-                    <% if (u.activation_status !== 'active') { %>
+                    <% if (!u.is_active || u.activation_status !== 'active') { %>
                       <form action="/admin/users/toggle-activation/<%= u.id %>" method="POST" class="inline">
                         <input type="hidden" name="new_status" value="active">
                         <button type="submit" class="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] shadow transition-all cursor-pointer">
