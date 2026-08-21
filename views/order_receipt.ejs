@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Receipt <%= order.order_number %> — Quincaille Kigali</title>
+  <title>Receipt <%= order.order_number %> — VectOS Kigali</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @page {
@@ -157,7 +157,7 @@
     <!-- Footer Notice -->
     <div class="pt-3 text-center text-[10px] text-slate-600 space-y-1">
       <p class="font-bold">Goods verified upon dispatch.</p>
-      <p class="italic">"Thank you for choosing Quincaille Kigali!"</p>
+        <p class="italic">"Thank you for choosing <%= typeof shop !== 'undefined' && shop ? shop.name : 'VectOS' %>!"</p>
       <p class="text-[9px] text-slate-500 pt-1">*** System Generated Official Slip ***</p>
     </div>
 
@@ -226,7 +226,7 @@
         let escBoldOff = new Uint8Array([0x1B, 0x45, 0x00]);
         let escFeedCut = new Uint8Array([0x1D, 0x56, 0x41, 0x10]); // Cut paper
 
-        let headerText = encoder.encode("QUINCAILLE KIGALI\nConstruction & Hardware Depot\nGikondo Industrial Zone, Kigali\nTel: +250 788 100 001\n--------------------------------\n");
+        let headerText = encoder.encode(<%- JSON.stringify((typeof shop !== 'undefined' && shop ? [String(shop.name || 'VECTOS STORE').toUpperCase(), shop.business_type || 'Hardware & Electronics Depot', shop.location || '', (shop.phone ? 'Tel: ' + shop.phone : '')] : ['VECTOS STORE']).filter(Boolean).join('\n') + '\n--------------------------------\n') %>);
         let bodyText = encoder.encode(`RECEIPT: <%= order.order_number %>\nDATE: ${new Date("<%= order.created_at %>").toLocaleDateString()}\nCLIENT: <%= order.customer_name %>\n--------------------------------\n`);
         
         let itemsTextStr = "";

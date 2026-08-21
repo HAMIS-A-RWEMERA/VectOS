@@ -1,7 +1,7 @@
 {
-  "name": "Quincaille IOMS — Kigali Construction ERP",
-  "short_name": "Quincaille",
-  "description": "Enterprise Inventory & Order Management System for Kigali Hardware Depots",
+  "name": "VectOS — Depot ERP",
+  "short_name": "VectOS",
+  "description": "Operating System for Hardware & Electronics Depots in Rwanda: inventory, sales, receipts, staff and multi-store management.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0D0F12",

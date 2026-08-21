@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quincaille-v1';
+const CACHE_NAME = 'vectos-v1';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',

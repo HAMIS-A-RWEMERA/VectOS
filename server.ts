@@ -101,13 +101,13 @@ app.get('/', (req: Request, res: Response) => {
   return res.redirect('/login');
 });
 
-// Mount Quincaille IOMS routes
+ // Mount VectOS application routes
 app.use('/', iomsRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
   res.status(404).render('error', {
-    title: '404 Page Not Found — Quincaille IOMS',
+    title: '404 Page Not Found — VectOS',
     message: 'The requested resource or page could not be located in the system.',
     path: req.path
   });
@@ -117,7 +117,7 @@ app.use((req: Request, res: Response) => {
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('Server Error:', err);
   res.status(500).render('error', {
-    title: 'System Server Error — Quincaille IOMS',
+    title: 'System Server Error — VectOS',
     message: err.message || 'An unexpected operational error occurred.',
     path: req.path
   });
@@ -134,7 +134,7 @@ getDb()
 
 if (process.env.NETLIFY !== 'true' && process.env.AWS_LAMBDA_FUNCTION_NAME === undefined) {
   const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🏗️ Quincaille IOMS Kigali running at http://0.0.0.0:${PORT}`);
+    console.log(`🏗️ VectOS running at http://0.0.0.0:${PORT}`);
   });
 
   server.on('error', (err: any) => {

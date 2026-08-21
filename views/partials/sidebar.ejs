@@ -9,7 +9,7 @@
       <div>
         <div class="flex items-center space-x-2">
           <span class="font-black text-sm sm:text-base tracking-wide text-white group-hover:text-amber-400 transition-colors uppercase">
-            <%= typeof shop !== 'undefined' && shop ? shop.name : 'QUINCAILLE IOMS' %>
+            <%= typeof shop !== 'undefined' && shop ? shop.name : 'VECTOS' %>
           </span>
           <% if (typeof shop !== 'undefined' && shop && shop.tin_number) { %>
             <span class="hidden md:inline-block px-1.5 py-0.2 rounded bg-amber-500/10 border border-amber-500/20 text-[9px] font-mono font-bold text-amber-400">
@@ -27,7 +27,7 @@
     </a>
   </div>
 
-  <!-- SuperAdmin Support Mode Alert Bar (if assisting a specific Quincaille) -->
+  <!-- SuperAdmin Support Mode Alert Bar (if assisting a specific client store) -->
   <% if (typeof isSuperAdminAssisting !== 'undefined' && isSuperAdminAssisting && user.role === 'superadmin') { %>
     <div class="bg-amber-500/20 border border-amber-500/40 px-3 py-1 rounded-xl flex items-center space-x-2 text-xs text-amber-300">
       <i data-lucide="life-buoy" class="w-4 h-4 text-amber-400 shrink-0"></i>
@@ -199,7 +199,7 @@
     <!-- Sidebar Footer Badge -->
     <div class="p-3.5 border-t border-[#222732] bg-[#0F1116]">
       <div class="flex items-center justify-between text-[10px] text-slate-500">
-        <span class="truncate max-w-[130px] font-semibold"><%= typeof shop !== 'undefined' && shop ? shop.name : 'Quincaille ERP' %></span>
+        <span class="truncate max-w-[130px] font-semibold"><%= typeof shop !== 'undefined' && shop ? shop.name : 'Vectos ERP' %></span>
         <span class="font-mono text-amber-500/80">v2.1</span>
       </div>
     </div>
