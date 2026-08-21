@@ -49,41 +49,11 @@
         <a href="/forgot-password" class="text-xs text-slate-400 hover:text-amber-400 transition-colors">Forgot your password?</a>
       </div>
 
-      <!-- Quick Demo Access Credentials Chips -->
-      <div class="p-3.5 bg-[#171B22] border border-[#2B313E] rounded-xl space-y-2.5">
-        <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider text-center">Quick Demo Profiles (Password: <code class="text-amber-300 font-mono">password123</code>)</p>
-        <div class="grid grid-cols-2 gap-1.5 text-xs">
-          <button type="button" onclick="fillCreds('admin@vectos.co.rw')" class="text-left px-2.5 py-1.5 bg-[#1F242D] hover:bg-amber-500/20 hover:border-amber-500/40 border border-[#303744] rounded-lg transition-all">
-            <span class="block text-[11px] font-bold text-amber-400">SuperAdmin</span>
-            <span class="block text-[10px] text-slate-400 truncate">admin@vectos.co.rw</span>
-          </button>
-          <button type="button" onclick="fillCreds('manager@quincaille.rw')" class="text-left px-2.5 py-1.5 bg-[#1F242D] hover:bg-amber-500/20 hover:border-amber-500/40 border border-[#303744] rounded-lg transition-all">
-            <span class="block text-[11px] font-bold text-emerald-400">Manager</span>
-            <span class="block text-[10px] text-slate-400 truncate">manager@quincaille.rw</span>
-          </button>
-          <button type="button" onclick="fillCreds('sales@quincaille.rw')" class="text-left px-2.5 py-1.5 bg-[#1F242D] hover:bg-amber-500/20 hover:border-amber-500/40 border border-[#303744] rounded-lg transition-all">
-            <span class="block text-[11px] font-bold text-blue-400">Salesperson</span>
-            <span class="block text-[10px] text-slate-400 truncate">sales@quincaille.rw</span>
-          </button>
-          <button type="button" onclick="fillCreds('accountant@quincaille.rw')" class="text-left px-2.5 py-1.5 bg-[#1F242D] hover:bg-amber-500/20 hover:border-amber-500/40 border border-[#303744] rounded-lg transition-all">
-            <span class="block text-[11px] font-bold text-violet-400">Accountant</span>
-            <span class="block text-[10px] text-slate-400 truncate">accountant@quincaille.rw</span>
-          </button>
-        </div>
-      </div>
-
-      <script>
-        function fillCreds(email) {
-          document.getElementById('email').value = email;
-          document.getElementById('password').value = 'password123';
-        }
-      </script>
-
-      <!-- Register New Depot Link & Transparent Pricing Callout -->
+      <!-- Register New Depot Link -->
       <div class="p-4 bg-gradient-to-b from-[#181D26] to-[#141820] border border-[#2B313E] rounded-xl text-center space-y-2">
         <p class="text-xs font-bold text-white">Own a Hardware (Quincaillerie) or Electronics Store?</p>
         <p class="text-[11px] text-slate-400">
-          Starter Plan starts at <strong class="text-amber-400">RWF 20,000 / month</strong> (RWF 15,000 base + RWF 5,000/account + RWF 5,000/stock).
+          Register your company and get a private portal with inventory, sales, and receipt printing — flexible billing arranged directly with the VectOS team.
         </p>
         <div class="pt-1">
           <a href="/register-shop" class="inline-flex items-center space-x-1.5 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold transition-all">

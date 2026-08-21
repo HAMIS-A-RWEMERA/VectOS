@@ -157,67 +157,6 @@ router.get('/forgot-password', (req: Request, res: Response) => {
   res.render('forgot_password', { error: null });
 });
 
-// Quick 1-Click Role Login for instant testing & demonstrations
-router.get('/quick-login/:role', async (req: Request, res: Response) => {
-  const targetRole = req.params.role.toLowerCase();
-  try {
-    let email = 'manager@quincaille.rw';
-    if (targetRole === 'superadmin') email = 'admin@quincaille.rw';
-    else if (targetRole === 'salesperson') email = 'sales@quincaille.rw';
-    else if (targetRole === 'accountant') email = 'accountant@quincaille.rw';
-    else if (targetRole === 'storekeeper') email = 'store@quincaille.rw';
-
-    const user = await queryOne(`
-      SELECT u.*, s.name as shop_name, s.status as shop_status 
-      FROM users u
-      LEFT JOIN shops s ON u.shop_id = s.id
-      WHERE u.email = ? AND u.is_active = 1
-    `, [email]);
-
-    if (!user) {
-      return res.redirect('/login');
-    }
-
-    req.session.user = {
-      id: user.id,
-      shop_id: user.shop_id,
-      shop_name: user.shop_name || 'Central Platform',
-      shop_status: user.shop_status || 'active',
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      job_title: user.job_title || user.role,
-      phone: user.phone,
-      can_create_orders: user.can_create_orders,
-      can_process_payments: user.can_process_payments,
-      can_release_stock: user.can_release_stock,
-      can_manage_stock: user.can_manage_stock,
-      can_import_export_stock: user.can_import_export_stock,
-      can_partner_borrow: user.can_partner_borrow,
-      can_view_buying_prices: user.can_view_buying_prices,
-      can_give_discounts: user.can_give_discounts,
-      can_view_reports: user.can_view_reports,
-      can_manage_users: user.can_manage_users,
-      can_print_full_receipt: user.can_print_full_receipt,
-      can_print_delivery_note: user.can_print_delivery_note,
-      can_manage_customers: user.can_manage_customers,
-      can_manage_partners: user.can_manage_partners,
-      can_void_orders: user.can_void_orders,
-      can_edit_company_settings: user.can_edit_company_settings
-    };
-
-    req.session.save(() => {
-      if (user.role === 'superadmin') {
-        res.redirect('/admin/shops');
-      } else {
-        res.redirect('/dashboard');
-      }
-    });
-  } catch (err) {
-    res.redirect('/login');
-  }
-});
-
 // Self-Service Shop Registration Form
 router.get('/register-shop', (req: Request, res: Response) => {
   res.render('register_shop', { error: null, success: null });
@@ -339,7 +278,7 @@ router.post('/register-shop', async (req: Request, res: Response) => {
 
     res.render('register_shop', { 
       error: null, 
-      success: `Congratulations! "${shop_name}" has been registered on VectOS. Your plan is configured for RWF ${monthlyFee.toLocaleString()}/month (${accountsNum} staff account(s) and ${stocksNum} warehouse location(s)). Access will be unlocked by the VectOS Administrator upon subscription confirmation.` 
+      success: `Congratulations! "${shop_name}" has been registered on VectOS with ${accountsNum} staff account(s) and ${stocksNum} warehouse location(s). The VectOS team will contact you to arrange your preferred payment plan, and your access will be unlocked upon review.` 
     });
   } catch (err: any) {
     res.render('register_shop', { error: 'Registration error: ' + err.message, success: null });
@@ -533,6 +472,15 @@ router.post('/admin/users/toggle-activation/:id', requireSuperAdmin, async (req:
     if (targetUser.role === 'manager' && new_status !== 'active') {
       await execute('UPDATE users SET is_active = 0 WHERE shop_id = ?', [targetUser.shop_id]);
       await logAudit(req.session.user!.id, 'CASCADE_MANAGER_DEACTIVATION', `Manager ${targetUser.name} deactivated; cascaded suspension to all staff in "${targetUser.shop_name}"`, req, targetUser.shop_id);
+    }
+
+    // If this is a manager being reactivated, restore access for their previously-approved staff
+    if (targetUser.role === 'manager' && new_status === 'active') {
+      await execute(
+        "UPDATE users SET is_active = 1 WHERE shop_id = ? AND id <> ? AND activation_status = 'active'",
+        [targetUser.shop_id, userId]
+      );
+      await logAudit(req.session.user!.id, 'CASCADE_MANAGER_REACTIVATION', `Manager ${targetUser.name} reactivated; restored access for approved staff in "${targetUser.shop_name}"`, req, targetUser.shop_id);
     }
 
     await logAudit(req.session.user!.id, 'SUPERADMIN_USER_ACTIVATION', `SuperAdmin set user ${targetUser.name} (${targetUser.email}) activation to ${new_status.toUpperCase()}`, req, targetUser.shop_id);
@@ -2076,7 +2024,7 @@ router.post('/users/add', requireManager, async (req: Request, res: Response) =>
         can_partner_borrow, can_view_buying_prices, can_give_discounts, can_view_reports, can_manage_users,
         can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners,
         can_void_orders, can_edit_company_settings
-      ) VALUES (?, ?, ?, ?, 'employee', ?, ?, 0, 'pending_approval', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, 'employee', ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         shopId,
         name.trim(),
@@ -2104,7 +2052,7 @@ router.post('/users/add', requireManager, async (req: Request, res: Response) =>
     );
 
     await logAudit(currentUser.id, 'USER_CREATE', `Created employee account "${name}" (pending SuperAdmin activation)`, req, shopId);
-    res.redirect('/users?msg=Employee+account+created.+It+is+PENDING+until+the+VectOS+Super+Administrator+activates+it.');
+    res.redirect('/users?msg=Employee+account+created+and+activated+successfully');
   } catch (err: any) {
     res.status(500).render('error', { title: 'User Creation Error', message: err.message, path: req.path });
   }

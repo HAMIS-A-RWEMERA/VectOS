@@ -39,8 +39,8 @@
           <div class="p-3 bg-[#171C24] rounded-xl border border-[#2B313E] text-[11px] text-slate-300 space-y-1">
             <p class="font-bold text-amber-400">Next Steps for Activation:</p>
             <p>1. The VectOS Administrator will review your account and warehouse setup.</p>
-            <p>2. Subscription fees (Base RWF 15,000 + RWF 5,000/account + RWF 5,000/stock) will be settled with VectOS support.</p>
-            <p>3. Your account will be activated immediately to start logging inventory, sales, and printing receipts.</p>
+            <p>2. The VectOS team will contact you to arrange your preferred payment plan (monthly, one-time, or trial period).</p>
+            <p>3. Your account will be activated so you can start logging inventory, sales, and printing receipts.</p>
           </div>
           <div class="pt-2">
             <a href="/login" class="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-lg">
@@ -136,36 +136,13 @@
             </div>
           </div>
 
-          <!-- Section 3: VectOS Transparent Pricing & Scale Calculator -->
+          <!-- Section 3: Operational Setup -->
           <div class="border-b border-[#222732] pb-6 space-y-4">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
-                <i data-lucide="calculator" class="w-4 h-4"></i>
-                <span>3. Subscription & Multi-Stock Configuration</span>
-              </div>
-              <span class="text-[10px] text-slate-400 font-mono">Transparent Billing Formula</span>
+            <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
+              <i data-lucide="calculator" class="w-4 h-4"></i>
+              <span>3. Operational Setup</span>
             </div>
 
-            <!-- Pricing Breakdown Pill Grid -->
-            <div class="grid grid-cols-3 gap-2.5 text-center">
-              <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl">
-                <span class="text-[10px] text-slate-400 font-semibold block">Business Base</span>
-                <span class="font-bold text-white font-mono text-xs mt-0.5">RWF 15,000</span>
-                <span class="text-[9px] text-slate-500 block">per shop / mo</span>
-              </div>
-              <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl">
-                <span class="text-[10px] text-slate-400 font-semibold block">Per Staff User</span>
-                <span class="font-bold text-amber-400 font-mono text-xs mt-0.5">+ RWF 5,000</span>
-                <span class="text-[9px] text-slate-500 block">per user / mo</span>
-              </div>
-              <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl">
-                <span class="text-[10px] text-slate-400 font-semibold block">Per Warehouse</span>
-                <span class="font-bold text-emerald-400 font-mono text-xs mt-0.5">+ RWF 5,000</span>
-                <span class="text-[9px] text-slate-500 block">per stock / mo</span>
-              </div>
-            </div>
-
-            <!-- Interactive Inputs -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block font-semibold text-slate-300 mb-1.5">
@@ -190,30 +167,14 @@
               </div>
             </div>
 
-            <!-- Real-time Monthly Total Display -->
-            <div class="p-4 rounded-xl bg-gradient-to-r from-amber-500/15 via-slate-900 to-[#1A1E26] border border-amber-500/30 flex items-center justify-between">
-              <div>
-                <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Estimated Monthly Subscription:</span>
-                <span class="text-[10px] text-slate-400" id="calculationBreakdown">
-                  RWF 15,000 (Base) + 1 Account (RWF 5,000) + 1 Stock (RWF 5,000)
-                </span>
-              </div>
-              <div class="text-right font-mono">
-                <span class="text-xl sm:text-2xl font-black text-amber-400 block" id="totalMonthlyDisplay">
-                  RWF 25,000
-                </span>
-                <span class="text-[10px] text-slate-400">per month</span>
-              </div>
-            </div>
-
-            <!-- Periodic & Flexible Usage Info -->
+            <!-- Flexible Billing Info -->
             <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl text-[11px] text-slate-400 space-y-1">
               <p class="font-bold text-slate-300 flex items-center space-x-1.5">
                 <i data-lucide="info" class="w-3.5 h-3.5 text-amber-400"></i>
-                <span>Flexible On-Demand Account Activations</span>
+                <span>Flexible Billing Arranged With You Directly</span>
               </p>
               <p class="leading-relaxed">
-                Need extra temporary staff accounts for specific periods (such as RRA tax declaration deadlines, peak seasonal demand, or weekend cashiers)? You can request ad-hoc account activations with the VectOS Administrator on-demand.
+                Payment terms are discussed and agreed privately with the VectOS team — monthly subscription, one-time purchase, or a free trial period. You can also request extra temporary staff accounts on-demand (seasonal peaks, RRA deadlines, weekend cashiers).
               </p>
             </div>
           </div>
@@ -234,31 +195,5 @@
     </div>
   </div>
 </div>
-
-<script>
-  function updatePricing() {
-    const accInput = document.getElementById('accountCount');
-    const stockInput = document.getElementById('stockCount');
-    const breakdown = document.getElementById('calculationBreakdown');
-    const totalDisplay = document.getElementById('totalMonthlyDisplay');
-
-    if (!accInput || !stockInput || !totalDisplay) return;
-
-    const accounts = Math.max(1, parseInt(accInput.value) || 1);
-    const stocks = Math.max(1, parseInt(stockInput.value) || 1);
-
-    const baseFee = 15000;
-    const accountFee = accounts * 5000;
-    const stockFee = stocks * 5000;
-    const total = baseFee + accountFee + stockFee;
-
-    breakdown.textContent = `RWF 15,000 (Base) + ${accounts} Account(s) (RWF ${accountFee.toLocaleString()}) + ${stocks} Stock(s) (RWF ${stockFee.toLocaleString()})`;
-    totalDisplay.textContent = `RWF ${total.toLocaleString()}`;
-  }
-
-  document.getElementById('accountCount')?.addEventListener('input', updatePricing);
-  document.getElementById('stockCount')?.addEventListener('input', updatePricing);
-  updatePricing();
-</script>
 
 <%- include('partials/footer') %>
