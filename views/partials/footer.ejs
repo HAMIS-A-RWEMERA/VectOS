@@ -3,6 +3,13 @@
 </div>
 <% } %>
 
+<% if (typeof dbPersistent !== 'undefined' && !dbPersistent) { %>
+<div class="fixed bottom-0 left-0 right-0 z-[60] bg-rose-950/95 border-t border-rose-500/50 text-rose-200 text-[11px] font-semibold px-4 py-1.5 flex items-center justify-center gap-2">
+  <i data-lucide="database-zap" class="w-3.5 h-3.5 shrink-0"></i>
+  <span>WARNING: Temporary storage mode — all data resets on server restart. Set DATABASE_URL (Supabase) in Netlify environment variables, then clear-cache redeploy.</span>
+</div>
+<% } %>
+
 <!-- PWA Installation Banner & Offline Notification Toast -->
 <div id="pwaInstallBanner" class="hidden fixed bottom-4 right-4 z-50 max-w-sm bg-[#16191E] border border-amber-500/40 rounded-2xl p-4 shadow-2xl backdrop-blur-xl transition-all">
   <div class="flex items-start space-x-3">

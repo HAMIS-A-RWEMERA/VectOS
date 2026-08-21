@@ -61,6 +61,7 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
   res.locals.user = req.session?.user || null;
   res.locals.shop = null;
   res.locals.isSuperAdminAssisting = false;
+  res.locals.dbPersistent = isPostgres();
 
   if (req.session?.user) {
     try {

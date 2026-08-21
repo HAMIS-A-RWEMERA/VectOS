@@ -152,6 +152,11 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 });
 
+// Forgot Password — recovery instructions page
+router.get('/forgot-password', (req: Request, res: Response) => {
+  res.render('forgot_password', { error: null });
+});
+
 // Quick 1-Click Role Login for instant testing & demonstrations
 router.get('/quick-login/:role', async (req: Request, res: Response) => {
   const targetRole = req.params.role.toLowerCase();
@@ -475,6 +480,37 @@ router.post('/admin/shops/update-billing/:id', requireSuperAdmin, async (req: Re
     res.redirect('/admin/shops?msg=Billing+and+pricing+structure+updated');
   } catch (err: any) {
     res.status(500).render('error', { title: 'Billing Update Error', message: err.message, path: req.path });
+  }
+});
+
+// SuperAdmin: Reset a user's password (generates one-time temp password)
+router.post('/admin/users/reset-password/:id', requireSuperAdmin, async (req: Request, res: Response) => {
+  const targetId = parseInt(req.params.id, 10);
+  try {
+    const targetUser = await queryOne('SELECT * FROM users WHERE id = ?', [targetId]);
+    if (!targetUser) return res.status(404).send('User not found');
+
+    const provided = (req.body.new_password || '').trim();
+    let tempPassword: string;
+    if (provided.length >= 6) {
+      tempPassword = provided;
+    } else {
+      // Auto-generate a readable temporary password
+      const words = ['Kigali', 'Nyanza', 'Muhazi', 'Kivu', 'Gorilla', 'Akagera', 'Inyange', 'Umuganda'];
+      tempPassword = words[Math.floor(Math.random() * words.length)] + '-' + Math.floor(1000 + Math.random() * 9000) + '!';
+    }
+
+    const hashed = await bcrypt.hash(tempPassword, 10);
+    await execute(
+      "UPDATE users SET password = ?, is_active = 1, activation_status = 'active' WHERE id = ?",
+      [hashed, targetId]
+    );
+
+    await logAudit(req.session.user!.id, 'SUPERADMIN_PASSWORD_RESET', `SuperAdmin reset password for ${targetUser.name} (${targetUser.email})`, req, targetUser.shop_id);
+
+    res.redirect('/admin/shops?msg=' + encodeURIComponent(`Password reset for ${targetUser.name}. Temporary password: ${tempPassword} — share it securely; they must change it in Settings.`));
+  } catch (err: any) {
+    res.status(500).render('error', { title: 'Password Reset Error', message: err.message, path: req.path });
   }
 });
 
@@ -2035,12 +2071,12 @@ router.post('/users/add', requireManager, async (req: Request, res: Response) =>
     const hashed = await bcrypt.hash(password, 10);
     await execute(
       `INSERT INTO users (
-        shop_id, name, email, password, role, job_title, phone, is_active,
+        shop_id, name, email, password, role, job_title, phone, is_active, activation_status,
         can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
         can_partner_borrow, can_view_buying_prices, can_give_discounts, can_view_reports, can_manage_users,
         can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners,
         can_void_orders, can_edit_company_settings
-      ) VALUES (?, ?, ?, ?, 'employee', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, 'employee', ?, ?, 0, 'pending_approval', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         shopId,
         name.trim(),
@@ -2067,8 +2103,8 @@ router.post('/users/add', requireManager, async (req: Request, res: Response) =>
       ]
     );
 
-    await logAudit(currentUser.id, 'USER_CREATE', `Created employee account "${name}" with customized role permissions`, req, shopId);
-    res.redirect('/users?msg=Employee+account+created+successfully');
+    await logAudit(currentUser.id, 'USER_CREATE', `Created employee account "${name}" (pending SuperAdmin activation)`, req, shopId);
+    res.redirect('/users?msg=Employee+account+created.+It+is+PENDING+until+the+VectOS+Super+Administrator+activates+it.');
   } catch (err: any) {
     res.status(500).render('error', { title: 'User Creation Error', message: err.message, path: req.path });
   }
