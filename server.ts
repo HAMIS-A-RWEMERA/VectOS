@@ -165,7 +165,9 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 // Initialize database asynchronously in background
-const dbReady = getDb()
+// Resolves once schema + seed data are fully initialized (single-flight).
+// Exported so tests and tooling can await a ready database deterministically.
+export const dbReady = getDb()
   .then(() => {
     console.log('✅ Database initialized successfully');
   })

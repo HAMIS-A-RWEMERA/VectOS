@@ -1,9 +1,15 @@
 import request from 'supertest';
-import { app } from '../server';
+import { app, dbReady } from '../server';
 import { execute, queryOne } from '../server/database/db';
+
+/** Every helper awaits full schema+seed completion before touching flows. */
+async function waitForDb(): Promise<void> {
+  await dbReady;
+}
 
 /** Fetch a valid CSRF token by visiting any page (cookie + injected meta). */
 export async function getCsrf(agent: request.Agent): Promise<string> {
+  await waitForDb();
   const res = await agent.get('/login');
   const cookies: string[] = (res.headers['set-cookie'] as any) || [];
   for (const c of cookies) {
@@ -37,6 +43,7 @@ export interface TestShop {
 
 /** Registers a fresh shop + manager and activates both immediately. */
 export async function createTestShop(baseName: string): Promise<TestShop> {
+  await waitForDb();
   const suffix = Date.now() + '-' + (++shopCounter);
   const shopName = `${baseName} ${suffix}`;
   const managerEmail = `mgr-${baseName.toLowerCase().replace(/\s+/g, '')}-${suffix}@test.rw`;

@@ -74,7 +74,25 @@ export function formatPgSql(sql: string): string {
   return sql.replace(/\?/g, () => `$${index++}`);
 }
 
-export async function getDb(): Promise<SqlJsDatabase | null> {
+let dbInitPromise: Promise<SqlJsDatabase | null> | null = null;
+
+/**
+ * Returns a shared, single-flight initialization promise. Concurrent callers
+ * (e.g. an early HTTP request racing background startup) all await the SAME
+ * schema+seed run instead of interleaving their own — interleaving caused
+ * FOREIGN KEY failures and partially-seeded databases on slow machines/CI.
+ */
+export function getDb(): Promise<SqlJsDatabase | null> {
+  if (!dbInitPromise) {
+    dbInitPromise = initializeDb().catch((err) => {
+      dbInitPromise = null; // permit a clean retry after a genuine failure
+      throw err;
+    });
+  }
+  return dbInitPromise;
+}
+
+async function initializeDb(): Promise<SqlJsDatabase | null> {
   if (isPostgres()) {
     // In Postgres mode, ensure tables exist
     await initPostgresSchemaIfNeeded();
