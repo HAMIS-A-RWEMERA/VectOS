@@ -1,12 +1,11 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" class="h-full bg-[var(--c-app)] text-slate-100">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><%= typeof title !== 'undefined' ? title : 'VectOS' %></title>
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@0.546.0"></script>
+  <link rel="stylesheet" href="/styles/tailwind.css">
   <style>
     :root { --c-app:#0A0C0F; --c-panel:#13161C; --c-panel2:#181C24; --c-input:#1A1E26; --c-chip:#1E232E; --c-btn:#222834; --c-hover:#2A3140; --c-border:#222732; --c-border2:#2B313E; --c-divide:#1D222B; }
     [data-theme="light"] { --c-app:#f4f5f7; --c-panel:#ffffff; --c-panel2:#f8f9fb; --c-input:#ffffff; --c-chip:#eef0f4; --c-btn:#e8eaef; --c-hover:#dfe3ea; --c-border:#d8dce4; --c-border2:#cbd0da; --c-divide:#e5e8ee; }
@@ -37,7 +36,7 @@
 
     <form action="/verify-2fa" method="POST" class="space-y-4">
       <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
-      <input type="text" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" required autofocus
+      <input type="text" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢" required autofocus
         class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-4 text-center font-mono text-2xl font-black text-white tracking-[0.5em] focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
       <button type="submit"
         class="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-lg cursor-pointer transition-all">

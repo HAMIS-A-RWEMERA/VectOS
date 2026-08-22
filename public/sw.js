@@ -6,7 +6,7 @@
 //    ever sees a stale page while online (the bug that broke logins before).
 // 3. Cross-origin assets (Tailwind CDN, fonts, lucide) are never cached, so
 //    styling always comes straight from the source while online.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const PAGE_CACHE = `vectos-pages-${VERSION}`;
 const ASSET_CACHE = `vectos-assets-${VERSION}`;
 const OFFLINE_URL = '/offline.html';

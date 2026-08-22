@@ -59,7 +59,10 @@ if (isPostgres()) {
 }
 
 // Session configuration - works in both AI Studio iframe preview and Netlify.
-// In test runs (plain HTTP via supertest) cookies must be non-secure to round-trip.
+// Cookies are marked Secure ONLY when actually running in production (https),
+// mirroring the CSRF cookie policy: this keeps logins working over plain
+// http://local-network addresses while staying fully secure on Netlify.
+const isProdHttps = process.env.NODE_ENV === 'production';
 const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VECTOS_NO_LISTEN === '1';
 app.use(
   session({
@@ -69,8 +72,8 @@ app.use(
     saveUninitialized: false,
     proxy: true,
     cookie: {
-      secure: !isTestEnv,
-      sameSite: (isTestEnv ? 'lax' : 'none') as 'lax' | 'none',
+      secure: isProdHttps && !isTestEnv,
+      sameSite: ((isProdHttps && !isTestEnv) ? 'none' : 'lax') as 'lax' | 'none',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
@@ -109,8 +112,16 @@ if (process.env.NODE_ENV === 'production') {
 }
 app.set('views', path.join(process.cwd(), 'views'));
 
-// Static Assets Serving
-app.use(express.static(path.join(process.cwd(), 'public')));
+// Static Assets Serving (styles get short caching; icons/images longer)
+app.use(express.static(path.join(process.cwd(), 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.includes(`${path.sep}styles${path.sep}`)) {
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    } else if (/\.(png|jpe?g|svg|ico|woff2?)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=604800');
+    }
+  }
+}));
 app.use('/public', express.static(path.join(process.cwd(), 'public')));
 app.use('/src', express.static(path.join(process.cwd(), 'src')));
 

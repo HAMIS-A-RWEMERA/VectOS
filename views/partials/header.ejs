@@ -31,40 +31,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap" rel="stylesheet">
   
-  <!-- Tailwind CSS via CDN / Vite build -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            gold: {
-              400: '#E6CA65',
-              500: '#D4AF37',
-              600: '#B38F24'
-            },
-            brand: {
-              dark: '#0D0F12',
-              card: '#16191E',
-              border: '#2A2F38',
-              hover: '#222730'
-            }
-          },
-          fontFamily: {
-            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
-            display: ['"Playfair Display"', 'serif']
-          }
-        }
-      }
-    }
-  </script>
+  <!-- Tailwind CSS — pre-built static stylesheet (no runtime JIT compiler) -->
+  <link rel="stylesheet" href="/styles/tailwind.css">
 
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@0.546.0"></script>
+  <!-- Lucide Icons + htmx (deferred: never render-blocking) -->
+  <script defer src="https://unpkg.com/lucide@0.546.0"></script>
 
-  <!-- htmx for snappy partial updates without a frontend framework -->
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script>
     document.addEventListener('htmx:configRequest', function (evt) {
       var meta = document.querySelector('meta[name="csrf-token"]');

@@ -68,4 +68,23 @@ describe('Demo manager regression check', () => {
     expect(ord.status).toBe(302);
     expect(saved).toBeTruthy();
   });
+
+  it('manager can register new staff accounts', async () => {
+    const { agent, token } = await login('manager@quincaille.rw', 'password123');
+    const email = `newstaff-${Date.now()}@quincaille.rw`;
+    const res = await agent.post('/users/add').type('form').send({
+      name: 'New Staff Member',
+      email,
+      password: 'password123',
+      confirm_password: 'password123',
+      role: 'salesperson',
+      job_title: 'Counter Sales',
+      phone: '078' + String(Math.floor(Math.random() * 9000000) + 1000000),
+      can_create_orders: '1',
+      _csrf: token
+    });
+    expect(res.status).toBe(302);
+    const row = await queryOne<{ id: number }>('SELECT id FROM users WHERE email = ?', [email]);
+    expect(row).toBeTruthy();
+  });
 });
