@@ -365,12 +365,15 @@ export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase): Promise<void
           WHERE LOWER(TRIM(email)) = 'admin@quincaille.rw'
         `, [adminPass]);
       } else {
-        // Insert admin@vectos.co.rw
+        // Insert admin@vectos.co.rw — a PLATFORM superadmin belongs to no shop
+        // (shop_id stays NULL). Hardcoding shop_id = 1 here caused a FOREIGN
+        // KEY failure on freshly-initialized databases where shop 1 did not
+        // exist yet, aborting the entire seed process.
         db.run(`
-          INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status, shop_id,
-            can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow, 
-            can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings) 
-          VALUES (?, ?, ?, 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+          INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+            can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+            can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings)
+          VALUES (?, ?, ?, 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
         `, [
           'VectOS Super Admin',
           'admin@vectos.co.rw',
