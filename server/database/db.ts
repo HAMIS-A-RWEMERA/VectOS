@@ -30,11 +30,12 @@ let warnedReadOnly = false;
 
 let dbInstance: SqlJsDatabase | null = null;
 let pgPoolInstance: pg.Pool | null = null;
+let postgresAvailable = false;
 
 export function isPostgres(): boolean {
-  return Boolean(
-    process.env.DATABASE_URL || 
-    process.env.SUPABASE_DATABASE_URL || 
+  return postgresAvailable && Boolean(
+    process.env.DATABASE_URL ||
+    process.env.SUPABASE_DATABASE_URL ||
     process.env.SUPABASE_DB_URL
   );
 }
@@ -97,6 +98,24 @@ async function initializeDb(): Promise<SqlJsDatabase | null> {
     // In Postgres mode, ensure tables exist
     await initPostgresSchemaIfNeeded();
     return null;
+  }
+
+  // If DATABASE_URL is set but we haven't tested connectivity yet, try it
+  if (!postgresAvailable && (process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL)) {
+    try {
+      const pool = getPgPool();
+      await pool.query('SELECT 1');
+      postgresAvailable = true;
+      console.log('PostgreSQL connection successful — using remote database.');
+      await initPostgresSchemaIfNeeded();
+      return null;
+    } catch (err) {
+      const msg = (err as Error).message || String(err);
+      console.warn('PostgreSQL unreachable (' + msg + '), falling back to local sql.js.');
+      postgresAvailable = false;
+      pgPoolInstance = null;
+      // Fall through to sql.js below
+    }
   }
 
   if (dbInstance) {
