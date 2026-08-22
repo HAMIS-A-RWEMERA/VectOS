@@ -1,0 +1,28 @@
+name: Weekly Database Backup
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # every Monday 03:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump Postgres database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::notice::DATABASE_URL secret not set — skipping backup (app may be in local mode)."
+            exit 0
+          fi
+          pg_dump --no-owner --no-privileges "$DATABASE_URL" | gzip > vectos-backup-$(date +%Y%m%d).sql.gz
+          ls -lh vectos-backup-*.sql.gz
+      - name: Upload backup artifact (kept 90 days)
+        if: hashFiles('vectos-backup-*.sql.gz') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: vectos-db-backup
+          path: vectos-backup-*.sql.gz
+          retention-days: 90

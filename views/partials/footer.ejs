@@ -43,16 +43,14 @@
       lucide.createIcons();
     }
 
-    // Offline mode removed: any previously-installed service worker is
-    // unregistered and its caches purged so pages always load fresh.
+    // Offline mode: register the safe service worker (network-first pages,
+    // so online users always see fresh HTML/CSS). Any worker from an older
+    // cache version is replaced automatically on activation.
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function (regs) {
-        regs.forEach(function (r) { r.unregister(); });
-      });
-    }
-    if (window.caches && caches.keys) {
-      caches.keys().then(function (keys) {
-        keys.forEach(function (k) { caches.delete(k); });
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function (err) {
+          console.log('[SW] registration failed:', err);
+        });
       });
     }
 
@@ -92,6 +90,110 @@
     window.addEventListener('offline', updateOnlineStatus);
     updateOnlineStatus();
   });
+</script>
+
+<!-- ================================================================
+     VECTOS OFFLINE ENGINE — the business keeps working without
+     internet. While offline, any business form (stock adjustments,
+     customer registration, product adds, etc.) is saved on this
+     device and replayed automatically when connectivity returns.
+     The POS order screen has its own dedicated queue and is skipped.
+================================================================= -->
+<script>
+(function () {
+  var QUEUE_KEY = 'vectos_form_queue';
+
+  function getQueue() {
+    try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function setQueue(q) {
+    try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (e) {}
+  }
+  function csrfToken() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : '';
+  }
+
+  function toast(msg) {
+    var t = document.getElementById('offlineToast');
+    if (!t) return;
+    t.querySelector('span').textContent = msg;
+    t.classList.remove('hidden');
+    setTimeout(function () { t.classList.add('hidden'); }, 6000);
+  }
+
+  // Capture form submissions made while OFFLINE
+  document.addEventListener('submit', function (e) {
+    if (navigator.onLine) return;
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    if (form.hasAttribute('data-no-offline')) return;
+    if (form.closest('#orderForm')) return;               // POS has its own queue
+    if ((form.getAttribute('action') || '').indexOf('/login') !== -1) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    var payload = {};
+    new FormData(form).forEach(function (v, k) {
+      if (k === '_csrf') return;
+      payload[k] = v;
+    });
+
+    var entry = {
+      url: form.getAttribute('action') || window.location.pathname,
+      payload: payload,
+      ref: Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      at: new Date().toISOString()
+    };
+    var q = getQueue();
+    q.push(entry);
+    setQueue(q);
+    toast('OFFLINE: saved on this device (' + q.length + ' pending). Will sync automatically.');
+  }, true);
+
+  // Replay captured submissions when back online
+  function syncQueue() {
+    if (!navigator.onLine) return;
+    var queue = getQueue();
+    if (!queue.length) return;
+    var remaining = [];
+    var delivered = 0;
+
+    var chain = Promise.resolve();
+    queue.forEach(function (entry) {
+      chain = chain.then(function () {
+        var body = new URLSearchParams(entry.payload);
+        body.set('_csrf', csrfToken());
+        return fetch(entry.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body
+        }).then(function (res) {
+          var bouncedToLogin = res.redirected && /\/login/.test(res.url || '');
+          if (res.ok && !bouncedToLogin) {
+            delivered++;
+          } else if (res.status === 404 || res.status === 400) {
+            console.warn('[Offline] dropping invalid entry for', entry.url);
+          } else {
+            remaining.push(entry); // auth expired or server hiccup — retry later
+          }
+        }).catch(function () {
+          remaining.push(entry);
+        });
+      });
+    });
+
+    chain.then(function () {
+      setQueue(remaining);
+      if (delivered > 0) toast(delivered + ' offline entr' + (delivered > 1 ? 'ies' : 'y') + ' synced successfully!');
+    });
+  }
+
+  window.addEventListener('online', syncQueue);
+  setInterval(syncQueue, 60000);
+  syncQueue();
+})();
 </script>
 </body>
 </html>
