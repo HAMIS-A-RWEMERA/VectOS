@@ -3,7 +3,7 @@
 
 <div class="space-y-6">
   <!-- Top Welcome Header -->
-  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#222732]">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--c-border)]">
     <div>
       <div class="flex items-center space-x-2">
         <h1 class="text-2xl md:text-3xl font-extrabold text-white tracking-tight font-display">
@@ -29,7 +29,7 @@
   <!-- KPI Metrics Grid -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
     <!-- Today's Sales -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
       <div class="flex items-center justify-between">
         <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Today's Sales</span>
         <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
@@ -47,7 +47,7 @@
     </div>
 
     <!-- Today's Profit (Guarded by Permission) -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
       <div class="flex items-center justify-between">
         <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">
           <%= (user.role === 'manager' || user.role === 'superadmin' || user.can_view_buying_prices || user.can_view_reports) ? "Today's Gross Profit" : "Dispatched Orders" %>
@@ -76,7 +76,7 @@
     </div>
 
     <!-- Total Inventory Value -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
       <div class="flex items-center justify-between">
         <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Inventory Valuation</span>
         <div class="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
@@ -94,7 +94,7 @@
     </div>
 
     <!-- Customer Receivables / Debts -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl relative overflow-hidden group hover:border-amber-500/40 transition-all">
       <div class="flex items-center justify-between">
         <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Outstanding Debts</span>
         <div class="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center">
@@ -115,7 +115,7 @@
   <!-- Operational Action Queues -->
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
     <!-- Storekeeper Pending Dispatch Queue -->
-    <a href="/storekeeper" class="p-5 rounded-2xl bg-[#13161C] border border-[#222732] hover:border-orange-500/50 transition-all flex items-center justify-between group">
+    <a href="/storekeeper" class="p-5 rounded-2xl bg-[var(--c-panel)] border border-[var(--c-border)] hover:border-orange-500/50 transition-all flex items-center justify-between group">
       <div class="flex items-center space-x-4">
         <div class="w-12 h-12 rounded-xl bg-orange-500/10 text-orange-400 flex items-center justify-center font-bold text-lg">
           <i data-lucide="warehouse" class="w-6 h-6"></i>
@@ -131,7 +131,7 @@
     </a>
 
     <!-- Accountant Rejected Resolution Queue -->
-    <a href="/accountant/rejected-items" class="p-5 rounded-2xl bg-[#13161C] border border-[#222732] hover:border-rose-500/50 transition-all flex items-center justify-between group">
+    <a href="/accountant/rejected-items" class="p-5 rounded-2xl bg-[var(--c-panel)] border border-[var(--c-border)] hover:border-rose-500/50 transition-all flex items-center justify-between group">
       <div class="flex items-center space-x-4">
         <div class="w-12 h-12 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center font-bold text-lg">
           <i data-lucide="refresh-cw" class="w-6 h-6"></i>
@@ -150,7 +150,7 @@
   <!-- Low Stock Alert Banner & Recent Activity -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Recent Orders (2 Columns) -->
-    <div class="lg:col-span-2 bg-[#13161C] border border-[#222732] rounded-2xl p-5 shadow-xl">
+    <div class="lg:col-span-2 bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="text-base font-bold text-white flex items-center space-x-2">
           <i data-lucide="shopping-cart" class="w-5 h-5 text-amber-500"></i>
@@ -163,7 +163,7 @@
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead>
-              <tr class="border-b border-[#222732] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              <tr class="border-b border-[var(--c-border)] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 <th class="py-3 px-3">Order No</th>
                 <th class="py-3 px-3">Customer</th>
                 <th class="py-3 px-3 text-right">Total (RWF)</th>
@@ -172,9 +172,9 @@
                 <th class="py-3 px-3 text-right">Action</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-[#1D222B] text-xs">
+            <tbody class="divide-y divide-[var(--c-divide)] text-xs">
               <% recentOrders.forEach(o => { %>
-                <tr class="hover:bg-[#1A1E26] transition-colors">
+                <tr class="hover:bg-[var(--c-input)] transition-colors">
                   <td class="py-3 px-3 font-mono font-bold text-amber-400"><%= o.order_number %></td>
                   <td class="py-3 px-3 text-white font-medium"><%= o.customer_name %></td>
                   <td class="py-3 px-3 text-right font-mono font-bold text-slate-200">
@@ -191,7 +191,7 @@
                     </span>
                   </td>
                   <td class="py-3 px-3 text-right">
-                    <a href="/orders/<%= o.id %>" class="px-2.5 py-1 rounded-lg bg-[#222834] hover:bg-[#2C3444] text-slate-300 font-medium transition-colors">
+                    <a href="/orders/<%= o.id %>" class="px-2.5 py-1 rounded-lg bg-[var(--c-btn)] hover:bg-[var(--c-hover)] text-slate-300 font-medium transition-colors">
                       View
                     </a>
                   </td>
@@ -206,7 +206,7 @@
     </div>
 
     <!-- Low Stock Alerts (1 Column) -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl flex flex-col justify-between">
       <div>
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-base font-bold text-white flex items-center space-x-2">
@@ -221,7 +221,7 @@
         <% if (lowStockProducts && lowStockProducts.length > 0) { %>
           <div class="space-y-3">
             <% lowStockProducts.forEach(p => { %>
-              <div class="p-3 rounded-xl bg-[#1A1E26] border border-[#2B313E] flex items-center justify-between">
+              <div class="p-3 rounded-xl bg-[var(--c-input)] border border-[var(--c-border2)] flex items-center justify-between">
                 <div>
                   <p class="text-xs font-bold text-white"><%= p.name %></p>
                   <p class="text-[10px] text-slate-400"><%= p.category %> • Threshold: <%= p.low_stock_threshold %> <%= p.unit %></p>
@@ -240,8 +240,8 @@
         <% } %>
       </div>
 
-      <div class="mt-6 pt-4 border-t border-[#222732]">
-        <a href="/products" class="w-full inline-flex justify-center items-center py-2.5 px-4 rounded-xl bg-[#1F242E] hover:bg-[#282F3D] text-xs font-bold text-white transition-colors">
+      <div class="mt-6 pt-4 border-t border-[var(--c-border)]">
+        <a href="/products" class="w-full inline-flex justify-center items-center py-2.5 px-4 rounded-xl bg-[var(--c-input)] hover:bg-[var(--c-hover)] text-xs font-bold text-white transition-colors">
           Manage Stock Levels &rarr;
         </a>
       </div>

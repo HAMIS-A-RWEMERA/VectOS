@@ -1,10 +1,18 @@
 import express, { Request, Response, NextFunction } from 'express';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import dotenv from 'dotenv';
 import iomsRoutes from './server/routes/iomsRoutes';
 import { getDb, isPostgres, getPgPool } from './server/database/db';
+import {
+  helmetMiddleware,
+  csrfEnsure,
+  csrfValidate,
+  htmlCsrfInjector,
+  twofaPending
+} from './server/security';
 
 dotenv.config();
 
@@ -17,6 +25,18 @@ app.use(express.urlencoded({ extended: true }));
 
 // Trust proxy for reverse proxy (Cloud Run / Netlify / AI Studio preview)
 app.set('trust proxy', true);
+
+// Security headers (CSP, HSTS, X-Frame-Options, ...)
+app.use(helmetMiddleware);
+
+// Cookie parsing (required for CSRF double-submit cookies)
+app.use(cookieParser());
+
+// CSRF: issue token cookie, expose to templates, inject into HTML forms
+app.use(csrfEnsure);
+app.use(htmlCsrfInjector);
+// CSRF: reject state-changing requests without a valid token
+app.use(csrfValidate);
 
 // Force req.headers['x-forwarded-proto'] = 'https' for express-session in proxy environment
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -39,7 +59,9 @@ if (isPostgres()) {
   }
 }
 
-// Session configuration - works in both AI Studio iframe preview and Netlify
+// Session configuration - works in both AI Studio iframe preview and Netlify.
+// In test runs (plain HTTP via supertest) cookies must be non-secure to round-trip.
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.VECTOS_NO_LISTEN === '1';
 app.use(
   session({
     store: sessionStore,
@@ -48,8 +70,8 @@ app.use(
     saveUninitialized: false,
     proxy: true,
     cookie: {
-      secure: true,
-      sameSite: 'none',
+      secure: !isTestEnv,
+      sameSite: (isTestEnv ? 'lax' : 'none') as 'lax' | 'none',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
@@ -101,6 +123,15 @@ app.get('/', (req: Request, res: Response) => {
   return res.redirect('/login');
 });
 
+// Two-factor verification gate: privileged users must complete TOTP challenge
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const allowed = ['/verify-2fa', '/logout', '/login', '/health'];
+  if (twofaPending(req) && !allowed.some((p) => req.path === p)) {
+    return res.redirect('/verify-2fa');
+  }
+  next();
+});
+
  // Mount VectOS application routes
 app.use('/', iomsRoutes);
 
@@ -124,7 +155,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 // Initialize database asynchronously in background
-getDb()
+const dbReady = getDb()
   .then(() => {
     console.log('✅ Database initialized successfully');
   })
@@ -132,7 +163,11 @@ getDb()
     console.error('Database initialization notice:', err);
   });
 
-if (process.env.NETLIFY !== 'true' && process.env.AWS_LAMBDA_FUNCTION_NAME === undefined) {
+if (
+  process.env.NETLIFY !== 'true' &&
+  process.env.AWS_LAMBDA_FUNCTION_NAME === undefined &&
+  process.env.VECTOS_NO_LISTEN !== '1'
+) {
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🏗️ VectOS running at http://0.0.0.0:${PORT}`);
   });

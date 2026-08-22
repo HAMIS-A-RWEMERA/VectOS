@@ -438,6 +438,8 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
       can_manage_partners INTEGER DEFAULT 0,
       can_void_orders INTEGER DEFAULT 0,
       can_edit_company_settings INTEGER DEFAULT 0,
+      twofa_secret TEXT,
+      twofa_enabled INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE,
       FOREIGN KEY (stock_id) REFERENCES stocks(id)
@@ -450,6 +452,7 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
       stock_id INTEGER DEFAULT 1,
       name TEXT NOT NULL,
       sku TEXT,
+      barcode TEXT,
       category TEXT NOT NULL,
       unit TEXT DEFAULT 'pcs',
       buying_price REAL NOT NULL CHECK(buying_price >= 0),
@@ -503,6 +506,7 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
       payment_status TEXT DEFAULT 'pending' CHECK(payment_status IN ('pending', 'paid', 'partial', 'debt')),
       fulfillment_status TEXT DEFAULT 'pending_store' CHECK(fulfillment_status IN ('pending_accountant', 'pending_store', 'resolving_rejected', 'completed', 'cancelled')),
       notes TEXT,
+      client_ref TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE,
       FOREIGN KEY (stock_id) REFERENCES stocks(id),
@@ -614,7 +618,19 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
     "ALTER TABLE payments ADD COLUMN shop_id INTEGER DEFAULT 1;",
     "ALTER TABLE inventory_movements ADD COLUMN shop_id INTEGER DEFAULT 1;",
     "ALTER TABLE inventory_movements ADD COLUMN stock_id INTEGER DEFAULT 1;",
-    "ALTER TABLE audit_logs ADD COLUMN shop_id INTEGER DEFAULT 1;"
+    "ALTER TABLE audit_logs ADD COLUMN shop_id INTEGER DEFAULT 1;",
+    // Security & feature migrations
+    "ALTER TABLE users ADD COLUMN twofa_secret TEXT;",
+    "ALTER TABLE users ADD COLUMN twofa_enabled INTEGER DEFAULT 0;",
+    "ALTER TABLE products ADD COLUMN barcode TEXT;",
+    "ALTER TABLE orders ADD COLUMN client_ref TEXT;",
+    `CREATE TABLE IF NOT EXISTS login_throttle (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      identity TEXT UNIQUE NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      locked_until DATETIME,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );`
   ];
 
   for (const q of migrationQueries) {

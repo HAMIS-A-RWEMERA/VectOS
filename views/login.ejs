@@ -1,6 +1,6 @@
 <%- include('partials/header', { title: 'Sign In — VectOS Depot ERP' }) %>
 
-<div class="min-h-screen bg-[#0A0C0F] flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8">
+<div class="min-h-screen bg-[var(--c-app)] flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8">
   <div class="sm:mx-auto sm:w-full sm:max-w-md text-center">
     <!-- VectOS Logo Icon -->
     <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 text-slate-950 font-black shadow-xl shadow-amber-500/20 mb-3">
@@ -11,7 +11,7 @@
   </div>
 
   <div class="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
-    <div class="bg-[#13161C] py-8 px-6 shadow-2xl rounded-2xl border border-[#222732] sm:px-10 space-y-6">
+    <div class="bg-[var(--c-panel)] py-8 px-6 shadow-2xl rounded-2xl border border-[var(--c-border)] sm:px-10 space-y-6">
       
       <% if (typeof error !== 'undefined' && error) { %>
         <div class="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start space-x-2.5">
@@ -26,7 +26,7 @@
           <div class="mt-1.5 relative">
             <input id="email" name="email" type="email" autocomplete="email" required
               placeholder="e.g. manager@yourcompany.rw"
-              class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all">
+              class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all">
           </div>
         </div>
 
@@ -35,7 +35,7 @@
           <div class="mt-1.5">
             <input id="password" name="password" type="password" required
               placeholder="••••••••"
-              class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all">
+              class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all">
           </div>
         </div>
 
@@ -51,14 +51,14 @@
 
       <!-- Demo Access (for live presentations) -->
       <div class="text-center pt-1">
-        <button type="button" onclick="fillDemo()" class="inline-flex items-center space-x-1.5 px-3 py-2 bg-[#1E232E] hover:bg-[#2B313E] text-slate-300 hover:text-white border border-[#2B313E] rounded-lg text-xs font-semibold transition-all cursor-pointer">
+        <button type="button" onclick="fillDemo()" class="inline-flex items-center space-x-1.5 px-3 py-2 bg-[var(--c-chip)] hover:bg-[var(--c-border2)] text-slate-300 hover:text-white border border-[var(--c-border2)] rounded-lg text-xs font-semibold transition-all cursor-pointer">
           <i data-lucide="play-circle" class="w-3.5 h-3.5 text-amber-400"></i>
           <span>Try the Live Demo</span>
         </button>
       </div>
 
       <!-- Register New Depot Link -->
-      <div class="p-4 bg-gradient-to-b from-[#181D26] to-[#141820] border border-[#2B313E] rounded-xl text-center space-y-2">
+      <div class="p-4 bg-gradient-to-b from-[var(--c-panel2)] to-[var(--c-panel2)] border border-[var(--c-border2)] rounded-xl text-center space-y-2">
         <p class="text-xs font-bold text-white">Own a Hardware (Quincaillerie) or Electronics Store?</p>
         <p class="text-[11px] text-slate-400">
           Register your company and get a private portal with inventory, sales, and receipt printing — flexible billing arranged directly with the VectOS team.

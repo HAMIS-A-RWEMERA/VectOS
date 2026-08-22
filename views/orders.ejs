@@ -3,7 +3,7 @@
 
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#222732]">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[var(--c-border)]">
     <div>
       <h1 class="text-2xl font-extrabold text-white tracking-tight font-display">
         Sales & Operational Orders
@@ -24,29 +24,29 @@
 
   <!-- Status Filter Bar -->
   <div class="flex items-center space-x-2 overflow-x-auto pb-2 text-xs">
-    <a href="/orders" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= !filterStatus ? 'bg-amber-500 text-slate-950' : 'bg-[#13161C] border border-[#222732] text-slate-300 hover:text-white' %>">
+    <a href="/orders" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= !filterStatus ? 'bg-amber-500 text-slate-950' : 'bg-[var(--c-panel)] border border-[var(--c-border)] text-slate-300 hover:text-white' %>">
       All Orders
     </a>
-    <a href="/orders?status=pending_store" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'pending_store' ? 'bg-amber-500 text-slate-950' : 'bg-[#13161C] border border-[#222732] text-slate-300 hover:text-white' %>">
+    <a href="/orders?status=pending_store" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'pending_store' ? 'bg-amber-500 text-slate-950' : 'bg-[var(--c-panel)] border border-[var(--c-border)] text-slate-300 hover:text-white' %>">
       Pending Store Dispatch
     </a>
-    <a href="/orders?status=resolving_rejected" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'resolving_rejected' ? 'bg-rose-500 text-white' : 'bg-[#13161C] border border-[#222732] text-slate-300 hover:text-white' %>">
+    <a href="/orders?status=resolving_rejected" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'resolving_rejected' ? 'bg-rose-500 text-white' : 'bg-[var(--c-panel)] border border-[var(--c-border)] text-slate-300 hover:text-white' %>">
       Rejected Items Action
     </a>
-    <a href="/orders?status=completed" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'completed' ? 'bg-emerald-500 text-slate-950' : 'bg-[#13161C] border border-[#222732] text-slate-300 hover:text-white' %>">
+    <a href="/orders?status=completed" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'completed' ? 'bg-emerald-500 text-slate-950' : 'bg-[var(--c-panel)] border border-[var(--c-border)] text-slate-300 hover:text-white' %>">
       Completed Orders
     </a>
-    <a href="/orders?status=debt" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'debt' ? 'bg-rose-500 text-white' : 'bg-[#13161C] border border-[#222732] text-slate-300 hover:text-white' %>">
+    <a href="/orders?status=debt" class="px-3.5 py-2 rounded-xl transition-all font-bold <%= filterStatus === 'debt' ? 'bg-rose-500 text-white' : 'bg-[var(--c-panel)] border border-[var(--c-border)] text-slate-300 hover:text-white' %>">
       Debt Payment Status
     </a>
   </div>
 
   <!-- Orders Table -->
-  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden">
+  <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl shadow-xl overflow-hidden">
     <div class="overflow-x-auto">
       <table class="w-full text-left border-collapse">
         <thead>
-          <tr class="border-b border-[#222732] bg-[#181C24] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+          <tr class="border-b border-[var(--c-border)] bg-[var(--c-panel2)] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             <th class="py-3.5 px-4">Order Number</th>
             <th class="py-3.5 px-4">Customer</th>
             <th class="py-3.5 px-4">Salesperson</th>
@@ -56,10 +56,10 @@
             <th class="py-3.5 px-4 text-right">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-[#1D222B] text-xs">
+        <tbody class="divide-y divide-[var(--c-divide)] text-xs">
           <% if (orders && orders.length > 0) { %>
             <% orders.forEach(o => { %>
-              <tr class="hover:bg-[#1A1E26] transition-colors">
+              <tr class="hover:bg-[var(--c-input)] transition-colors">
                 <td class="py-3.5 px-4 font-mono font-bold text-amber-400"><%= o.order_number %></td>
                 <td class="py-3.5 px-4 font-bold text-white"><%= o.customer_name %></td>
                 <td class="py-3.5 px-4 text-slate-300"><%= o.salesperson_name %></td>
@@ -77,7 +77,7 @@
                   </span>
                 </td>
                 <td class="py-3.5 px-4 text-right space-x-2">
-                  <a href="/orders/<%= o.id %>" class="px-2.5 py-1 rounded-lg bg-[#222834] hover:bg-[#2C3444] text-slate-200 font-semibold transition-colors">
+                  <a href="/orders/<%= o.id %>" class="px-2.5 py-1 rounded-lg bg-[var(--c-btn)] hover:bg-[var(--c-hover)] text-slate-200 font-semibold transition-colors">
                     Internal Details
                   </a>
                   <a href="/orders/<%= o.id %>/receipt" target="_blank" class="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-semibold transition-colors border border-amber-500/20">

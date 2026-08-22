@@ -1,0 +1,58 @@
+<% if (products && products.length > 0) { %>
+  <% products.forEach(p => { %>
+    <tr class="hover:bg-[var(--c-input)] transition-colors">
+      <td class="py-3.5 px-4 font-mono font-bold text-amber-400"><%= p.sku || 'PROD-' + String(p.id).padStart(4, '0') %></td>
+      <td class="py-3.5 px-4">
+        <p class="font-bold text-white"><%= p.name %></p>
+        <% if (p.description) { %>
+          <p class="text-[10px] text-slate-400 truncate max-w-xs"><%= p.description %></p>
+        <% } %>
+      </td>
+      <td class="py-3.5 px-4 text-slate-300">
+        <span class="px-2.5 py-1 rounded-lg bg-[var(--c-input)] border border-[var(--c-border2)] text-[10px] font-semibold text-slate-300">
+          <%= p.category %>
+        </span>
+      </td>
+      <td class="py-3.5 px-4 text-right font-mono font-bold text-slate-200">
+        <%= (p.buying_price || 0).toLocaleString('en-US') %>
+      </td>
+      <td class="py-3.5 px-4 text-center font-mono font-bold text-white text-sm">
+        <%= p.quantity %> <%= p.unit %>
+      </td>
+      <td class="py-3.5 px-4 text-center">
+        <% if (p.quantity === 0) { %>
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            Out of Stock
+          </span>
+        <% } else if (p.quantity <= p.low_stock_threshold) { %>
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            Low Stock (<%= p.quantity %>)
+          </span>
+        <% } else { %>
+          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            In Stock
+          </span>
+        <% } %>
+      </td>
+
+      <% if (user.role === 'storekeeper' || user.role === 'manager' || user.role === 'superadmin' || user.can_manage_stock || user.can_release_stock) { %>
+        <td class="py-3.5 px-4 text-right">
+          <button onclick="openStockModal('<%= p.id %>', '<%= p.name.replace(/'/g, "\\'") %>', '<%= p.quantity %>')"
+            class="px-2.5 py-1 rounded-lg bg-[var(--c-btn)] hover:bg-[var(--c-hover)] text-amber-400 font-semibold transition-colors cursor-pointer">
+            Adjust Stock
+          </button>
+        </td>
+      <% } %>
+    </tr>
+  <% }) %>
+<% } else { %>
+  <tr>
+    <td colspan="7" class="py-12 text-center text-slate-400 text-xs">
+      <div class="max-w-xs mx-auto space-y-2">
+        <i data-lucide="package-search" class="w-8 h-8 text-slate-600 mx-auto"></i>
+        <p class="font-bold text-slate-300">No products found matching your search.</p>
+        <p class="text-[11px] text-slate-500">You can upload hundreds of products at once via Bulk Excel Import.</p>
+      </div>
+    </td>
+  </tr>
+<% } %>

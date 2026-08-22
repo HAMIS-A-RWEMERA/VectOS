@@ -3,7 +3,7 @@
 
 <div class="space-y-6 max-w-7xl mx-auto">
   <!-- Top Banner: VectOS Global Administration -->
-  <div class="pb-4 border-b border-[#222732] flex flex-col md:flex-row md:items-center justify-between gap-4">
+  <div class="pb-4 border-b border-[var(--c-border)] flex flex-col md:flex-row md:items-center justify-between gap-4">
     <div>
       <div class="flex items-center space-x-3">
         <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20">
@@ -25,7 +25,7 @@
 
     <div class="flex items-center space-x-3">
       <a href="/register-shop" target="_blank"
-        class="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[#1F242E] hover:bg-[#2B313E] text-slate-200 border border-[#2B313E] font-bold text-xs transition-all">
+        class="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-[var(--c-input)] hover:bg-[var(--c-border2)] text-slate-200 border border-[var(--c-border2)] font-bold text-xs transition-all">
         <i data-lucide="external-link" class="w-4 h-4 text-amber-400"></i>
         <span>Public Registration Link</span>
       </a>
@@ -41,31 +41,31 @@
 
   <!-- Platform Revenue & Deployment KPIs -->
   <div class="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
-    <div class="bg-[#13161C] border border-[#222732] p-4 rounded-2xl">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] p-4 rounded-2xl">
       <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Registered Companies</span>
       <p class="text-2xl font-black text-white font-mono mt-1"><%= stats.totalShops %></p>
       <span class="text-[10px] text-slate-500">Active & Onboarding</span>
     </div>
 
-    <div class="bg-[#13161C] border border-emerald-500/20 p-4 rounded-2xl">
+    <div class="bg-[var(--c-panel)] border border-emerald-500/20 p-4 rounded-2xl">
       <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">Active Subscribed</span>
       <p class="text-2xl font-black text-emerald-400 font-mono mt-1"><%= stats.activeShops %></p>
       <span class="text-[10px] text-emerald-500/70">Operational Depots</span>
     </div>
 
-    <div class="bg-[#13161C] border border-amber-500/30 p-4 rounded-2xl bg-amber-500/5">
+    <div class="bg-[var(--c-panel)] border border-amber-500/30 p-4 rounded-2xl bg-amber-500/5">
       <span class="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">Pending Approvals</span>
       <p class="text-2xl font-black text-amber-400 font-mono mt-1"><%= stats.pendingShops %></p>
       <span class="text-[10px] text-amber-500/80 font-semibold"><%= stats.totalPendingStaff || 0 %> Staff Awaiting Activation</span>
     </div>
 
-    <div class="bg-[#13161C] border border-[#222732] p-4 rounded-2xl">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] p-4 rounded-2xl">
       <span class="text-[11px] font-bold text-amber-400 uppercase tracking-wider block">Monthly MRR (VectOS)</span>
       <p class="text-xl font-black text-amber-400 font-mono mt-1">RWF <%= (stats.totalMonthlyMRR || 0).toLocaleString('en-US') %></p>
       <span class="text-[10px] text-slate-500">Recurring SaaS Revenue</span>
     </div>
 
-    <div class="bg-[#13161C] border border-[#222732] p-4 rounded-2xl col-span-2 sm:col-span-1">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] p-4 rounded-2xl col-span-2 sm:col-span-1">
       <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Client GMV Volume</span>
       <p class="text-lg font-black text-white font-mono mt-1">RWF <%= (stats.platformSales || 0).toLocaleString('en-US') %></p>
       <span class="text-[10px] text-slate-500">Total Sales Processed</span>
@@ -73,7 +73,7 @@
   </div>
 
   <!-- SuperAdmin Assistance Notice -->
-  <div class="p-4 bg-gradient-to-r from-amber-500/10 via-slate-900 to-[#13161C] border border-amber-500/30 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+  <div class="p-4 bg-gradient-to-r from-amber-500/10 via-slate-900 to-[var(--c-panel)] border border-amber-500/30 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
     <div class="flex items-center space-x-3.5">
       <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
         <i data-lucide="life-buoy" class="w-5 h-5"></i>
@@ -88,8 +88,8 @@
   </div>
 
   <!-- Companies Table with Billing Breakdown -->
-  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden">
-    <div class="p-4 border-b border-[#222732] flex items-center justify-between">
+  <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl shadow-xl overflow-hidden">
+    <div class="p-4 border-b border-[var(--c-border)] flex items-center justify-between">
       <h3 class="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-2">
         <i data-lucide="building-2" class="w-4 h-4 text-amber-400"></i>
         <span>Registered Client Companies & Subscription Billing</span>
@@ -100,7 +100,7 @@
     <div class="overflow-x-auto">
       <table class="w-full text-left border-collapse text-xs">
         <thead>
-          <tr class="border-b border-[#222732] bg-[#181C24] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+          <tr class="border-b border-[var(--c-border)] bg-[var(--c-panel2)] text-[11px] font-bold text-slate-400 uppercase tracking-wider">
             <th class="py-3.5 px-4">Company Details</th>
             <th class="py-3.5 px-4">Manager Contact</th>
             <th class="py-3.5 px-4">TIN & Location</th>
@@ -110,9 +110,9 @@
             <th class="py-3.5 px-4 text-right">SuperAdmin Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-[#1D222B]">
+        <tbody class="divide-y divide-[var(--c-divide)]">
           <% shops.forEach(s => { %>
-            <tr class="hover:bg-[#1A1E26] transition-colors <%= s.status === 'pending' ? 'bg-amber-500/5' : '' %>">
+            <tr class="hover:bg-[var(--c-input)] transition-colors <%= s.status === 'pending' ? 'bg-amber-500/5' : '' %>">
               
               <!-- Company Name & Code -->
               <td class="py-4 px-4">
@@ -239,8 +239,8 @@
   </div>
 
   <!-- All Staff Accounts & Instant Activation Management Table -->
-  <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl overflow-hidden">
-    <div class="p-4 border-b border-[#222732] flex items-center justify-between">
+  <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl shadow-xl overflow-hidden">
+    <div class="p-4 border-b border-[var(--c-border)] flex items-center justify-between">
       <div>
         <h3 class="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-2">
           <i data-lucide="users" class="w-4 h-4 text-amber-400"></i>
@@ -256,7 +256,7 @@
     <div class="overflow-x-auto">
       <table class="w-full text-left border-collapse text-xs">
         <thead>
-          <tr class="border-b border-[#222732] bg-[#181C24] text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <tr class="border-b border-[var(--c-border)] bg-[var(--c-panel2)] text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <th class="py-3 px-4">User Name / Email</th>
             <th class="py-3 px-4">Assigned Company</th>
             <th class="py-3 px-4">Role & Job Title</th>
@@ -265,10 +265,10 @@
             <th class="py-3 px-4 text-right">SuperAdmin Action</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-[#1D222B]">
+        <tbody class="divide-y divide-[var(--c-divide)]">
           <% if (allUsers && allUsers.length > 0) { %>
             <% allUsers.forEach(u => { %>
-              <tr class="hover:bg-[#1A1E26] transition-colors <%= u.activation_status === 'pending_approval' ? 'bg-amber-500/5' : '' %>">
+              <tr class="hover:bg-[var(--c-input)] transition-colors <%= u.activation_status === 'pending_approval' ? 'bg-amber-500/5' : '' %>">
                 <td class="py-3.5 px-4">
                   <div class="font-bold text-white"><%= u.name %></div>
                   <div class="text-[11px] text-slate-400 font-mono"><%= u.email %> • <%= u.phone || 'No phone' %></div>
@@ -329,7 +329,7 @@
                     <form action="/admin/users/reset-password/<%= u.id %>" method="POST" class="inline"
                       onsubmit="var p = prompt('Optional: type a new password for <%= u.name %> (leave empty to auto-generate a temporary one):', ''); if (p === null) return false; this.new_password.value = p; return true;">
                       <input type="hidden" name="new_password" value="">
-                      <button type="submit" class="px-2.5 py-1 rounded-lg bg-[#1E232E] hover:bg-[#2B313E] text-slate-300 hover:text-white border border-[#2B313E] font-semibold text-[11px] transition-all cursor-pointer" title="Reset password and reactivate account">
+                      <button type="submit" class="px-2.5 py-1 rounded-lg bg-[var(--c-chip)] hover:bg-[var(--c-border2)] text-slate-300 hover:text-white border border-[var(--c-border2)] font-semibold text-[11px] transition-all cursor-pointer" title="Reset password and reactivate account">
                         Reset Password
                       </button>
                     </form>
@@ -346,8 +346,8 @@
 
 <!-- Modal: Adjust Billing Tier & Pricing Parameters -->
 <div id="editBillingModal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-  <div class="bg-[#13161C] border border-[#222732] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-    <div class="flex items-center justify-between pb-3 border-b border-[#222732]">
+  <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+    <div class="flex items-center justify-between pb-3 border-b border-[var(--c-border)]">
       <h3 class="text-base font-bold text-white flex items-center space-x-2">
         <i data-lucide="calculator" class="w-5 h-5 text-amber-400"></i>
         <span>Adjust Company Subscription Billing</span>
@@ -360,26 +360,26 @@
     <form id="billingForm" action="" method="POST" class="space-y-4 text-xs">
       <div>
         <label class="block font-bold text-slate-300 mb-1">Company Name</label>
-        <input type="text" id="billingShopName" disabled class="w-full px-3 py-2 bg-slate-900 border border-[#2D3340] rounded-xl text-slate-400 outline-none">
+        <input type="text" id="billingShopName" disabled class="w-full px-3 py-2 bg-slate-900 border border-[var(--c-hover)] rounded-xl text-slate-400 outline-none">
       </div>
 
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="block font-bold text-slate-300 mb-1">Billed Accounts Count</label>
           <input type="number" name="billed_accounts" id="billingAccountsInput" min="1" oninput="calculateModalFee()" required
-            class="w-full px-3 py-2 bg-[#181C24] border border-[#2D3340] rounded-xl text-white focus:border-amber-400 outline-none font-mono">
+            class="w-full px-3 py-2 bg-[var(--c-panel2)] border border-[var(--c-hover)] rounded-xl text-white focus:border-amber-400 outline-none font-mono">
         </div>
         <div>
           <label class="block font-bold text-slate-300 mb-1">Billed Stock Depots Count</label>
           <input type="number" name="billed_stocks" id="billingStocksInput" min="1" oninput="calculateModalFee()" required
-            class="w-full px-3 py-2 bg-[#181C24] border border-[#2D3340] rounded-xl text-white focus:border-amber-400 outline-none font-mono">
+            class="w-full px-3 py-2 bg-[var(--c-panel2)] border border-[var(--c-hover)] rounded-xl text-white focus:border-amber-400 outline-none font-mono">
         </div>
       </div>
 
       <div>
         <label class="block font-bold text-slate-300 mb-1">Agreed Total Monthly Fee (RWF) *</label>
         <input type="number" name="monthly_fee" id="billingFeeInput" min="15000" step="500" required
-          class="w-full px-3 py-2.5 bg-[#181C24] border border-amber-500/40 rounded-xl text-amber-400 font-mono font-bold text-base outline-none">
+          class="w-full px-3 py-2.5 bg-[var(--c-panel2)] border border-amber-500/40 rounded-xl text-amber-400 font-mono font-bold text-base outline-none">
         <p class="text-[10px] text-slate-500 mt-1">
           Formula: Base 15,000 + (Accounts × 5,000) + (Stocks × 5,000). You can override with negotiated custom fee.
         </p>
@@ -388,10 +388,10 @@
       <div>
         <label class="block font-bold text-slate-300 mb-1">Billing Notes / Duration / Agreements</label>
         <textarea name="billing_notes" id="billingNotesInput" rows="2" placeholder="e.g. Temporary 2-week tax declaration pass for 2 extra counter staff."
-          class="w-full px-3 py-2 bg-[#181C24] border border-[#2D3340] rounded-xl text-white focus:border-amber-400 outline-none"></textarea>
+          class="w-full px-3 py-2 bg-[var(--c-panel2)] border border-[var(--c-hover)] rounded-xl text-white focus:border-amber-400 outline-none"></textarea>
       </div>
 
-      <div class="flex items-center justify-end space-x-3 pt-3 border-t border-[#222732]">
+      <div class="flex items-center justify-end space-x-3 pt-3 border-t border-[var(--c-border)]">
         <button type="button" onclick="closeEditBillingModal()" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold hover:bg-slate-700">Cancel</button>
         <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold shadow-md">Save Subscription Tier</button>
       </div>

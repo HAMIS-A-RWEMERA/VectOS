@@ -1,9 +1,20 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<html lang="en" class="h-full bg-[var(--c-app)] text-slate-100">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title><%= typeof title !== 'undefined' ? title : 'VectOS — Depot ERP' %></title>
+
+  <!-- Apply saved theme before first paint to avoid flash -->
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('vectos-theme') === 'light') {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      } catch (e) {}
+    })();
+  </script>
   
   <!-- PWA & Mobile Web App Meta Tags -->
   <link rel="manifest" href="/manifest.json">
@@ -52,17 +63,48 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@0.546.0"></script>
 
+  <!-- htmx for snappy partial updates without a frontend framework -->
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script>
+    document.addEventListener('htmx:configRequest', function (evt) {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      if (meta) evt.detail.headers['X-CSRF-Token'] = meta.getAttribute('content');
+    });
+    document.addEventListener('htmx:afterSwap', function () {
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    });
+  </script>
+
   <style>
+    /* VectOS theme tokens — dark default, light via [data-theme] */
+    :root {
+      --c-app: #0A0C0F; --c-panel: #13161C; --c-panel2: #181C24; --c-input: #1A1E26;
+      --c-chip: #1E232E; --c-btn: #222834; --c-hover: #2A3140;
+      --c-border: #222732; --c-border2: #2B313E; --c-divide: #1D222B;
+    }
+    [data-theme="light"] {
+      --c-app: #f4f5f7; --c-panel: #ffffff; --c-panel2: #f8f9fb; --c-input: #ffffff;
+      --c-chip: #eef0f4; --c-btn: #e8eaef; --c-hover: #dfe3ea;
+      --c-border: #d8dce4; --c-border2: #cbd0da; --c-divide: #e5e8ee;
+      color-scheme: light;
+    }
+    [data-theme="light"] .text-white { color: #111827; }
+    [data-theme="light"] .text-slate-100 { color: #111827; }
+    [data-theme="light"] .text-slate-200 { color: #1f2937; }
+    [data-theme="light"] .text-slate-300 { color: #374151; }
+    [data-theme="light"] .text-slate-400 { color: #4b5563; }
+    [data-theme="light"] .text-slate-500 { color: #6b7280; }
+
     /* Custom Scrollbar & Utility styling */
     ::-webkit-scrollbar {
       width: 6px;
       height: 6px;
     }
     ::-webkit-scrollbar-track {
-      background: #0d0f12;
+      background: var(--c-app);
     }
     ::-webkit-scrollbar-thumb {
-      background: #2a2f38;
+      background: var(--c-border2);
       border-radius: 3px;
     }
     ::-webkit-scrollbar-thumb:hover {
@@ -81,5 +123,25 @@
       }
     }
   </style>
+
+  <script>
+    function toggleTheme() {
+      var root = document.documentElement;
+      var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      if (next === 'light') { root.setAttribute('data-theme', 'light'); } else { root.removeAttribute('data-theme'); }
+      try { localStorage.setItem('vectos-theme', next); } catch (e) {}
+      document.querySelectorAll('[data-theme-icon]').forEach(function (el) {
+        el.style.display = el.getAttribute('data-theme-icon') === next ? '' : 'none';
+      });
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', next === 'light' ? '#f4f5f7' : '#0D0F12');
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+      document.querySelectorAll('[data-theme-icon]').forEach(function (el) {
+        el.style.display = el.getAttribute('data-theme-icon') === cur ? '' : 'none';
+      });
+    });
+  </script>
 </head>
-<body class="h-full flex flex-col font-sans bg-[#0D0F12] text-slate-200 antialiased selection:bg-amber-500/30 selection:text-amber-300">
+<body class="h-full flex flex-col font-sans bg-[var(--c-app)] text-slate-200 antialiased selection:bg-amber-500/30 selection:text-amber-300">

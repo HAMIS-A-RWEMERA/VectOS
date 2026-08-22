@@ -1,6 +1,6 @@
 <% if (typeof user !== 'undefined' && user) { %>
 <!-- Top Navbar / Header Bar -->
-<header class="no-print bg-[#13161C] border-b border-[#222732] sticky top-0 z-40 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between shadow-xl gap-2">
+<header class="no-print bg-[var(--c-panel)] border-b border-[var(--c-border)] sticky top-0 z-40 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between shadow-xl gap-2">
   <div class="flex items-center space-x-3">
     <a href="/dashboard" class="flex items-center space-x-2.5 group">
       <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0">
@@ -55,11 +55,23 @@
         </p>
       </div>
 
-      <a href="/settings" title="Company Profile & Change Password" class="p-2 text-slate-400 hover:text-white hover:bg-[#1E232E] rounded-lg transition-colors border border-transparent hover:border-[#2B313E]">
+      <a href="/settings" title="Company Profile & Change Password" class="p-2 text-slate-400 hover:text-white hover:bg-[var(--c-chip)] rounded-lg transition-colors border border-transparent hover:border-[var(--c-border2)]">
         <i data-lucide="settings" class="w-4 h-4"></i>
       </a>
 
-      <a href="/logout" title="Sign Out" class="p-2 text-slate-400 hover:text-rose-400 hover:bg-[#252C38] rounded-lg transition-colors">
+      <button type="button" onclick="toggleTheme()" title="Toggle light / dark mode"
+        class="p-2 text-slate-400 hover:text-amber-400 hover:bg-[var(--c-chip)] rounded-lg transition-colors cursor-pointer">
+        <i data-lucide="sun" data-theme-icon="dark" class="w-4 h-4"></i>
+        <i data-lucide="moon" data-theme-icon="light" class="w-4 h-4"></i>
+      </button>
+
+      <% if (user.role === 'superadmin') { %>
+        <a href="/security/2fa" title="Two-Factor Security" class="p-2 text-slate-400 hover:text-emerald-400 hover:bg-[var(--c-chip)] rounded-lg transition-colors relative">
+          <i data-lucide="shield-check" class="w-4 h-4"></i>
+        </a>
+      <% } %>
+
+      <a href="/logout" title="Sign Out" class="p-2 text-slate-400 hover:text-rose-400 hover:bg-[var(--c-chip)] rounded-lg transition-colors">
         <i data-lucide="log-out" class="w-4 h-4"></i>
       </a>
     </div>
@@ -69,7 +81,7 @@
 <!-- App Main Layout Container -->
 <div class="flex flex-1 min-h-0 overflow-hidden">
   <!-- Sidebar Navigation -->
-  <aside class="no-print w-64 bg-[#13161C] border-r border-[#222732] flex flex-col justify-between hidden md:flex shrink-0">
+  <aside class="no-print w-64 bg-[var(--c-panel)] border-r border-[var(--c-border)] flex flex-col justify-between hidden md:flex shrink-0">
     <div class="p-4 space-y-5 overflow-y-auto">
       
       <!-- SuperAdmin Platform Section -->
@@ -92,12 +104,12 @@
       <div>
         <p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Core Modules</p>
         <nav class="space-y-1 text-xs">
-          <a href="/dashboard" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+          <a href="/dashboard" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
             <i data-lucide="layout-dashboard" class="w-4 h-4 text-amber-500"></i>
             <span>Dashboard</span>
           </a>
 
-          <a href="/orders" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+          <a href="/orders" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
             <i data-lucide="shopping-cart" class="w-4 h-4 text-emerald-400"></i>
             <span>Orders & Sales</span>
           </a>
@@ -109,18 +121,18 @@
             </a>
           <% } %>
 
-          <a href="/products" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+          <a href="/products" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
             <i data-lucide="package" class="w-4 h-4 text-blue-400"></i>
             <span>Inventory Stock</span>
           </a>
 
-          <a href="/stocks" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+          <a href="/stocks" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
             <i data-lucide="warehouse" class="w-4 h-4 text-amber-400"></i>
             <span>Multi-Stock Depots</span>
           </a>
 
           <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_manage_customers) { %>
-            <a href="/customers" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/customers" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="users" class="w-4 h-4 text-purple-400"></i>
               <span>Customers & Debt</span>
             </a>
@@ -133,28 +145,28 @@
         <p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Operational Queues</p>
         <nav class="space-y-1 text-xs">
           <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_release_stock) { %>
-            <a href="/storekeeper" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/storekeeper" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="warehouse" class="w-4 h-4 text-orange-400"></i>
               <span>Storekeeper Dispatch</span>
             </a>
           <% } %>
 
           <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_partner_borrow) { %>
-            <a href="/accountant/rejected-items" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/accountant/rejected-items" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="refresh-cw" class="w-4 h-4 text-rose-400"></i>
               <span>Resolve Rejected Items</span>
             </a>
           <% } %>
 
           <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_process_payments) { %>
-            <a href="/payments" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/payments" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="credit-card" class="w-4 h-4 text-teal-400"></i>
               <span>Payments & Cashier</span>
             </a>
           <% } %>
 
           <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_manage_partners) { %>
-            <a href="/partners" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/partners" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="store" class="w-4 h-4 text-indigo-400"></i>
               <span>Partner Shops (Sourcing)</span>
             </a>
@@ -167,26 +179,26 @@
         <p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Management & Control</p>
         <nav class="space-y-1 text-xs">
           <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_view_reports) { %>
-            <a href="/reports" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/reports" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="bar-chart-3" class="w-4 h-4 text-amber-400"></i>
               <span>Profit & Reports</span>
             </a>
           <% } %>
 
           <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_manage_users) { %>
-            <a href="/users" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/users" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="shield-check" class="w-4 h-4 text-cyan-400"></i>
               <span>Staff Roles & Permissions</span>
             </a>
           <% } %>
 
-          <a href="/settings" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+          <a href="/settings" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
             <i data-lucide="settings" class="w-4 h-4 text-slate-400"></i>
             <span>Company Settings & Password</span>
           </a>
 
           <% if (user.role === 'manager' || user.role === 'superadmin') { %>
-            <a href="/audit-logs" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[#1E232E] hover:text-white text-slate-300">
+            <a href="/audit-logs" class="flex items-center space-x-3 px-3 py-2 rounded-lg font-medium transition-all hover:bg-[var(--c-chip)] hover:text-white text-slate-300">
               <i data-lucide="file-text" class="w-4 h-4 text-slate-500"></i>
               <span>Audit Trail</span>
             </a>
@@ -197,7 +209,7 @@
     </div>
 
     <!-- Sidebar Footer Badge -->
-    <div class="p-3.5 border-t border-[#222732] bg-[#0F1116]">
+    <div class="p-3.5 border-t border-[var(--c-border)] bg-[var(--c-app)]">
       <div class="flex items-center justify-between text-[10px] text-slate-500">
         <span class="truncate max-w-[130px] font-semibold"><%= typeof shop !== 'undefined' && shop ? shop.name : 'Vectos ERP' %></span>
         <span class="font-mono text-amber-500/80">v2.1</span>
@@ -206,5 +218,5 @@
   </aside>
 
   <!-- Main Content Wrapper -->
-  <main class="flex-1 overflow-y-auto bg-[#0D0F12] p-4 md:p-8">
+  <main class="flex-1 overflow-y-auto bg-[var(--c-app)] p-4 md:p-8">
 <% } %>

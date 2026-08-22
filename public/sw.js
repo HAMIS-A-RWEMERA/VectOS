@@ -1,69 +1,71 @@
-const CACHE_NAME = 'vectos-v1';
-const ASSETS_TO_CACHE = [
-  '/',
+const CACHE_NAME = 'vectos-v2';
+const STATIC_ASSETS = [
   '/manifest.json',
-  '/css/styles.css',
   '/icon-192.png',
   '/icon-512.png',
-  'https://cdn.tailwindcss.com',
-  'https://unpkg.com/lucide@latest'
+  '/apple-touch-icon.png',
+  '/icon.svg',
+  '/offline.html'
 ];
 
-// Install Event - Cache core assets
+// Install: cache the static shell only. Authenticated pages are NEVER cached
+// (they may contain other users' business data on shared devices).
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Pre-caching core app shell');
-      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
-        console.warn('[SW] Cache addAll warning:', err);
-      });
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.warn('[SW] Some static assets could not be cached:', err);
+      })
+    ).then(() => self.skipWaiting())
   );
 });
 
-// Activate Event - Clean old caches
+// Activate: purge old versions
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            console.log('[SW] Clearing old cache:', cache);
-            return caches.delete(cache);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+    caches.keys().then((names) =>
+      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+    ).then(() => self.clients.claim())
   );
 });
 
-// Fetch Event - Network First with Cache Fallback for dynamic pages
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') return;
+  const req = event.request;
+  if (req.method !== 'GET') return;
 
+  const url = new URL(req.url);
+
+  // Static assets: cache-first (fast, offline-capable)
+  const isStatic =
+    url.origin === location.origin &&
+    (url.pathname.startsWith('/icon') ||
+      url.pathname === '/manifest.json' ||
+      url.pathname === '/offline.html' ||
+      url.pathname.startsWith('/css/') ||
+      url.pathname.startsWith('/js/'));
+
+  if (isStatic) {
+    event.respondWith(
+      caches.match(req).then((cached) => cached || fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((c) => c.put(req, copy));
+        return res;
+      }))
+    );
+    return;
+  }
+
+  // Everything else: network-first; when the network is gone and nothing is
+  // cached, serve the branded offline page for document navigations.
   event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        // Cache successful responses for static assets
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
+    fetch(req).catch(() =>
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        if (req.headers.get('accept') && req.headers.get('accept').includes('text/html')) {
+          return caches.match('/offline.html');
         }
-        return networkResponse;
+        return Response.error();
       })
-      .catch(() => {
-        // Fallback to cache if network is offline
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          if (event.request.headers.get('accept').includes('text/html')) {
-            return caches.match('/');
-          }
-        });
-      })
+    )
   );
 });

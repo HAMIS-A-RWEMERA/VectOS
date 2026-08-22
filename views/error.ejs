@@ -13,7 +13,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@0.546.0"></script>
 </head>
-<body class="h-full flex flex-col font-sans bg-[#0D0F12] text-slate-200 antialiased">
+<body class="h-full flex flex-col font-sans bg-[var(--c-app)] text-slate-200 antialiased">
 
   <main class="flex-1 flex items-center justify-center px-4 py-16">
     <div class="w-full max-w-md text-center">
@@ -22,7 +22,7 @@
       </div>
       <p class="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-2">VectOS Platform</p>
       <h1 class="text-3xl font-extrabold text-white tracking-tight font-display mb-3"><%= typeof title !== 'undefined' ? title : 'System Error' %></h1>
-      <div class="bg-[#13161C] border border-[#222732] rounded-2xl p-6 shadow-2xl space-y-4">
+      <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-6 shadow-2xl space-y-4">
         <p class="text-sm text-slate-300 leading-relaxed"><%= typeof message !== 'undefined' ? message : 'An unexpected operational error occurred.' %></p>
         <% if (typeof path !== 'undefined' && path) { %>
           <p class="text-[11px] text-slate-500 font-mono">Requested path: <%= path %></p>
@@ -31,7 +31,7 @@
           <a href="/" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 text-sm font-bold shadow-lg transition-all">
             <i data-lucide="home" class="w-4 h-4"></i> Go Home
           </a>
-          <a href="/login" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#2B313E] bg-[#1A1E26] hover:bg-[#222730] text-slate-200 text-sm font-semibold transition-all">
+          <a href="/login" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--c-border2)] bg-[var(--c-input)] hover:bg-[var(--c-border)] text-slate-200 text-sm font-semibold transition-all">
             <i data-lucide="log-in" class="w-4 h-4"></i> Sign In
           </a>
         </div>

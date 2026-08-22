@@ -1,6 +1,6 @@
 <%- include('partials/header', { title: 'Register Your Company — VectOS Rwanda' }) %>
 
-<div class="min-h-screen bg-[#0A0C0F] py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
+<div class="min-h-screen bg-[var(--c-app)] py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
   <div class="max-w-2xl mx-auto space-y-6">
     
     <!-- Top Branding Header -->
@@ -20,7 +20,7 @@
     </div>
 
     <!-- Registration Card -->
-    <div class="bg-[#13161C] py-8 px-6 sm:px-10 shadow-2xl rounded-2xl border border-[#222732] space-y-6">
+    <div class="bg-[var(--c-panel)] py-8 px-6 sm:px-10 shadow-2xl rounded-2xl border border-[var(--c-border)] space-y-6">
       
       <% if (typeof error !== 'undefined' && error) { %>
         <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start space-x-2.5">
@@ -36,7 +36,7 @@
             <span>Registration Submitted for VectOS Activation!</span>
           </div>
           <p class="leading-relaxed text-slate-300 text-xs"><%= success %></p>
-          <div class="p-3 bg-[#171C24] rounded-xl border border-[#2B313E] text-[11px] text-slate-300 space-y-1">
+          <div class="p-3 bg-[var(--c-panel)] rounded-xl border border-[var(--c-border2)] text-[11px] text-slate-300 space-y-1">
             <p class="font-bold text-amber-400">Next Steps for Activation:</p>
             <p>1. The VectOS Administrator will review your account and warehouse setup.</p>
             <p>2. The VectOS team will contact you to arrange your preferred payment plan (monthly, one-time, or trial period).</p>
@@ -54,7 +54,7 @@
         <form action="/register-shop" method="POST" class="space-y-6 text-xs" id="registerForm">
           
           <!-- Section 1: Company / Store Profile -->
-          <div class="border-b border-[#222732] pb-6 space-y-4">
+          <div class="border-b border-[var(--c-border)] pb-6 space-y-4">
             <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
               <i data-lucide="building-2" class="w-4 h-4"></i>
               <span>1. Company & Store Information</span>
@@ -63,7 +63,7 @@
             <!-- Business Type -->
             <div>
               <label class="block font-semibold text-slate-300 mb-1.5">Business Industry / Store Category *</label>
-              <select name="business_type" class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
+              <select name="business_type" class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-amber-500">
                 <option value="Hardware & Construction (Quincaillerie)">Hardware & Construction Materials (Quincaillerie)</option>
                 <option value="Electronics & Electrical Supplies">Electronics, Appliances & Electrical Retail</option>
                 <option value="Plumbing & Sanitary Supplies">Plumbing & Sanitary Fixtures Depot</option>
@@ -76,7 +76,7 @@
             <div>
               <label class="block font-semibold text-slate-300 mb-1.5">Company / Store Legal Trade Name *</label>
               <input type="text" name="shop_name" required placeholder="e.g. Kigali Steel & Hardware Supplies Ltd"
-                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all">
+                class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all">
               <p class="text-[11px] text-slate-500 mt-1">This exact company name will appear at the top of your private portal, invoices, sales receipts, and delivery notes.</p>
             </div>
 
@@ -84,26 +84,26 @@
               <div>
                 <label class="block font-semibold text-slate-300 mb-1.5">RRA TIN Number (Tax Identification)</label>
                 <input type="text" name="tin_number" placeholder="e.g. 102938475"
-                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                  class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
                 <p class="text-[10px] text-slate-500 mt-1">Optional. Printed on customer fiscal sales receipts.</p>
               </div>
 
               <div>
                 <label class="block font-semibold text-slate-300 mb-1.5">Company Contact Phone *</label>
                 <input type="text" name="phone" required placeholder="e.g. +250 788 123 456"
-                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                  class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
               </div>
             </div>
 
             <div>
               <label class="block font-semibold text-slate-300 mb-1.5">Physical Head Depot Location / Address *</label>
               <input type="text" name="location" required placeholder="e.g. Gisozi Hardware Market, Gasabo, Kigali"
-                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
             </div>
           </div>
 
           <!-- Section 2: Store Owner / Manager Credentials -->
-          <div class="border-b border-[#222732] pb-6 space-y-4">
+          <div class="border-b border-[var(--c-border)] pb-6 space-y-4">
             <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
               <i data-lucide="user-check" class="w-4 h-4"></i>
               <span>2. Store Owner / Manager Profile</span>
@@ -112,32 +112,32 @@
             <div>
               <label class="block font-semibold text-slate-300 mb-1.5">Manager Full Name *</label>
               <input type="text" name="owner_name" required placeholder="e.g. Jean-Luc Hakizimana"
-                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
             </div>
 
             <div>
               <label class="block font-semibold text-slate-300 mb-1.5">Manager Work Email (Sign In ID) *</label>
               <input type="email" name="email" required placeholder="e.g. manager@kigalisteel.rw"
-                class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block font-semibold text-slate-300 mb-1.5">Password *</label>
                 <input type="password" name="password" required placeholder="••••••••"
-                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                  class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
               </div>
 
               <div>
                 <label class="block font-semibold text-slate-300 mb-1.5">Confirm Password *</label>
                 <input type="password" name="confirm_password" required placeholder="••••••••"
-                  class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
+                  class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500">
               </div>
             </div>
           </div>
 
           <!-- Section 3: Operational Setup -->
-          <div class="border-b border-[#222732] pb-6 space-y-4">
+          <div class="border-b border-[var(--c-border)] pb-6 space-y-4">
             <div class="flex items-center space-x-2 text-amber-400 font-bold uppercase tracking-wider text-xs">
               <i data-lucide="calculator" class="w-4 h-4"></i>
               <span>3. Operational Setup</span>
@@ -150,7 +150,7 @@
                 </label>
                 <div class="flex items-center space-x-2">
                   <input type="number" id="accountCount" name="account_count" min="1" max="50" value="1"
-                    class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500">
+                    class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500">
                 </div>
                 <p class="text-[10px] text-slate-500 mt-1">Starts with 1 (Manager). You can add sales, cashier, storekeeper accounts.</p>
               </div>
@@ -161,14 +161,14 @@
                 </label>
                 <div class="flex items-center space-x-2">
                   <input type="number" id="stockCount" name="stock_count" min="1" max="20" value="1"
-                    class="w-full bg-[#1A1E26] border border-[#2B313E] rounded-xl px-4 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500">
+                    class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500">
                 </div>
                 <p class="text-[10px] text-slate-500 mt-1">Main depot + additional branch warehouses.</p>
               </div>
             </div>
 
             <!-- Flexible Billing Info -->
-            <div class="p-3 bg-[#1A1E26] border border-[#2B313E] rounded-xl text-[11px] text-slate-400 space-y-1">
+            <div class="p-3 bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl text-[11px] text-slate-400 space-y-1">
               <p class="font-bold text-slate-300 flex items-center space-x-1.5">
                 <i data-lucide="info" class="w-3.5 h-3.5 text-amber-400"></i>
                 <span>Flexible Billing Arranged With You Directly</span>
@@ -187,7 +187,7 @@
 
       <% } %>
 
-      <div class="pt-4 border-t border-[#222732] text-center text-xs">
+      <div class="pt-4 border-t border-[var(--c-border)] text-center text-xs">
         <span class="text-slate-400">Already registered your hardware or electronics company?</span>
         <a href="/login" class="ml-1.5 font-bold text-amber-400 hover:underline">Sign In to VectOS</a>
       </div>

@@ -1,284 +1,223 @@
-<%- include('partials/header', { title: 'Executive Financial & Multi-Stock Intelligence' }) %>
-<%- include('partials/sidebar') %>
+<%- include('partials/header', { title: 'Business Intelligence Reports — VectOS' }) %>
 
-<div class="space-y-6 max-w-7xl mx-auto">
-  <!-- Header & Stock Filter Bar -->
-  <div class="pb-4 border-b border-[#222732] flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div class="space-y-6 p-4 sm:p-6">
+
+  <!-- Page Heading -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
     <div>
-      <div class="flex items-center space-x-3">
-        <h1 class="text-2xl font-extrabold text-white tracking-tight font-display">
-          Financial Analytics & Multi-Stock Intelligence
-        </h1>
-        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-          <%= activeStockName %>
-        </span>
-      </div>
-      <p class="text-xs text-slate-400 mt-1">
-        Dynamic profit calculations derived from negotiated sales prices minus fixed material acquisition costs.
-      </p>
+      <h1 class="text-xl font-extrabold text-white font-display">Business Intelligence</h1>
+      <p class="text-xs text-slate-400 mt-0.5">Revenue, profit, dead stock and receivables for <%= shop ? shop.name : 'your company' %></p>
     </div>
-
-    <div class="flex items-center space-x-3">
-      <button onclick="window.print()" class="no-print px-4 py-2.5 rounded-xl bg-[#222834] hover:bg-[#2C3444] text-xs font-bold text-white transition-colors flex items-center space-x-2 cursor-pointer">
-        <i data-lucide="printer" class="w-4 h-4"></i>
-        <span>Export Report</span>
-      </button>
+    <div class="flex items-center space-x-2 text-[11px] text-slate-400">
+      <i data-lucide="info" class="w-3.5 h-3.5"></i>
+      <span>Profit uses each line's recorded margin at time of sale.</span>
     </div>
   </div>
 
-  <!-- Multi-Stock Selector Filter Tabs -->
-  <div class="no-print p-3 bg-[#13161C] border border-[#222732] rounded-2xl flex flex-wrap items-center gap-2">
-    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider px-2 flex items-center space-x-1.5">
-      <i data-lucide="warehouse" class="w-4 h-4 text-amber-400"></i>
-      <span>Stock Filter:</span>
-    </span>
+  <!-- KPI Tiles -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">30-Day Revenue</p>
+      <p class="text-2xl font-black text-white font-mono mt-1.5">RWF <%= Number(kpis.revenue30).toLocaleString() %></p>
+    </div>
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">30-Day Gross Profit</p>
+      <p class="text-2xl font-black text-emerald-400 font-mono mt-1.5">RWF <%= Number(kpis.profit30).toLocaleString() %></p>
+    </div>
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Receivables (Debts)</p>
+      <p class="text-2xl font-black text-amber-400 font-mono mt-1.5">RWF <%= Number(kpis.receivables).toLocaleString() %></p>
+    </div>
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5">
+      <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Capital in Dead Stock</p>
+      <p class="text-2xl font-black text-rose-400 font-mono mt-1.5">RWF <%= Number(kpis.deadStockValue).toLocaleString() %></p>
+    </div>
+  </div>
 
-    <a href="/reports?stock_id=all" 
-      class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 <%= selectedStockId === 'all' ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20' : 'bg-[#1C212B] text-slate-300 hover:bg-[#252C38] hover:text-white border border-[#2B3240]' %>">
-      <i data-lucide="layers" class="w-3.5 h-3.5"></i>
-      <span>All Warehouses Combined (Consolidated Total)</span>
-    </a>
+  <!-- Charts -->
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center space-x-2">
+        <i data-lucide="trending-up" class="w-4 h-4 text-amber-500"></i><span>Monthly Revenue vs Collections</span>
+      </h3>
+      <canvas id="chartRevenue" height="230"></canvas>
+    </div>
 
-    <% if (typeof stocks !== 'undefined' && stocks && stocks.length > 0) { %>
-      <% stocks.forEach(st => { %>
-        <a href="/reports?stock_id=<%= st.id %>" 
-          class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 <%= selectedStockId === String(st.id) ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20' : 'bg-[#1C212B] text-slate-300 hover:bg-[#252C38] hover:text-white border border-[#2B3240]' %>">
-          <i data-lucide="building-2" class="w-3.5 h-3.5"></i>
-          <span><%= st.name %></span>
-          <% if (st.is_main) { %>
-            <span class="text-[9px] px-1 rounded <%= selectedStockId === String(st.id) ? 'bg-slate-900 text-amber-400' : 'bg-amber-500/20 text-amber-300' %>">Main</span>
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center space-x-2">
+        <i data-lucide="coins" class="w-4 h-4 text-emerald-400"></i><span>Monthly Gross Profit</span>
+      </h3>
+      <canvas id="chartProfit" height="230"></canvas>
+    </div>
+
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center space-x-2">
+        <i data-lucide="flame" class="w-4 h-4 text-amber-500"></i><span>Top Sellers — Last 90 Days</span>
+      </h3>
+      <% if (topProducts.length === 0) { %>
+        <p class="text-xs text-slate-400 py-8 text-center">No sales recorded yet.</p>
+      <% } else { %>
+        <canvas id="chartTop" height="240"></canvas>
+      <% } %>
+    </div>
+
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-5 shadow-xl">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center space-x-2">
+        <i data-lucide="ghost" class="w-4 h-4 text-rose-400"></i><span>Dead Stock by Value (90+ days unsold)</span>
+      </h3>
+      <% if (deadStock.length === 0) { %>
+        <p class="text-xs text-slate-400 py-8 text-center">Excellent — no dead stock detected!</p>
+      <% } else { %>
+        <canvas id="chartDead" height="240"></canvas>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- Tables -->
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl overflow-hidden shadow-xl">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider p-5 pb-3 flex items-center space-x-2">
+        <i data-lucide="hand-coins" class="w-4 h-4 text-amber-500"></i><span>Highest Debtors — Follow Up</span>
+      </h3>
+      <table class="w-full text-left">
+        <thead>
+          <tr class="border-y border-[var(--c-border)] text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            <th class="py-2.5 px-5">Customer</th>
+            <th class="py-2.5 px-3">Phone</th>
+            <th class="py-2.5 px-5 text-right">Owes (RWF)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[var(--c-divide)] text-xs">
+          <% if (debtors.length === 0) { %>
+            <tr><td colspan="3" class="py-6 text-center text-slate-400">No outstanding customer debts.</td></tr>
           <% } %>
-        </a>
-      <% }) %>
-    <% } %>
-  </div>
-
-  <!-- Key Financial Metric Cards -->
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-    <div class="p-4 bg-[#13161C] border border-[#222732] rounded-2xl">
-      <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Filtered Sales Revenue</p>
-      <p class="text-xl sm:text-2xl font-black font-mono text-white mt-1">
-        RWF <%= (totals?.revenue || 0).toLocaleString('en-US') %>
-      </p>
-      <p class="text-[11px] text-slate-500 mt-1">Total revenue generated in <%= activeStockName %></p>
-    </div>
-
-    <div class="p-4 bg-[#13161C] border border-[#222732] rounded-2xl">
-      <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Gross Profit Realized</p>
-      <p class="text-xl sm:text-2xl font-black font-mono text-emerald-400 mt-1">
-        RWF <%= (totals?.profit || 0).toLocaleString('en-US') %>
-      </p>
-      <p class="text-[11px] text-slate-500 mt-1">Selling price minus purchasing acquisition cost</p>
-    </div>
-
-    <div class="p-4 bg-[#13161C] border border-[#222732] rounded-2xl">
-      <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Physical Stock Valuation</p>
-      <p class="text-xl sm:text-2xl font-black font-mono text-amber-400 mt-1">
-        RWF <%= (totals?.valuation || 0).toLocaleString('en-US') %>
-      </p>
-      <p class="text-[11px] text-slate-500 mt-1">Total cost value of on-hand inventory across depots</p>
-    </div>
-  </div>
-
-  <!-- Multi-Stock Warehouse Comparison Matrix -->
-  <% if (typeof stockBreakdown !== 'undefined' && stockBreakdown && stockBreakdown.length > 0) { %>
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl p-5 space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-white uppercase tracking-wider text-amber-400 flex items-center space-x-2">
-          <i data-lucide="warehouse" class="w-4 h-4"></i>
-          <span>Multi-Stock Warehouses & Depot Performance Matrix</span>
-        </h3>
-        <a href="/stocks" class="no-print text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center space-x-1">
-          <span>Manage Stock Depots & Transfers</span>
-          <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
-        </a>
-      </div>
-
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr class="border-b border-[#222732] bg-[#181C24] text-[10px] font-bold text-slate-400 uppercase">
-              <th class="py-3 px-3">Stock Warehouse</th>
-              <th class="py-3 px-3">Code / Location</th>
-              <th class="py-3 px-3 text-center">Product Lines</th>
-              <th class="py-3 px-3 text-center">Total Physical Units</th>
-              <th class="py-3 px-3 text-right">Inventory Valuation (Cost Basis)</th>
-              <th class="py-3 px-3 text-right">Total Revenue</th>
-              <th class="py-3 px-3 text-right">Gross Profit</th>
+          <% debtors.forEach(d => { %>
+            <tr class="hover:bg-[var(--c-input)] transition-colors">
+              <td class="py-3 px-5 font-bold text-white"><%= d.name %></td>
+              <td class="py-3 px-3 text-slate-300 font-mono"><%= d.phone %></td>
+              <td class="py-3 px-5 text-right font-mono font-black text-amber-400"><%= Number(d.credit_balance).toLocaleString() %></td>
             </tr>
-          </thead>
-          <tbody class="divide-y divide-[#1D222B]">
-            <% stockBreakdown.forEach(st => { %>
-              <tr class="hover:bg-[#1A1E26] transition-colors <%= selectedStockId === String(st.id) ? 'bg-amber-500/5' : '' %>">
-                <td class="py-3.5 px-3 font-bold text-white flex items-center space-x-2">
-                  <span><%= st.name %></span>
-                  <% if (st.is_main) { %>
-                    <span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[9px] font-bold">Main Depot</span>
-                  <% } %>
-                </td>
-                <td class="py-3.5 px-3 text-slate-400 font-mono">
-                  <span class="text-white font-semibold"><%= st.code %></span> • <%= st.location || 'Kigali' %>
-                </td>
-                <td class="py-3.5 px-3 text-center font-bold text-slate-300"><%= st.product_lines || 0 %> lines</td>
-                <td class="py-3.5 px-3 text-center font-mono font-bold text-slate-200"><%= (st.total_units || 0).toLocaleString() %> units</td>
-                <td class="py-3.5 px-3 text-right font-mono font-bold text-amber-400">RWF <%= (st.valuation || 0).toLocaleString('en-US') %></td>
-                <td class="py-3.5 px-3 text-right font-mono text-slate-200">RWF <%= (st.sales_revenue || 0).toLocaleString('en-US') %></td>
-                <td class="py-3.5 px-3 text-right font-mono font-bold text-emerald-400">RWF <%= (st.sales_profit || 0).toLocaleString('en-US') %></td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table>
-      </div>
+          <% }) %>
+        </tbody>
+      </table>
     </div>
-  <% } %>
 
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- 1. Profit & Performance by Salesperson -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl p-5 space-y-4">
-      <h3 class="text-sm font-bold text-white uppercase tracking-wider text-amber-500 flex items-center space-x-2">
-        <i data-lucide="award" class="w-4 h-4"></i>
-        <span>Salesperson Profit & Performance (<%= activeStockName %>)</span>
+    <div class="bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl overflow-hidden shadow-xl">
+      <h3 class="text-sm font-bold text-white uppercase tracking-wider p-5 pb-3 flex items-center space-x-2">
+        <i data-lucide="package-x" class="w-4 h-4 text-rose-400"></i><span>Dead Stock Items — Consider Promotions</span>
       </h3>
-
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr class="border-b border-[#222732] bg-[#181C24] text-[10px] font-bold text-slate-400 uppercase">
-              <th class="py-2.5 px-3">Salesperson</th>
-              <th class="py-2.5 px-3 text-center">Orders</th>
-              <th class="py-2.5 px-3 text-right">Total Revenue</th>
-              <th class="py-2.5 px-3 text-right">Total Profit Generated</th>
+      <table class="w-full text-left">
+        <thead>
+          <tr class="border-y border-[var(--c-border)] text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            <th class="py-2.5 px-5">Product</th>
+            <th class="py-2.5 px-3 text-center">Qty</th>
+            <th class="py-2.5 px-5 text-right">Tied Capital (RWF)</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[var(--c-divide)] text-xs">
+          <% if (deadStock.length === 0) { %>
+            <tr><td colspan="3" class="py-6 text-center text-slate-400">Everything on your shelves is moving.</td></tr>
+          <% } %>
+          <% deadStock.forEach(d => { %>
+            <tr class="hover:bg-[var(--c-input)] transition-colors">
+              <td class="py-3 px-5">
+                <p class="font-bold text-white"><%= d.name %></p>
+                <p class="text-[10px] text-slate-400"><%= d.category %></p>
+              </td>
+              <td class="py-3 px-3 text-center font-mono text-slate-300"><%= d.quantity %></td>
+              <td class="py-3 px-5 text-right font-mono font-black text-rose-400"><%= Number(d.tied_value).toLocaleString() %></td>
             </tr>
-          </thead>
-          <tbody class="divide-y divide-[#1D222B]">
-            <% if (salespersonProfit && salespersonProfit.length > 0) { %>
-              <% salespersonProfit.forEach(sp => { %>
-                <tr class="hover:bg-[#1A1E26] transition-colors">
-                  <td class="py-3 px-3 font-bold text-white"><%= sp.salesperson %></td>
-                  <td class="py-3 px-3 text-center font-bold text-slate-300"><%= sp.orders_count %></td>
-                  <td class="py-3 px-3 text-right font-mono text-slate-200">RWF <%= sp.total_sales.toLocaleString('en-US') %></td>
-                  <td class="py-3 px-3 text-right font-mono font-bold text-amber-400">RWF <%= sp.total_profit.toLocaleString('en-US') %></td>
-                </tr>
-              <% }) %>
-            <% } else { %>
-              <tr>
-                <td colspan="4" class="py-4 text-center text-slate-500">No salesperson sales recorded for this selection.</td>
-              </tr>
-            <% } %>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- 2. Product Profitability Breakdown -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl p-5 space-y-4">
-      <h3 class="text-sm font-bold text-white uppercase tracking-wider text-emerald-400 flex items-center space-x-2">
-        <i data-lucide="bar-chart-2" class="w-4 h-4"></i>
-        <span>Material & Product Profitability</span>
-      </h3>
-
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr class="border-b border-[#222732] bg-[#181C24] text-[10px] font-bold text-slate-400 uppercase">
-              <th class="py-2.5 px-3">Product Name</th>
-              <th class="py-2.5 px-3 text-center">Units Sold</th>
-              <th class="py-2.5 px-3 text-right">Total Revenue</th>
-              <th class="py-2.5 px-3 text-right">Total Profit</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-[#1D222B]">
-            <% if (productPerformance && productPerformance.length > 0) { %>
-              <% productPerformance.forEach(pp => { %>
-                <tr class="hover:bg-[#1A1E26] transition-colors">
-                  <td class="py-3 px-3 font-bold text-white"><%= pp.name %></td>
-                  <td class="py-3 px-3 text-center font-mono text-slate-300"><%= pp.total_units_sold %></td>
-                  <td class="py-3 px-3 text-right font-mono text-slate-200">RWF <%= pp.total_revenue.toLocaleString('en-US') %></td>
-                  <td class="py-3 px-3 text-right font-mono font-bold text-emerald-400">RWF <%= pp.total_profit.toLocaleString('en-US') %></td>
-                </tr>
-              <% }) %>
-            <% } else { %>
-              <tr>
-                <td colspan="4" class="py-4 text-center text-slate-500">No product sales in this selection.</td>
-              </tr>
-            <% } %>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- 3. Outstanding Customer Debts -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl p-5 space-y-4">
-      <h3 class="text-sm font-bold text-white uppercase tracking-wider text-rose-400 flex items-center space-x-2">
-        <i data-lucide="users" class="w-4 h-4"></i>
-        <span>Outstanding Client Credit Balances</span>
-      </h3>
-
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr class="border-b border-[#222732] bg-[#181C24] text-[10px] font-bold text-slate-400 uppercase">
-              <th class="py-2.5 px-3">Customer</th>
-              <th class="py-2.5 px-3">Phone</th>
-              <th class="py-2.5 px-3 text-right">Credit Debt Owed</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-[#1D222B]">
-            <% if (customerDebts && customerDebts.length > 0) { %>
-              <% customerDebts.forEach(cd => { %>
-                <tr>
-                  <td class="py-3 px-3 font-bold text-white"><%= cd.name %></td>
-                  <td class="py-3 px-3 text-slate-400 font-mono"><%= cd.phone %></td>
-                  <td class="py-3 px-3 text-right font-mono font-bold text-rose-400">RWF <%= cd.credit_balance.toLocaleString('en-US') %></td>
-                </tr>
-              <% }) %>
-            <% } else { %>
-              <tr>
-                <td colspan="3" class="py-4 text-center text-slate-500">No active customer credit debts.</td>
-              </tr>
-            <% } %>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- 4. Partner Shop Accounts Payable -->
-    <div class="bg-[#13161C] border border-[#222732] rounded-2xl shadow-xl p-5 space-y-4">
-      <h3 class="text-sm font-bold text-white uppercase tracking-wider text-indigo-400 flex items-center space-x-2">
-        <i data-lucide="store" class="w-4 h-4"></i>
-        <span>Partner Shop Payables</span>
-      </h3>
-
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr class="border-b border-[#222732] bg-[#181C24] text-[10px] font-bold text-slate-400 uppercase">
-              <th class="py-2.5 px-3">Partner Shop</th>
-              <th class="py-2.5 px-3">Contact</th>
-              <th class="py-2.5 px-3 text-right">Payable Balance</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-[#1D222B]">
-            <% if (partnerBalances && partnerBalances.length > 0) { %>
-              <% partnerBalances.forEach(pb => { %>
-                <tr>
-                  <td class="py-3 px-3 font-bold text-white"><%= pb.name %></td>
-                  <td class="py-3 px-3 text-slate-400"><%= pb.contact_person %> (<%= pb.phone %>)</td>
-                  <td class="py-3 px-3 text-right font-mono font-bold text-amber-400">RWF <%= pb.current_balance.toLocaleString('en-US') %></td>
-                </tr>
-              <% }) %>
-            <% } else { %>
-              <tr>
-                <td colspan="3" class="py-4 text-center text-slate-500">No outstanding partner supplier payables.</td>
-              </tr>
-            <% } %>
-          </tbody>
-        </table>
-      </div>
+          <% }) %>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const chartFont = { family: "'Plus Jakarta Sans', sans-serif", size: 11 };
+  const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--c-divide').trim() || '#1D222B';
+  const textColor = '#94a3b8';
+
+  // Monthly Revenue vs Collections
+  new Chart(document.getElementById('chartRevenue'), {
+    type: 'bar',
+    data: {
+      labels: <%- JSON.stringify(monthly.map(m => m.ym)) %>,
+      datasets: [
+        { label: 'Revenue', data: <%- JSON.stringify(monthly.map(m => Number(m.revenue))) %>, backgroundColor: 'rgba(212,175,55,0.75)', borderRadius: 6 },
+        { label: 'Collected', data: <%- JSON.stringify(monthly.map(m => Number(m.collected))) %>, backgroundColor: 'rgba(52,211,153,0.7)', borderRadius: 6 }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: textColor, font: chartFont } } },
+      scales: {
+        x: { ticks: { color: textColor, font: chartFont }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor, font: chartFont, callback: v => (v/1000) + 'k' }, grid: { color: gridColor } }
+      }
+    }
+  });
+
+  // Monthly Profit
+  new Chart(document.getElementById('chartProfit'), {
+    type: 'line',
+    data: {
+      labels: <%- JSON.stringify(monthlyProfit.map(m => m.ym)) %>,
+      datasets: [{
+        label: 'Gross Profit',
+        data: <%- JSON.stringify(monthlyProfit.map(m => Number(m.profit))) %>,
+        borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.15)',
+        fill: true, tension: 0.35, pointBackgroundColor: '#34d399'
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: textColor, font: chartFont } } },
+      scales: {
+        x: { ticks: { color: textColor, font: chartFont }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor, font: chartFont, callback: v => (v/1000) + 'k' }, grid: { color: gridColor } }
+      }
+    }
+  });
+
+  <% if (topProducts.length > 0) { ?>
+  // Top Sellers horizontal bars
+  new Chart(document.getElementById('chartTop'), {
+    type: 'bar',
+    data: {
+      labels: <%- JSON.stringify(topProducts.map(p => p.name.length > 26 ? p.name.slice(0, 25) + '…' : p.name)) %>,
+      datasets: [{ label: 'Units sold', data: <%- JSON.stringify(topProducts.map(p => Number(p.qty))) %>, backgroundColor: 'rgba(212,175,55,0.8)', borderRadius: 6 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: textColor, font: chartFont }, grid: { color: gridColor } },
+        y: { ticks: { color: textColor, font: chartFont }, grid: { display: false } }
+      }
+    }
+  });
+  <% } %>
+
+  <% if (deadStock.length > 0) { %}
+  // Dead stock doughnut
+  new Chart(document.getElementById('chartDead'), {
+    type: 'doughnut',
+    data: {
+      labels: <%- JSON.stringify(deadStock.map(d => d.name.length > 22 ? d.name.slice(0, 21) + '…' : d.name)) %>,
+      datasets: [{
+        data: <%- JSON.stringify(deadStock.map(d => Number(d.tied_value))) %>,
+        backgroundColor: ['#f43f5e','#fb923c','#facc15','#a3e635','#34d399','#38bdf8','#818cf8','#c084fc','#f472b6','#94a3b8']
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'right', labels: { color: textColor, font: chartFont, boxWidth: 12 } } }
+    }
+  });
+  <% } %>
+</script>
 
 <%- include('partials/footer') %>

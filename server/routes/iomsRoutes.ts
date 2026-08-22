@@ -12,6 +12,10 @@ import {
   requireStorekeeper 
 } from '../auth';
 import { uploadSpreadsheet } from '../upload';
+import { throttleCheck, throttleFail, throttleClear } from '../security';
+import { authenticator } from 'otplib';
+import QRCode from 'qrcode';
+import { isPostgres } from '../database/db';
 
 const router = Router();
 
@@ -61,6 +65,16 @@ router.post('/login', async (req: Request, res: Response) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password || '';
 
+  // Brute-force protection: max 8 failed attempts per email per 15 minutes
+  const throttle = await throttleCheck(email);
+  if (!throttle.ok) {
+    const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
+    return res.render('login', {
+      error: `Too many failed sign-in attempts. This account is temporarily locked. Try again in about ${throttle.retryAfterMin} minute(s) or contact your administrator.`,
+      shops
+    });
+  }
+
   try {
     // If admin is logging in, ensure account is active and present
     if (email === 'admin@vectos.co.rw' || email === 'admin@quincaille.rw') {
@@ -76,6 +90,7 @@ router.post('/login', async (req: Request, res: Response) => {
     `, [email]);
 
     if (!user) {
+      await throttleFail(email);
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
       return res.render('login', { error: 'Account not found. Please verify the email address.', shops });
     }
@@ -87,9 +102,12 @@ router.post('/login', async (req: Request, res: Response) => {
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
+      await throttleFail(email);
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
       return res.render('login', { error: 'Invalid password. Please check your credentials.', shops });
     }
+
+    await throttleClear(email);
 
     if (user.role !== 'superadmin' && user.shop_status === 'pending') {
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
@@ -115,6 +133,7 @@ router.post('/login', async (req: Request, res: Response) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      twofa_enabled: Number(user.twofa_enabled) === 1,
       job_title: user.job_title || user.role,
       phone: user.phone,
       can_create_orders: user.can_create_orders,
@@ -139,7 +158,10 @@ router.post('/login', async (req: Request, res: Response) => {
     
     req.session.save((err) => {
       if (err) console.error('Session save error:', err);
-      if (user.role === 'superadmin') {
+      if (Number(user.twofa_enabled) === 1) {
+        // Privileged account: complete the second-factor challenge first
+        res.redirect('/verify-2fa');
+      } else if (user.role === 'superadmin') {
         res.redirect('/admin/shops');
       } else {
         res.redirect('/dashboard');
@@ -1040,10 +1062,20 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
     new_customer_phone, 
     new_customer_id_number, 
     items, 
-    notes 
+    notes,
+    client_ref
   } = req.body;
 
   try {
+    // Offline sync dedupe: the same queued order may arrive more than once
+    if (client_ref) {
+      const dupe = await queryOne('SELECT id, order_number FROM orders WHERE shop_id = ? AND client_ref = ?', [shopId, String(client_ref)]);
+      if (dupe) {
+        await logAudit(user.id, 'OFFLINE_DUPLICATE_IGNORED', `Duplicate submission of offline order ${dupe.order_number} (ref ${client_ref}) ignored`, req, shopId);
+        return res.redirect('/orders?msg=This+order+was+already+received+from+offline+mode');
+      }
+    }
+
     let custId = parseInt(customer_id, 10);
 
     // Auto-register customer at checkout if needed
@@ -1191,9 +1223,9 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
 
     // Insert Order Header
     const orderRes = await execute(
-      `INSERT INTO orders (shop_id, order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes)
-       VALUES (?, ?, ?, ?, ?, 0.0, ?, 'pending', ?, ?)`,
-      [shopId, orderNum, custId, user.id, grandTotal, grandTotal, initFulfillStatus, notes || null]
+      `INSERT INTO orders (shop_id, order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes, client_ref)
+       VALUES (?, ?, ?, ?, ?, 0.0, ?, 'pending', ?, ?, ?)`,
+      [shopId, orderNum, custId, user.id, grandTotal, grandTotal, initFulfillStatus, notes || null, client_ref ? String(client_ref) : null]
     );
 
     const orderId = orderRes.lastInsertId;
@@ -2340,6 +2372,243 @@ router.get('/audit-logs', requireManager, async (req: Request, res: Response) =>
     res.render('audit_logs', { user, logs });
   } catch (err: any) {
     res.status(500).render('error', { title: 'Audit Logs Error', message: err.message, path: req.path });
+  }
+});
+
+// Live product search fragment for htmx (search-as-you-type)
+router.get('/products/search', requireAuth, async (req: Request, res: Response) => {
+  const u = req.session.user!;
+  const shopId = getActiveShopId(req);
+  const q = String(req.query.q || '').trim();
+
+  try {
+    let sql = 'SELECT * FROM products WHERE shop_id = ?';
+    const params: any[] = [shopId];
+    if (q) {
+      sql += " AND (LOWER(name) LIKE ? OR LOWER(sku) LIKE ? OR LOWER(category) LIKE ? OR LOWER(COALESCE(barcode, '')) LIKE ?)";
+      const like = `%${q.toLowerCase()}%`;
+      params.push(like, like, like, like);
+    }
+    sql += ' ORDER BY name ASC LIMIT 200';
+    const products = await queryAll(sql, params);
+    res.render('partials/product_rows', { products, user: u });
+  } catch (err: any) {
+    res.status(500).send('<tr><td colspan="7" class="py-8 text-center text-rose-400 text-xs">Search failed. Please refresh.</td></tr>');
+  }
+});
+
+// -------------------------------------------------------------
+// HEALTH CHECK (for UptimeRobot / load balancers)
+// -------------------------------------------------------------
+
+router.get('/health', (req: Request, res: Response) => {
+  res.status(200).json({ status: 'ok', app: 'VectOS', time: new Date().toISOString() });
+});
+
+// -------------------------------------------------------------
+// TWO-FACTOR AUTHENTICATION (TOTP) — SuperAdmin hardening
+// -------------------------------------------------------------
+
+// Setup page: shows QR code to enroll an authenticator app
+router.get('/security/2fa', requireSuperAdmin, async (req: Request, res: Response) => {
+  const u = req.session.user!;
+  const current = await queryOne<{ twofa_secret: string | null; twofa_enabled: number }>(
+    'SELECT twofa_secret, twofa_enabled FROM users WHERE id = ?', [u.id]
+  );
+
+  let qrDataUrl: string | null = null;
+  let secret = current?.twofa_secret || null;
+
+  if (!secret) {
+    secret = authenticator.generateSecret();
+    await execute('UPDATE users SET twofa_secret = ? WHERE id = ?', [secret, u.id]);
+  }
+
+  if (Number(current?.twofa_enabled) !== 1) {
+    const otpauth = authenticator.keyuri(u.email, 'VectOS ERP', secret);
+    qrDataUrl = await QRCode.toDataURL(otpauth);
+  }
+
+  res.render('security_2fa', {
+    title: 'Two-Factor Security — VectOS',
+    enabled: Number(current?.twofa_enabled) === 1,
+    qrDataUrl,
+    secret
+  });
+});
+
+// Enable: verify a live code before activating
+router.post('/security/2fa/enable', requireSuperAdmin, async (req: Request, res: Response) => {
+  const u = req.session.user!;
+  const { code } = req.body;
+  const row = await queryOne<{ twofa_secret: string | null }>(
+    'SELECT twofa_secret FROM users WHERE id = ?', [u.id]
+  );
+  if (!row?.twofa_secret) return res.redirect('/security/2fa');
+
+  try {
+    if (!authenticator.verify({ token: (code || '').trim(), secret: row.twofa_secret })) {
+      return res.render('error', {
+        title: 'Invalid Code',
+        message: 'That 6-digit code was not correct. Check your authenticator app and try again.',
+        path: req.path
+      });
+    }
+    await execute('UPDATE users SET twofa_enabled = 1 WHERE id = ?', [u.id]);
+    (req.session as any).twofa_verified = true; // current session stays valid
+    await logAudit(u.id, '2FA_ENABLED', 'SuperAdmin enabled two-factor authentication', req);
+    res.redirect('/security/2fa?msg=Two-factor+authentication+is+now+ACTIVE');
+  } catch {
+    res.status(500).render('error', { title: '2FA Error', message: 'Could not enable two-factor auth.', path: req.path });
+  }
+});
+
+// Disable: requires account password confirmation
+router.post('/security/2fa/disable', requireSuperAdmin, async (req: Request, res: Response) => {
+  const u = req.session.user!;
+  const row = await queryOne<{ password: string }>('SELECT password FROM users WHERE id = ?', [u.id]);
+  const ok = row && await bcrypt.compare(req.body.password || '', row.password);
+  if (!ok) {
+    return res.render('error', {
+      title: 'Wrong Password',
+      message: 'Password confirmation failed. Two-factor authentication remains active.',
+      path: req.path
+    });
+  }
+  await execute('UPDATE users SET twofa_enabled = 0, twofa_secret = NULL WHERE id = ?', [u.id]);
+  await logAudit(u.id, '2FA_DISABLED', 'SuperAdmin disabled two-factor authentication', req);
+  res.redirect('/security/2fa?msg=Two-factor+authentication+disabled');
+});
+
+// Second-factor challenge page shown right after login
+router.get('/verify-2fa', (req: Request, res: Response) => {
+  if (!req.session.user) return res.redirect('/login');
+  if (!(req.session.user as any).twofa_enabled || (req.session as any).twofa_verified) {
+    return res.redirect('/');
+  }
+  res.render('verify_2fa', { title: 'Security Verification — VectOS' });
+});
+
+router.post('/verify-2fa', async (req: Request, res: Response) => {
+  const u = req.session.user as any;
+  if (!u) return res.redirect('/login');
+  const row = await queryOne<{ twofa_secret: string | null }>(
+    'SELECT twofa_secret FROM users WHERE id = ?', [u.id]
+  );
+  const code = (req.body.code || '').trim();
+  if (!row?.twofa_secret || !authenticator.verify({ token: code, secret: row.twofa_secret })) {
+    await throttleFail('2fa:' + u.email);
+    return res.render('verify_2fa', {
+      title: 'Security Verification — VectOS',
+      error: 'Incorrect or expired code. Try again.'
+    });
+  }
+  (req.session as any).twofa_verified = true;
+  res.redirect(u.role === 'superadmin' ? '/admin/shops' : '/dashboard');
+});
+
+// -------------------------------------------------------------
+// REPORTS DASHBOARD — revenue, profit, dead stock, receivables
+// -------------------------------------------------------------
+
+router.get('/reports', requireAuth, async (req: Request, res: Response) => {
+  const u = req.session.user!;
+  const allowed = u.role === 'superadmin' || u.role === 'manager' || Number(u.can_view_reports) === 1;
+  if (!allowed) {
+    return res.status(403).render('error', {
+      title: 'Access Denied',
+      message: 'You do not have permission to view business reports.',
+      path: req.path
+    });
+  }
+  const shopId = getActiveShopId(req);
+
+  try {
+    // Date helpers differ between SQLite (sql.js) and Postgres (Supabase)
+    const pg = isPostgres();
+    const monthExpr = pg ? "to_char(created_at, 'YYYY-MM')" : "strftime('%Y-%m', created_at)";
+    const cutoffExpr = pg ? "NOW() - INTERVAL '90 days'" : "date('now', '-90 day')";
+    const cutoff30 = pg ? "NOW() - INTERVAL '30 days'" : "date('now', '-30 day')";
+    const activeItems = "('pending_store','approved','partner_fulfilled','completed')";
+
+    // Monthly revenue & collections (last 12 months)
+    const monthly = await queryAll(`
+      SELECT ${monthExpr.replace('created_at', 'o.created_at')} AS ym,
+             SUM(o.total_amount) AS revenue,
+             SUM(o.paid_amount) AS collected
+      FROM orders o
+      WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+      GROUP BY ym ORDER BY ym ASC LIMIT 12
+    `, [shopId]);
+
+    // Monthly gross profit from line items
+    const monthlyProfit = await queryAll(`
+      SELECT ${monthExpr.replace('created_at', 'o.created_at')} AS ym,
+             SUM(CASE WHEN oi.item_status IN ${activeItems} THEN oi.profit ELSE 0 END) AS profit
+      FROM order_items oi JOIN orders o ON oi.order_id = o.id
+      WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+      GROUP BY ym ORDER BY ym ASC LIMIT 12
+    `, [shopId]);
+
+    // Best sellers (last 90 days)
+    const topProducts = await queryAll(`
+      SELECT oi.product_name AS name, SUM(oi.quantity) AS qty, SUM(oi.subtotal) AS amount
+      FROM order_items oi JOIN orders o ON oi.order_id = o.id
+      WHERE o.shop_id = ? AND oi.item_status IN ${activeItems} AND o.created_at >= ${cutoffExpr}
+      GROUP BY oi.product_name ORDER BY qty DESC LIMIT 8
+    `, [shopId]);
+
+    // Dead stock: sitting in the warehouse, not sold in 90+ days
+    const deadStock = await queryAll(`
+      SELECT p.name, p.category, p.quantity, (p.quantity * p.buying_price) AS tied_value
+      FROM products p
+      WHERE p.shop_id = ? AND p.quantity > 0 AND p.id NOT IN (
+        SELECT oi.product_id FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE oi.item_status IN ${activeItems} AND o.created_at >= ${cutoffExpr}
+      )
+      ORDER BY tied_value DESC LIMIT 10
+    `, [shopId]);
+    const deadStockTotal = await queryOne<{ v: number }>(`
+      SELECT COALESCE(SUM(p.quantity * p.buying_price), 0) AS v
+      FROM products p
+      WHERE p.shop_id = ? AND p.quantity > 0 AND p.id NOT IN (
+        SELECT oi.product_id FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE oi.item_status IN ${activeItems} AND o.created_at >= ${cutoffExpr}
+      )
+    `, [shopId]);
+
+    // Top debtors
+    const debtors = await queryAll(`
+      SELECT name, phone, credit_balance FROM customers
+      WHERE shop_id = ? AND credit_balance > 0
+      ORDER BY credit_balance DESC LIMIT 8
+    `, [shopId]);
+    const receivables = await queryOne<{ v: number }>(
+      'SELECT COALESCE(SUM(credit_balance), 0) AS v FROM customers WHERE shop_id = ?', [shopId]
+    );
+
+    // 30-day performance snapshot
+    const kpi30 = await queryOne<{ rev: number; profit: number }>(`
+      SELECT
+        (SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o WHERE o.shop_id = ? AND o.created_at >= ${cutoff30} AND o.fulfillment_status != 'cancelled') AS rev,
+        (SELECT COALESCE(SUM(oi.profit), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ? AND o.created_at >= ${cutoff30} AND oi.item_status IN ${activeItems}) AS profit
+    `, [shopId, shopId]);
+
+    res.render('reports', {
+      title: 'Business Intelligence Reports — VectOS',
+      monthly, monthlyProfit, topProducts, deadStock, debtors,
+      kpis: {
+        revenue30: kpi30?.rev || 0,
+        profit30: kpi30?.profit || 0,
+        receivables: receivables?.v || 0,
+        deadStockValue: deadStockTotal?.v || 0
+      },
+      isPostgres: pg
+    });
+  } catch (err: any) {
+    res.status(500).render('error', { title: 'Reports Error', message: err.message, path: req.path });
   }
 });
 

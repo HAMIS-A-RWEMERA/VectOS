@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-[var(--c-app)] text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= typeof title !== 'undefined' ? title : 'VectOS' %></title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@0.546.0"></script>
+  <style>
+    :root { --c-app:#0A0C0F; --c-panel:#13161C; --c-panel2:#181C24; --c-input:#1A1E26; --c-chip:#1E232E; --c-btn:#222834; --c-hover:#2A3140; --c-border:#222732; --c-border2:#2B313E; --c-divide:#1D222B; }
+    [data-theme="light"] { --c-app:#f4f5f7; --c-panel:#ffffff; --c-panel2:#f8f9fb; --c-input:#ffffff; --c-chip:#eef0f4; --c-btn:#e8eaef; --c-hover:#dfe3ea; --c-border:#d8dce4; --c-border2:#cbd0da; --c-divide:#e5e8ee; }
+    [data-theme="light"] .text-white{color:#111827} [data-theme="light"] .text-slate-100{color:#111827}
+    [data-theme="light"] .text-slate-200{color:#1f2937} [data-theme="light"] .text-slate-300{color:#374151}
+    [data-theme="light"] .text-slate-400{color:#4b5563} [data-theme="light"] .text-slate-500{color:#6b7280}
+  </style>
+</head>
+<body class="h-full flex items-center justify-center font-sans bg-[var(--c-app)] text-slate-200 antialiased px-4">
+  <div class="w-full max-w-md bg-[var(--c-panel)] border border-[var(--c-border)] rounded-2xl p-8 shadow-2xl space-y-6">
+    <div class="text-center">
+      <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 shadow-xl shadow-amber-500/20 mb-3">
+        <i data-lucide="shield-check" class="w-7 h-7"></i>
+      </div>
+      <h2 class="text-xl font-extrabold text-white">Security Verification</h2>
+      <p class="text-xs text-slate-400 mt-1">Enter the 6-digit code from your authenticator app</p>
+      <% if (typeof user !== 'undefined' && user) { %>
+        <p class="text-[11px] text-slate-500 mt-0.5 font-mono"><%= user.email %></p>
+      <% } %>
+    </div>
+
+    <% if (typeof error !== 'undefined' && error) { %>
+      <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center space-x-2">
+        <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+        <span><%= error %></span>
+      </div>
+    <% } %>
+
+    <form action="/verify-2fa" method="POST" class="space-y-4">
+      <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+      <input type="text" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" required autofocus
+        class="w-full bg-[var(--c-input)] border border-[var(--c-border2)] rounded-xl px-4 py-4 text-center font-mono text-2xl font-black text-white tracking-[0.5em] focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500">
+      <button type="submit"
+        class="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-slate-950 font-extrabold text-sm shadow-lg cursor-pointer transition-all">
+        Verify &amp; Continue
+      </button>
+    </form>
+
+    <div class="text-center pt-2 border-t border-[var(--c-border)]">
+      <a href="/logout" class="text-xs text-slate-500 hover:text-rose-400 transition-colors">Cancel and sign out</a>
+    </div>
+  </div>
+  <script>if (typeof lucide !== 'undefined') lucide.createIcons();</script>
+</body>
+</html>
