@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import request from 'supertest';
 import { app } from '../server';
 import { createTestShop, login, addProduct } from './helpers';
-import type { request as Request } from 'supertest';
 import { queryOne } from '../server/database/db';
 
 let agent: ReturnType<typeof request.agent>;
@@ -62,8 +62,7 @@ describe('Order lifecycle', () => {
 
     const second = await agent.post('/orders/create').type('form').send(payload);
     expect(second.status).toBe(302);
-    expect(second.headers.location.join ? second.headers.location.join('') : String(second.headers.location))
-      .toContain('already+received');
+    expect(String(second.headers.location)).toContain('already+received');
 
     const count = await queryOne<{ c: number }>(
       'SELECT COUNT(*) AS c FROM orders WHERE client_ref = ?', [ref]

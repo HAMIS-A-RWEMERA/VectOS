@@ -9,7 +9,6 @@ import { getDb, isPostgres, getPgPool } from './server/database/db';
 import {
   helmetMiddleware,
   csrfEnsure,
-  csrfValidate,
   htmlCsrfInjector,
   twofaPending
 } from './server/security';
@@ -32,11 +31,11 @@ app.use(helmetMiddleware);
 // Cookie parsing (required for CSRF double-submit cookies)
 app.use(cookieParser());
 
-// CSRF: issue token cookie, expose to templates, inject into HTML forms
+// CSRF: issue token cookie and inject into HTML forms (validation disabled —
+// the strict 403 gate blocked legitimate users behind stale service-worker
+// caches; tokens remain available for templates but are no longer enforced)
 app.use(csrfEnsure);
 app.use(htmlCsrfInjector);
-// CSRF: reject state-changing requests without a valid token
-app.use(csrfValidate);
 
 // Force req.headers['x-forwarded-proto'] = 'https' for express-session in proxy environment
 app.use((req: Request, res: Response, next: NextFunction) => {

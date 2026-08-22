@@ -30,6 +30,7 @@ declare module 'express-session' {
       name: string;
       email: string;
       role: 'superadmin' | 'manager' | 'employee' | 'salesperson' | 'accountant' | 'storekeeper';
+      twofa_enabled?: number;
       job_title?: string;
       phone?: string;
       activation_status?: 'active' | 'pending_approval' | 'suspended';

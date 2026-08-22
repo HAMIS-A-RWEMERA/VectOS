@@ -13,7 +13,7 @@ import {
 } from '../auth';
 import { uploadSpreadsheet } from '../upload';
 import { throttleCheck, throttleFail, throttleClear } from '../security';
-import { authenticator } from 'otplib';
+import { generateSecret, generateURI, verify as verifyOtp } from 'otplib';
 import QRCode from 'qrcode';
 import { isPostgres } from '../database/db';
 
@@ -133,7 +133,7 @@ router.post('/login', async (req: Request, res: Response) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      twofa_enabled: Number(user.twofa_enabled) === 1,
+      twofa_enabled: Number(user.twofa_enabled) === 1 ? 1 : 0,
       job_title: user.job_title || user.role,
       phone: user.phone,
       can_create_orders: user.can_create_orders,
@@ -2420,12 +2420,12 @@ router.get('/security/2fa', requireSuperAdmin, async (req: Request, res: Respons
   let secret = current?.twofa_secret || null;
 
   if (!secret) {
-    secret = authenticator.generateSecret();
+    secret = generateSecret();
     await execute('UPDATE users SET twofa_secret = ? WHERE id = ?', [secret, u.id]);
   }
 
   if (Number(current?.twofa_enabled) !== 1) {
-    const otpauth = authenticator.keyuri(u.email, 'VectOS ERP', secret);
+    const otpauth = generateURI({ issuer: 'VectOS ERP', label: u.email, secret });
     qrDataUrl = await QRCode.toDataURL(otpauth);
   }
 
@@ -2447,7 +2447,8 @@ router.post('/security/2fa/enable', requireSuperAdmin, async (req: Request, res:
   if (!row?.twofa_secret) return res.redirect('/security/2fa');
 
   try {
-    if (!authenticator.verify({ token: (code || '').trim(), secret: row.twofa_secret })) {
+    const check = await verifyOtp({ token: (code || '').trim(), secret: row.twofa_secret });
+    if (!check.valid) {
       return res.render('error', {
         title: 'Invalid Code',
         message: 'That 6-digit code was not correct. Check your authenticator app and try again.',
@@ -2496,7 +2497,12 @@ router.post('/verify-2fa', async (req: Request, res: Response) => {
     'SELECT twofa_secret FROM users WHERE id = ?', [u.id]
   );
   const code = (req.body.code || '').trim();
-  if (!row?.twofa_secret || !authenticator.verify({ token: code, secret: row.twofa_secret })) {
+  let otpOk = false;
+  if (row?.twofa_secret) {
+    const check = await verifyOtp({ token: code, secret: row.twofa_secret });
+    otpOk = Boolean(check.valid);
+  }
+  if (!row?.twofa_secret || !otpOk) {
     await throttleFail('2fa:' + u.email);
     return res.render('verify_2fa', {
       title: 'Security Verification — VectOS',

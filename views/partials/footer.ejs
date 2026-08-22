@@ -43,14 +43,16 @@
       lucide.createIcons();
     }
 
-    // Register Service Worker
+    // Offline mode removed: any previously-installed service worker is
+    // unregistered and its caches purged so pages always load fresh.
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function() {
-        navigator.serviceWorker.register('/sw.js').then(function(registration) {
-          console.log('[SW] ServiceWorker registered with scope:', registration.scope);
-        }).catch(function(error) {
-          console.log('[SW] ServiceWorker registration failed:', error);
-        });
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (r) { r.unregister(); });
+      });
+    }
+    if (window.caches && caches.keys) {
+      caches.keys().then(function (keys) {
+        keys.forEach(function (k) { caches.delete(k); });
       });
     }
 

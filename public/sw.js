@@ -1,31 +1,29 @@
-const CACHE_NAME = 'vectos-v2';
-const STATIC_ASSETS = [
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/apple-touch-icon.png',
-  '/icon.svg',
-  '/offline.html'
-];
+// VectOS Service Worker — safe-by-default strategy:
+// 1. Only GET requests are handled; POSTs (orders, logins) go straight to network.
+//    Offline order queuing is done by the page itself (localStorage + client_ref).
+// 2. Pages are NETWORK-FIRST: online visitors always get fresh HTML and CSS.
+//    A cached page is served ONLY when the network genuinely fails, so nobody
+//    ever sees a stale page while online (the bug that broke logins before).
+// 3. Cross-origin assets (Tailwind CDN, fonts, lucide) are never cached, so
+//    styling always comes straight from the source while online.
+const VERSION = 'v3';
+const PAGE_CACHE = `vectos-pages-${VERSION}`;
+const ASSET_CACHE = `vectos-assets-${VERSION}`;
+const OFFLINE_URL = '/offline.html';
 
-// Install: cache the static shell only. Authenticated pages are NEVER cached
-// (they may contain other users' business data on shared devices).
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn('[SW] Some static assets could not be cached:', err);
-      })
-    ).then(() => self.skipWaiting())
+    caches.open(PAGE_CACHE).then((cache) => cache.add(OFFLINE_URL)).then(() => self.skipWaiting())
   );
 });
 
-// Activate: purge old versions
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((names) =>
-      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((k) => k !== PAGE_CACHE && k !== ASSET_CACHE).map((k) => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -34,38 +32,45 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return; // CDNs: never cached
 
-  // Static assets: cache-first (fast, offline-capable)
-  const isStatic =
-    url.origin === location.origin &&
-    (url.pathname.startsWith('/icon') ||
-      url.pathname === '/manifest.json' ||
-      url.pathname === '/offline.html' ||
-      url.pathname.startsWith('/css/') ||
-      url.pathname.startsWith('/js/'));
-
-  if (isStatic) {
+  // Page navigations: try network first, fall back to cache/offline page
+  if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
     event.respondWith(
-      caches.match(req).then((cached) => cached || fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((c) => c.put(req, copy));
-        return res;
-      }))
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(PAGE_CACHE).then((cache) => cache.put(req, copy));
+          return res;
+        })
+        .catch(async () => {
+          const cached = await caches.match(req);
+          if (cached) return cached;
+          const offlinePage = await caches.match(OFFLINE_URL);
+          return offlinePage || new Response('You are offline.', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' }
+          });
+        })
     );
     return;
   }
 
-  // Everything else: network-first; when the network is gone and nothing is
-  // cached, serve the branded offline page for document navigations.
-  event.respondWith(
-    fetch(req).catch(() =>
+  // Same-origin static assets: cache-first with background refresh.
+  if (/\.(css|js|png|jpg|jpeg|svg|ico|woff2?|ttf)$/i.test(url.pathname)) {
+    event.respondWith(
       caches.match(req).then((cached) => {
-        if (cached) return cached;
-        if (req.headers.get('accept') && req.headers.get('accept').includes('text/html')) {
-          return caches.match('/offline.html');
-        }
-        return Response.error();
+        const networkFetch = fetch(req)
+          .then((res) => {
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(ASSET_CACHE).then((cache) => cache.put(req, copy));
+            }
+            return res;
+          })
+          .catch(() => cached);
+        return cached || networkFetch;
       })
-    )
-  );
+    );
+  }
 });
