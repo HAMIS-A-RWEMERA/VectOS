@@ -662,30 +662,6 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
     }
   }
 
-  // Ensure VectOS SuperAdmin exists and has password123
-  await ensureAdminAccounts(db);
-
-  // Ensure default stock warehouses exist
-  try {
-    const stockCount = db.exec("SELECT COUNT(*) FROM stocks");
-    if (stockCount.length === 0 || Number(stockCount[0].values[0][0]) === 0) {
-      db.run(`
-        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
-        VALUES (1, 1, 'Main Gikondo Central Warehouse', 'WH-GIK-01', 'Gikondo Industrial Zone', 'Jean-Luc Hakizimana', 1, 'active');
-      `);
-      db.run(`
-        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
-        VALUES (2, 1, 'Gisozi Hardware Depot (Branch 2)', 'WH-GSZ-02', 'Gisozi Hardware Market', 'Emmanuel Bizimana', 0, 'active');
-      `);
-      db.run(`
-        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
-        VALUES (3, 2, 'Nyabugogo Central Depot', 'WH-NYA-01', 'Nyabugogo Hardware Center', 'Kwizera Eric', 1, 'active');
-      `);
-    }
-  } catch (e) {
-    // ignore
-  }
-
   // --- SEEDING INITIAL DATA ---
 
   // 0. Seed Default Active Shop & Secondary Shop
@@ -774,6 +750,30 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
       '+250 788 100 004'
     ]);
   }
+
+  // 1.1 Seed default stock warehouses (after shops so FK succeeds)
+  try {
+    const stockCount = db.exec("SELECT COUNT(*) FROM stocks");
+    if (stockCount.length === 0 || Number(stockCount[0].values[0][0]) === 0) {
+      db.run(`
+        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
+        VALUES (1, 1, 'Main Gikondo Central Warehouse', 'WH-GIK-01', 'Gikondo Industrial Zone', 'Jean-Luc Hakizimana', 1, 'active');
+      `);
+      db.run(`
+        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
+        VALUES (2, 1, 'Gisozi Hardware Depot (Branch 2)', 'WH-GSZ-02', 'Gisozi Hardware Market', 'Emmanuel Bizimana', 0, 'active');
+      `);
+      db.run(`
+        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
+        VALUES (3, 2, 'Nyabugogo Central Depot', 'WH-NYA-01', 'Nyabugogo Hardware Center', 'Kwizera Eric', 1, 'active');
+      `);
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // 1.2 Ensure VectOS SuperAdmin exists (after demo users so count guard doesn't skip them)
+  await ensureAdminAccounts(db);
 
   // 2. Seed Products (Construction materials with fixed buying price)
   const productCheck = db.exec("SELECT COUNT(*) FROM products");
