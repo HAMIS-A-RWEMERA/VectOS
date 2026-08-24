@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
 import bcrypt from 'bcryptjs';
-import { queryAll, queryOne, execute } from '../database/db';
+import { queryAll, queryOne, execute, withTransaction } from '../database/db';
 import { 
   requireAuth, 
   requireSuperAdmin, 
@@ -762,17 +762,24 @@ router.post('/products/import-excel', requirePermission('can_manage_stock'), upl
     let insertedCount = 0;
     let updatedCount = 0;
 
+    let skippedRows = 0;
     for (const row of rawRows) {
       // Find keys flexibly
       const name = (row['Product Name'] || row['product_name'] || row['Name'] || row['name'] || row['Item'] || row['item'] || '').toString().trim();
-      if (!name) continue;
+      if (!name) { skippedRows++; continue; }
 
       const sku = (row['SKU / Code'] || row['SKU'] || row['sku'] || row['Code'] || row['code'] || '').toString().trim() || null;
       const category = (row['Category'] || row['category'] || 'General Hardware').toString().trim();
       const unit = (row['Unit'] || row['unit'] || 'pcs').toString().trim();
-      const buyingPrice = parseFloat(row['Buying Price'] || row['buying_price'] || row['Cost'] || row['Price'] || 0) || 0;
-      const quantity = parseInt(row['Initial Quantity'] || row['Quantity'] || row['quantity'] || row['Stock'] || row['qty'] || 0, 10) || 0;
-      const lowStock = parseInt(row['Low Stock Alert'] || row['low_stock_threshold'] || row['Min Stock'] || 10, 10) || 10;
+      let buyingPrice = parseFloat(row['Buying Price'] || row['buying_price'] || row['Cost'] || row['Price'] || 0) || 0;
+      if (!isFinite(buyingPrice) || buyingPrice < 0) buyingPrice = 0;
+      const rawQty = row['Initial Quantity'] || row['Quantity'] || row['quantity'] || row['Stock'] || row['qty'] || 0;
+      const quantity = parseInt(rawQty, 10);
+      if (isNaN(quantity)) { skippedRows++; continue; }
+      if (quantity < 0) { skippedRows++; continue; }
+      const rawLow = row['Low Stock Alert'] || row['low_stock_threshold'] || row['Min Stock'];
+      let lowStock = parseInt(rawLow, 10);
+      if (isNaN(lowStock) || lowStock < 0) lowStock = 10;
       const description = (row['Description'] || row['description'] || '').toString().trim() || null;
 
       // Check if product already exists by name or SKU in this shop
@@ -803,10 +810,11 @@ router.post('/products/import-excel', requirePermission('can_manage_stock'), upl
         updatedCount++;
       } else {
         // Insert new product
+        if (buyingPrice < 0 || !isFinite(buyingPrice)) buyingPrice = 0;
         const resProd = await execute(
           `INSERT INTO products (shop_id, name, sku, category, unit, buying_price, quantity, low_stock_threshold, description)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [shopId, name, sku, category, unit, buyingPrice, Math.max(0, quantity), lowStock, description]
+          [shopId, name, sku, category, unit, buyingPrice, quantity, lowStock, description]
         );
 
         if (quantity > 0) {
@@ -885,13 +893,39 @@ router.post('/products/add', requirePermission('can_manage_stock'), async (req: 
 
   try {
     const buyPrice = parseFloat(buying_price);
-    const initQty = parseInt(initial_quantity, 10) || 0;
-    const threshold = parseInt(low_stock_threshold, 10) || 10;
+    const initQty = parseInt(initial_quantity, 10);
+    const rawThreshold = parseInt(low_stock_threshold, 10);
+    const threshold = isNaN(rawThreshold) ? 10 : rawThreshold;
+
+    const trimmedName = String(name || '').trim();
+    const trimmedCategory = String(category || '').trim();
+    if (!trimmedName) {
+      return res.status(400).render('error', { title: 'Product Validation Error', message: 'Product name is required.', path: req.path });
+    }
+    if (!trimmedCategory) {
+      return res.status(400).render('error', { title: 'Product Validation Error', message: 'Category is required.', path: req.path });
+    }
+    if (!isFinite(buyPrice) || buyPrice < 0) {
+      return res.status(400).render('error', { title: 'Product Validation Error', message: 'Buying price must be a valid non-negative number.', path: req.path });
+    }
+    if (isNaN(initQty) || initQty < 0 || !Number.isInteger(initQty)) {
+      return res.status(400).render('error', { title: 'Product Validation Error', message: 'Initial quantity must be a non-negative integer.', path: req.path });
+    }
+    if (threshold < 0) {
+      return res.status(400).render('error', { title: 'Product Validation Error', message: 'Low stock threshold cannot be negative.', path: req.path });
+    }
+    const trimmedSku = String(sku || '').trim() || null;
+    if (trimmedSku) {
+      const existingSku = await queryOne('SELECT id FROM products WHERE shop_id = ? AND sku = ?', [shopId, trimmedSku]);
+      if (existingSku) {
+        return res.status(400).render('error', { title: 'Duplicate SKU', message: `A product with SKU "${trimmedSku}" already exists in your store.`, path: req.path });
+      }
+    }
 
     const resProd = await execute(
       `INSERT INTO products (shop_id, name, sku, category, unit, buying_price, quantity, low_stock_threshold, description)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [shopId, name, sku || null, category, unit || 'pcs', buyPrice, initQty, threshold, description || null]
+      [shopId, trimmedName, trimmedSku, trimmedCategory, unit ? String(unit).trim() || 'pcs' : 'pcs', buyPrice, initQty, threshold, description ? String(description).trim() || null : null]
     );
 
     if (initQty > 0) {
@@ -1100,7 +1134,7 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
       if (existingCust) {
         custId = existingCust.id;
         if (trimmedIdNo && !existingCust.id_number) {
-          await execute('UPDATE customers SET id_number = ? WHERE id = ?', [trimmedIdNo, custId]);
+          await execute('UPDATE customers SET id_number = ? WHERE id = ? AND shop_id = ?', [trimmedIdNo, custId, shopId]);
         }
       } else {
         const resCust = await execute(
@@ -1122,7 +1156,11 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
 
     let parsedItems: any[] = [];
     if (typeof items === 'string') {
-      parsedItems = JSON.parse(items);
+      try {
+        parsedItems = JSON.parse(items);
+      } catch {
+        return res.status(400).render('error', { title: 'Invalid Order Data', message: 'Order items could not be parsed. Please try again.', path: req.path });
+      }
     } else if (Array.isArray(items)) {
       parsedItems = items;
     }
@@ -1178,13 +1216,13 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
         buyPrice = adhocBuyPrice;
 
         if (item.source_type === 'partner' && partnerShopId) {
-          const partner = await queryOne('SELECT * FROM partner_shops WHERE id = ?', [partnerShopId]);
+          const partner = await queryOne('SELECT * FROM partner_shops WHERE id = ? AND shop_id = ?', [partnerShopId, shopId]);
           fulfillSource = partner ? partner.name : 'Partner Shop';
           itemStatus = 'partner_fulfilled';
 
-          // Increase partner debt balance
+          // Increase partner debt balance (shop-scoped)
           const partnerCost = buyPrice * qty;
-          await execute('UPDATE partner_shops SET current_balance = current_balance + ? WHERE id = ?', [partnerCost, partnerShopId]);
+          await execute('UPDATE partner_shops SET current_balance = current_balance + ? WHERE id = ? AND shop_id = ?', [partnerCost, partnerShopId, shopId]);
         }
       } else {
         const prod = await queryOne('SELECT * FROM products WHERE id = ? AND shop_id = ?', [prodId, shopId]);
@@ -1213,38 +1251,48 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
       return res.status(400).render('error', { title: 'Order Validation Error', message: 'No valid items found in order.', path: req.path });
     }
 
-    // Generate Order Number
-    const countRes = await queryOne('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?', [shopId]);
-    const orderNum = `ORD-${new Date().getFullYear()}-${String((countRes ? countRes.cnt : 0) + 1).padStart(4, '0')}`;
-
-    // Determine initial order fulfillment status
+    // Generate Order Number — COUNT(*) is not atomic; retry on UNIQUE violation
     const allPartner = validatedLines.every(l => l.item_status === 'partner_fulfilled');
     const initFulfillStatus = allPartner ? 'completed' : 'pending_store';
 
-    // Insert Order Header
-    const orderRes = await execute(
-      `INSERT INTO orders (shop_id, order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes, client_ref)
-       VALUES (?, ?, ?, ?, ?, 0.0, ?, 'pending', ?, ?, ?)`,
-      [shopId, orderNum, custId, user.id, grandTotal, grandTotal, initFulfillStatus, notes || null, client_ref ? String(client_ref) : null]
-    );
-
-    const orderId = orderRes.lastInsertId;
-
-    // Insert Order Items
-    for (const line of validatedLines) {
-      await execute(
-        `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status, partner_shop_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [orderId, line.product_id, line.quantity, line.buying_price, line.selling_price, line.subtotal, line.profit, line.fulfillment_source, line.item_status, line.partner_shop_id || null]
-      );
-    }
-
-    // Update customer credit debt balance
-    if (grandTotal > 0) {
-      await execute(
-        'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ?',
-        [grandTotal, custId]
-      );
+    let orderId: number = 0;
+    let orderNum: string = '';
+    let attempts = 0;
+    while (attempts < 3) {
+      attempts++;
+      const countRes = await queryOne('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?', [shopId]);
+      orderNum = `ORD-${new Date().getFullYear()}-${String((countRes ? countRes.cnt : 0) + 1 + (attempts - 1)).padStart(4, '0')}`;
+      try {
+        await withTransaction(async () => {
+          const orderRes = await execute(
+            `INSERT INTO orders (shop_id, order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes, client_ref)
+             VALUES (?, ?, ?, ?, ?, 0.0, ?, 'pending', ?, ?, ?)`,
+            [shopId, orderNum, custId, user.id, grandTotal, grandTotal, initFulfillStatus, notes || null, client_ref ? String(client_ref) : null]
+          );
+          orderId = orderRes.lastInsertId;
+          for (const line of validatedLines) {
+            await execute(
+              `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status, partner_shop_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [orderId, line.product_id, line.quantity, line.buying_price, line.selling_price, line.subtotal, line.profit, line.fulfillment_source, line.item_status, line.partner_shop_id || null]
+            );
+          }
+          if (grandTotal > 0) {
+            await execute(
+              'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND shop_id = ?',
+              [grandTotal, custId, shopId]
+            );
+          }
+        });
+        break;
+      } catch (txErr: any) {
+        const msg = String(txErr.message || '');
+        if (msg.includes('UNIQUE') || msg.includes('unique') || msg.includes('duplicate')) {
+          if (attempts >= 3) throw txErr;
+          continue;
+        }
+        throw txErr;
+      }
     }
 
     await logAudit(user.id, 'ORDER_CREATE', `Created order ${orderNum} (Total: RWF ${grandTotal}, Lines: ${validatedLines.length})`, req, shopId);
@@ -1437,47 +1485,61 @@ router.post('/storekeeper/item-review', requirePermission('can_release_stock'), 
         });
       }
 
-      await execute("UPDATE order_items SET item_status = 'approved', fulfillment_source = 'Store' WHERE id = ?", [itemId]);
-
-      const newStock = item.current_stock - item.quantity;
-      await execute('UPDATE products SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newStock, item.product_id]);
-
-      await execute(
-        `INSERT INTO inventory_movements (shop_id, product_id, quantity, movement_type, reference, performed_by)
-         VALUES (?, ?, ?, 'Sale', ?, ?)`,
-        [shopId, item.product_id, -item.quantity, item.order_number, user.id]
-      );
+      await withTransaction(async () => {
+        await execute("UPDATE order_items SET item_status = 'approved', fulfillment_source = 'Store' WHERE id = ?", [itemId]);
+        const upd = await execute('UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ? AND quantity >= ?', [item.quantity, item.product_id, shopId, item.quantity]);
+        if (upd.changes === 0) {
+          throw new Error('Stock update failed — insufficient quantity or product not found.');
+        }
+        await execute(
+          `INSERT INTO inventory_movements (shop_id, product_id, quantity, movement_type, reference, performed_by)
+           VALUES (?, ?, ?, 'Sale', ?, ?)`,
+          [shopId, item.product_id, -item.quantity, item.order_number, user.id]
+        );
+      });
 
       await logAudit(user.id, 'STORE_APPROVE_ITEM', `Approved item ${item.product_name} (${item.quantity} qty) for ${item.order_number}`, req, shopId);
     } else if (action === 'reject') {
       await execute(
         "UPDATE order_items SET item_status = 'rejected', rejection_reason = ? WHERE id = ?",
-        [rejection_reason || 'Out of stock in warehouse', itemId]
+        [rejection_reason ? String(rejection_reason).trim().slice(0, 500) : 'Out of stock in warehouse', itemId]
       );
 
       await logAudit(user.id, 'STORE_REJECT_ITEM', `Rejected item ${item.product_name} for ${item.order_number}. Reason: ${rejection_reason}`, req, shopId);
+    } else {
+      return res.status(400).send('Invalid action.');
     }
 
-    await checkAndUpdateOrderCompletion(item.order_id);
+    await checkAndUpdateOrderCompletion(item.order_id, shopId);
     res.redirect('/storekeeper');
   } catch (err: any) {
     res.status(500).render('error', { title: 'Storekeeper Review Error', message: err.message, path: req.path });
   }
 });
 
-async function checkAndUpdateOrderCompletion(orderId: number) {
+async function checkAndUpdateOrderCompletion(orderId: number, shopId?: number) {
   const pendingItems = await queryAll("SELECT COUNT(*) as cnt FROM order_items WHERE order_id = ? AND item_status = 'pending_store'", [orderId]);
   const rejectedItems = await queryAll("SELECT COUNT(*) as cnt FROM order_items WHERE order_id = ? AND item_status = 'rejected'", [orderId]);
 
   const pCnt = pendingItems[0] ? pendingItems[0].cnt : 0;
   const rCnt = rejectedItems[0] ? rejectedItems[0].cnt : 0;
 
-  if (pCnt === 0 && rCnt === 0) {
-    await execute("UPDATE orders SET fulfillment_status = 'completed' WHERE id = ?", [orderId]);
-  } else if (rCnt > 0) {
-    await execute("UPDATE orders SET fulfillment_status = 'resolving_rejected' WHERE id = ?", [orderId]);
+  if (shopId !== undefined) {
+    if (pCnt === 0 && rCnt === 0) {
+      await execute("UPDATE orders SET fulfillment_status = 'completed' WHERE id = ? AND shop_id = ?", [orderId, shopId]);
+    } else if (rCnt > 0) {
+      await execute("UPDATE orders SET fulfillment_status = 'resolving_rejected' WHERE id = ? AND shop_id = ?", [orderId, shopId]);
+    } else {
+      await execute("UPDATE orders SET fulfillment_status = 'pending_store' WHERE id = ? AND shop_id = ?", [orderId, shopId]);
+    }
   } else {
-    await execute("UPDATE orders SET fulfillment_status = 'pending_store' WHERE id = ?", [orderId]);
+    if (pCnt === 0 && rCnt === 0) {
+      await execute("UPDATE orders SET fulfillment_status = 'completed' WHERE id = ?", [orderId]);
+    } else if (rCnt > 0) {
+      await execute("UPDATE orders SET fulfillment_status = 'resolving_rejected' WHERE id = ?", [orderId]);
+    } else {
+      await execute("UPDATE orders SET fulfillment_status = 'pending_store' WHERE id = ?", [orderId]);
+    }
   }
 }
 
@@ -1530,49 +1592,56 @@ router.post('/accountant/resolve-item', requirePermission('can_partner_borrow'),
       const partner = await queryOne('SELECT * FROM partner_shops WHERE id = ? AND shop_id = ?', [partnerId, shopId]);
       if (!partner) return res.status(400).send('Invalid partner shop selected.');
 
-      const cost = parseFloat(partner_cost) || (item.buying_price * item.quantity);
+      let cost = parseFloat(partner_cost);
+      if (!isFinite(cost) || cost <= 0) cost = item.buying_price * item.quantity;
+      if (!isFinite(cost) || cost <= 0) return res.status(400).send('Invalid partner cost.');
 
-      await execute(`
-        UPDATE order_items 
-        SET item_status = 'partner_fulfilled', 
-            fulfillment_source = ?, 
-            partner_shop_id = ?
-        WHERE id = ?
-      `, [partner.name, partner.id, itemId]);
-
-      await execute('UPDATE partner_shops SET current_balance = current_balance + ? WHERE id = ?', [cost, partner.id]);
+      await withTransaction(async () => {
+        await execute(`
+          UPDATE order_items 
+          SET item_status = 'partner_fulfilled', 
+              fulfillment_source = ?, 
+              partner_shop_id = ?
+          WHERE id = ?
+        `, [partner.name, partner.id, itemId]);
+        await execute('UPDATE partner_shops SET current_balance = current_balance + ? WHERE id = ? AND shop_id = ?', [cost, partner.id, shopId]);
+      });
 
       await logAudit(user.id, 'ACCOUNTANT_PARTNER_FULFILL', `Procured item ${item.product_name} for ${item.order_number} from partner shop: ${partner.name} (Cost: RWF ${cost})`, req, shopId);
     } else if (resolution === 'unavailable') {
-      await execute(`
-        UPDATE order_items 
-        SET item_status = 'unavailable', 
-            fulfillment_source = 'Unavailable', 
-            selling_price = 0.0, 
-            subtotal = 0.0, 
-            profit = 0.0 
-        WHERE id = ?
-      `, [itemId]);
+      await withTransaction(async () => {
+        await execute(`
+          UPDATE order_items 
+          SET item_status = 'unavailable', 
+              fulfillment_source = 'Unavailable', 
+              selling_price = 0.0, 
+              subtotal = 0.0, 
+              profit = 0.0 
+          WHERE id = ?
+        `, [itemId]);
 
-      const orderItems = await queryAll('SELECT SUM(subtotal) as new_total FROM order_items WHERE order_id = ?', [item.order_id]);
-      const newTotal = orderItems[0] ? orderItems[0].new_total : 0;
+        const orderItems = await queryAll('SELECT SUM(subtotal) as new_total FROM order_items WHERE order_id = ?', [item.order_id]);
+        const newTotalRaw = orderItems[0] ? orderItems[0].new_total : 0;
+        const newTotal = newTotalRaw || 0;
 
-      const order = await queryOne('SELECT * FROM orders WHERE id = ?', [item.order_id]);
-      if (order) {
-        const newDebt = Math.max(0, newTotal - order.paid_amount);
-        let payStatus = order.payment_status;
-        if (order.paid_amount >= newTotal) payStatus = 'paid';
-
-        await execute(
-          'UPDATE orders SET total_amount = ?, debt_amount = ?, payment_status = ? WHERE id = ?',
-          [newTotal, newDebt, payStatus, item.order_id]
-        );
-      }
+        const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [item.order_id, shopId]);
+        if (order) {
+          const newDebt = Math.max(0, newTotal - order.paid_amount);
+          let payStatus = order.payment_status;
+          if (order.paid_amount >= newTotal) payStatus = 'paid';
+          await execute(
+            'UPDATE orders SET total_amount = ?, debt_amount = ?, payment_status = ? WHERE id = ? AND shop_id = ?',
+            [newTotal, newDebt, payStatus, item.order_id, shopId]
+          );
+        }
+      });
 
       await logAudit(user.id, 'ACCOUNTANT_MARK_UNAVAILABLE', `Marked item ${item.product_name} as Unavailable for ${item.order_number}`, req, shopId);
+    } else {
+      return res.status(400).send('Invalid resolution type.');
     }
 
-    await checkAndUpdateOrderCompletion(item.order_id);
+    await checkAndUpdateOrderCompletion(item.order_id, shopId);
     res.redirect('/accountant/rejected-items');
   } catch (err: any) {
     res.status(500).render('error', { title: 'Resolution Error', message: err.message, path: req.path });
@@ -1620,41 +1689,50 @@ router.post('/payments/record', requirePermission('can_process_payments'), async
   try {
     const orderId = parseInt(order_id, 10);
     const amount = parseFloat(payment_amount);
+    const allowedMethods = ['cash', 'momo', 'bank_transfer', 'debt_credit'];
+    const method = String(payment_method || '').trim().toLowerCase();
 
-    if (isNaN(orderId) || isNaN(amount) || amount <= 0) {
+    if (isNaN(orderId) || !isFinite(amount) || amount <= 0) {
       return res.status(400).send('Invalid payment details.');
     }
+    if (method && !allowedMethods.includes(method)) {
+      return res.status(400).send('Invalid payment method.');
+    }
+    const finalMethod = allowedMethods.includes(method) ? method : 'cash';
 
     const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
     if (!order) return res.status(404).send('Order not found.');
-
-    const newPaid = order.paid_amount + amount;
-    const newDebt = Math.max(0, order.total_amount - newPaid);
-    let newStatus = 'partial';
-    if (newPaid >= order.total_amount) {
-      newStatus = 'paid';
+    if (order.payment_status === 'paid' && order.debt_amount === 0) {
+      return res.status(400).send('Order is already fully paid.');
     }
 
-    await execute(
-      `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [shopId, orderId, amount, payment_method, reference_no || `PAY-${Date.now()}`, user.id]
-    );
-
-    await execute(
-      'UPDATE orders SET paid_amount = ?, debt_amount = ?, payment_status = ? WHERE id = ?',
-      [newPaid, newDebt, newStatus, orderId]
-    );
-
-    if (order.debt_amount > 0) {
-      const debtReduction = Math.min(order.debt_amount, amount);
+    await withTransaction(async () => {
       await execute(
-        'UPDATE customers SET credit_balance = MAX(0, credit_balance - ?) WHERE id = ?',
-        [debtReduction, order.customer_id]
+        `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [shopId, orderId, amount, finalMethod, reference_no ? String(reference_no).trim() || `PAY-${Date.now()}` : `PAY-${Date.now()}`, user.id]
       );
-    }
 
-    await logAudit(user.id, 'PAYMENT_RECORDED', `Recorded payment of RWF ${amount} for order ${order.order_number} (${payment_method.toUpperCase()})`, req, shopId);
+      // Atomic update: avoid lost-update race (read-then-write)
+      await execute(
+        `UPDATE orders SET
+           paid_amount = paid_amount + ?,
+           debt_amount = GREATEST(0, total_amount - (paid_amount + ?)),
+           payment_status = CASE WHEN (paid_amount + ?) >= total_amount THEN 'paid' ELSE 'partial' END
+         WHERE id = ? AND shop_id = ?`,
+        [amount, amount, amount, orderId, shopId]
+      );
+
+      if (order.debt_amount > 0) {
+        const debtReduction = Math.min(order.debt_amount, amount);
+        await execute(
+          'UPDATE customers SET credit_balance = GREATEST(0, credit_balance - ?) WHERE id = ? AND shop_id = ?',
+          [debtReduction, order.customer_id, shopId]
+        );
+      }
+    });
+
+    await logAudit(user.id, 'PAYMENT_RECORDED', `Recorded payment of RWF ${amount} for order ${order.order_number} (${finalMethod.toUpperCase()})`, req, shopId);
     res.redirect('/payments');
   } catch (err: any) {
     res.status(500).render('error', { title: 'Payment Recording Error', message: err.message, path: req.path });
@@ -1809,51 +1887,79 @@ router.post('/stocks/transfer', requirePermission('can_manage_stock'), async (re
       return res.redirect('/stocks?error=Selected+product+not+found');
     }
 
+    // Validate warehouses belong to this shop and are active
+    const fromStockCheck = await queryOne('SELECT * FROM stocks WHERE id = ? AND shop_id = ?', [fromId, shopId]);
+    const toStockCheck = await queryOne('SELECT * FROM stocks WHERE id = ? AND shop_id = ?', [toId, shopId]);
+    if (!fromStockCheck || !toStockCheck) {
+      return res.redirect('/stocks?error=Invalid+warehouse+selection');
+    }
+
     if (sourceProduct.quantity < qty) {
       return res.redirect(`/stocks?error=Insufficient+stock+balance.+Available:+${sourceProduct.quantity}+units`);
     }
 
-    // Deduct from origin product
-    await execute('UPDATE products SET quantity = quantity - ? WHERE id = ?', [qty, prodId]);
+    await withTransaction(async () => {
+      // Deduct from origin — atomic check prevents negative on race
+      const upd = await execute('UPDATE products SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND shop_id = ? AND quantity >= ?', [qty, prodId, shopId, qty]);
+      if (upd.changes === 0) {
+        throw new Error('Insufficient stock or product not found.');
+      }
 
-    // Check if product exists in destination warehouse (matched by SKU & Shop)
-    let destProduct = await queryOne('SELECT * FROM products WHERE shop_id = ? AND stock_id = ? AND sku = ?', [shopId, toId, sourceProduct.sku]);
-    if (destProduct) {
-      await execute('UPDATE products SET quantity = quantity + ? WHERE id = ?', [qty, destProduct.id]);
-    } else {
-      // Create destination product record in that warehouse
+      // Check if product exists in destination warehouse (matched by SKU & Shop)
+      // Handle NULL SKU: use IS NULL instead of = ?
+      let destProduct: any = null;
+      if (sourceProduct.sku) {
+        destProduct = await queryOne('SELECT * FROM products WHERE shop_id = ? AND stock_id = ? AND sku = ?', [shopId, toId, sourceProduct.sku]);
+      } else {
+        destProduct = await queryOne('SELECT * FROM products WHERE shop_id = ? AND stock_id = ? AND sku IS NULL AND LOWER(name) = LOWER(?)', [shopId, toId, sourceProduct.name]);
+      }
+      let destProductIdForMove: number | null = destProduct ? destProduct.id : null;
+      if (destProduct) {
+        await execute('UPDATE products SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND shop_id = ?', [qty, destProduct.id, shopId]);
+      } else {
+        // Create destination product record in that warehouse (only columns that exist)
+        const destRes = await execute(
+          `INSERT INTO products (
+            shop_id, stock_id, name, sku, category, unit, buying_price, quantity, low_stock_threshold, description
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            shopId,
+            toId,
+            sourceProduct.name,
+            sourceProduct.sku,
+            sourceProduct.category,
+            sourceProduct.unit,
+            sourceProduct.buying_price,
+            qty,
+            sourceProduct.low_stock_threshold,
+            sourceProduct.description
+          ]
+        );
+        destProductIdForMove = destRes.lastInsertId;
+      }
+
+      // Record stock transfer log
       await execute(
-        `INSERT INTO products (
-          shop_id, stock_id, name, sku, category, unit, buying_price, 
-          min_selling_price, default_selling_price, max_selling_price, quantity, low_stock_threshold, description
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          shopId,
-          toId,
-          sourceProduct.name,
-          sourceProduct.sku,
-          sourceProduct.category,
-          sourceProduct.unit,
-          sourceProduct.buying_price,
-          sourceProduct.min_selling_price,
-          sourceProduct.default_selling_price,
-          sourceProduct.max_selling_price,
-          qty,
-          sourceProduct.low_stock_threshold,
-          sourceProduct.description
-        ]
+        `INSERT INTO stock_transfers (shop_id, from_stock_id, to_stock_id, product_id, quantity, transferred_by, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [shopId, fromId, toId, prodId, qty, user.id, notes ? String(notes).trim().slice(0, 500) || null : null]
       );
-    }
 
-    // Record stock transfer log
-    await execute(
-      `INSERT INTO stock_transfers (shop_id, from_stock_id, to_stock_id, product_id, quantity, transferred_by, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [shopId, fromId, toId, prodId, qty, user.id, notes ? notes.trim() : null]
-    );
+      // Inventory movements for audit trail
+      await execute(
+        `INSERT INTO inventory_movements (shop_id, product_id, quantity, movement_type, reference, performed_by)
+         VALUES (?, ?, ?, 'Transfer Out', ?, ?)`,
+        [shopId, prodId, -qty, `Transfer to ${toStockCheck.name}`, user.id]
+      );
+      await execute(
+        `INSERT INTO inventory_movements (shop_id, product_id, quantity, movement_type, reference, performed_by)
+         VALUES (?, ?, ?, 'Transfer In', ?, ?)`,
+        [shopId, destProductIdForMove || prodId, qty, `Transfer from ${fromStockCheck.name}`, user.id]
+      );
+    });
 
-    const fromStock = await queryOne('SELECT name FROM stocks WHERE id = ?', [fromId]);
-    const toStock = await queryOne('SELECT name FROM stocks WHERE id = ?', [toId]);
+    const fromStock = await queryOne('SELECT name FROM stocks WHERE id = ? AND shop_id = ?', [fromId, shopId]);
+    const toStock = await queryOne('SELECT name FROM stocks WHERE id = ? AND shop_id = ?', [toId, shopId]);
 
     await logAudit(
       user.id, 

@@ -44,8 +44,14 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // Session Store Setup (PostgreSQL for Supabase/Netlify or Memory fallback)
+// Note: isPostgres() is false at import time when postgresAvailable is not yet tested.
+// We check env presence directly so Netlify gets PG store when DATABASE_URL is set;
+// otherwise MemoryStore is correct for local dev. If DATABASE_URL is set but PG is
+// unreachable, the DB layer falls back to sql.js — sessions will be MemoryStore in
+// that degraded mode (ephemeral, but app remains usable; warning logged below).
 let sessionStore: session.Store | undefined;
-if (isPostgres()) {
+const hasDbUrl = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL);
+if (hasDbUrl) {
   try {
     const PgSession = connectPgSimple(session);
     sessionStore = new PgSession({
@@ -55,6 +61,9 @@ if (isPostgres()) {
     });
   } catch (storeErr) {
     console.warn("Notice: Using standard session store fallback:", storeErr);
+  }
+  if (!sessionStore) {
+    console.warn("WARNING: DATABASE_URL is set but PG session store failed — sessions are in-memory and will not persist across Lambda invocations. Check Supabase connectivity.");
   }
 }
 

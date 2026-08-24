@@ -186,7 +186,20 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 12. EXPRESS SESSION PERSISTENCE (For Netlify Serverless Lambdas)
+-- 12. STOCK TRANSFERS (Inter-warehouse movements)
+CREATE TABLE IF NOT EXISTS stock_transfers (
+  id SERIAL PRIMARY KEY,
+  shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  from_stock_id INTEGER NOT NULL REFERENCES stocks(id),
+  to_stock_id INTEGER NOT NULL REFERENCES stocks(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  quantity INTEGER NOT NULL CHECK(quantity > 0),
+  transferred_by INTEGER NOT NULL REFERENCES users(id),
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 13. EXPRESS SESSION PERSISTENCE (For Netlify Serverless Lambdas)
 -- NOTE: WITH (OIDS) was removed in PostgreSQL 12+ and causes errors on Supabase.
 CREATE TABLE IF NOT EXISTS "session" (
   "sid" varchar NOT NULL COLLATE "default",

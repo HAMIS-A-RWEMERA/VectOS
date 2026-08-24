@@ -187,6 +187,11 @@ export function saveDb(dbToSave?: SqlJsDatabase) {
 
 export async function queryAll<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   if (isPostgres()) {
+    if (pgTxClient) {
+      const pgSql = formatPgSql(sql);
+      const res = await pgTxClient.query(pgSql, params);
+      return res.rows as T[];
+    }
     const pool = getPgPool();
     const pgSql = formatPgSql(sql);
     const res = await pool.query(pgSql, params);
@@ -212,17 +217,20 @@ export async function queryOne<T = any>(sql: string, params: any[] = []): Promis
 
 export async function execute(sql: string, params: any[] = []): Promise<{ lastInsertId: number; changes: number }> {
   if (isPostgres()) {
-    const pool = getPgPool();
+    // Use transaction client if inside withTransaction
+    const target = pgTxClient || null;
+    const doQuery = async (pgSql: string) => {
+      if (target) return target.query(pgSql, params);
+      return getPgPool().query(pgSql, params);
+    };
     let pgSql = formatPgSql(sql);
-
     const isInsert = /^\s*INSERT\s+INTO/i.test(sql);
     const hasReturning = /RETURNING/i.test(sql);
     if (isInsert && !hasReturning) {
       pgSql += ' RETURNING id';
     }
-
     try {
-      const res = await pool.query(pgSql, params);
+      const res = await doQuery(pgSql);
       let lastInsertId = 0;
       if (res.rows && res.rows.length > 0 && res.rows[0].id !== undefined) {
         lastInsertId = Number(res.rows[0].id);
@@ -231,7 +239,7 @@ export async function execute(sql: string, params: any[] = []): Promise<{ lastIn
     } catch (err: any) {
       if (isInsert && !hasReturning && err.message?.includes('column "id" does not exist')) {
         const fallbackSql = formatPgSql(sql);
-        const res = await pool.query(fallbackSql, params);
+        const res = await doQuery(fallbackSql);
         return { lastInsertId: 0, changes: res.rowCount || 0 };
       }
       throw err;
@@ -241,7 +249,6 @@ export async function execute(sql: string, params: any[] = []): Promise<{ lastIn
   const db = await getDb();
   if (!db) return { lastInsertId: 0, changes: 0 };
   db.run(sql, params);
-  
   const res = db.exec("SELECT last_insert_rowid() as id, changes() as count");
   let lastInsertId = 0;
   let changes = 0;
@@ -249,11 +256,57 @@ export async function execute(sql: string, params: any[] = []): Promise<{ lastIn
     lastInsertId = Number(res[0].values[0][0]);
     changes = Number(res[0].values[0][1]);
   }
-  saveDb(db);
+  if (!sqlJsTxActive) saveDb(db);
   return { lastInsertId, changes };
 }
 
 let postgresSchemaInitialized = false;
+
+// ---------------------------------------------------------------------------
+// Transaction helper — atomic multi-statement writes for both engines.
+// Usage: await withTransaction(async () => { await execute(...); ... });
+// Postgres: BEGIN/COMMIT/ROLLBACK on a dedicated client so all queries
+// inside the callback share the same transaction. SQLite: BEGIN IMMEDIATE
+// on the single sql.js instance, saveDb only on COMMIT.
+// ---------------------------------------------------------------------------
+let pgTxClient: pg.PoolClient | null = null;
+let sqlJsTxActive = false;
+
+export async function withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  if (isPostgres()) {
+    const client = await getPgPool().connect();
+    pgTxClient = client;
+    try {
+      await client.query('BEGIN');
+      const result = await fn();
+      await client.query('COMMIT');
+      return result;
+    } catch (e) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw e;
+    } finally {
+      pgTxClient = null;
+      client.release();
+    }
+  } else {
+    const db = await getDb();
+    if (!db) throw new Error('Database not available for transaction');
+    sqlJsTxActive = true;
+    db.run('BEGIN IMMEDIATE');
+    try {
+      const result = await fn();
+      db.run('COMMIT');
+      saveDb(db);
+      sqlJsTxActive = false;
+      return result;
+    } catch (e) {
+      try { db.run('ROLLBACK'); } catch {}
+      sqlJsTxActive = false;
+      throw e;
+    }
+  }
+}
+
 export async function initPostgresSchemaIfNeeded(): Promise<void> {
   if (!isPostgres() || postgresSchemaInitialized) return;
   try {
@@ -271,6 +324,20 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
         console.log('Supabase PostgreSQL schema and seed data loaded successfully!');
       }
     }
+    // Ensure stock_transfers exists on existing DBs (added after initial schema)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS stock_transfers (
+        id SERIAL PRIMARY KEY,
+        shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+        from_stock_id INTEGER NOT NULL REFERENCES stocks(id),
+        to_stock_id INTEGER NOT NULL REFERENCES stocks(id),
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        quantity INTEGER NOT NULL CHECK(quantity > 0),
+        transferred_by INTEGER NOT NULL REFERENCES users(id),
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     postgresSchemaInitialized = true;
   } catch (err) {
     console.error('Error auto-initializing PostgreSQL schema:', err);
@@ -670,6 +737,22 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
       attempts INTEGER DEFAULT 0,
       locked_until DATETIME,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS stock_transfers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shop_id INTEGER NOT NULL,
+      from_stock_id INTEGER NOT NULL,
+      to_stock_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL CHECK(quantity > 0),
+      transferred_by INTEGER NOT NULL,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE,
+      FOREIGN KEY (from_stock_id) REFERENCES stocks(id),
+      FOREIGN KEY (to_stock_id) REFERENCES stocks(id),
+      FOREIGN KEY (product_id) REFERENCES products(id),
+      FOREIGN KEY (transferred_by) REFERENCES users(id)
     );`
   ];
 
