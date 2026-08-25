@@ -10,14 +10,27 @@ async function waitForDb(): Promise<void> {
 /** Fetch a valid CSRF token by visiting any page (cookie + injected meta). */
 export async function getCsrf(agent: request.Agent): Promise<string> {
   await waitForDb();
-  const res = await agent.get('/login');
-  const cookies: string[] = (res.headers['set-cookie'] as any) || [];
+  // Try /login first (works for anon); if already logged in, /login redirects, so try /dashboard
+  let res = await agent.get('/login');
+  let cookies: string[] = (res.headers['set-cookie'] as any) || [];
   for (const c of cookies) {
     const m = /vcsrf=([a-f0-9]{64})/.exec(c);
     if (m) return m[1];
   }
-  const metaMatch = /name="csrf-token" content="([a-f0-9]{64})"/.exec(res.text || '');
-  return metaMatch ? metaMatch[1] : '';
+  let metaMatch = /name="csrf-token" content="([a-f0-9]{64})"/.exec(res.text || '');
+  if (metaMatch) return metaMatch[1];
+  // If /login redirected (already authenticated), try a protected page
+  if (res.status === 302) {
+    res = await agent.get('/dashboard');
+    cookies = (res.headers['set-cookie'] as any) || [];
+    for (const c of cookies) {
+      const m = /vcsrf=([a-f0-9]{64})/.exec(c);
+      if (m) return m[1];
+    }
+    metaMatch = /name="csrf-token" content="([a-f0-9]{64})"/.exec(res.text || '');
+    if (metaMatch) return metaMatch[1];
+  }
+  return '';
 }
 
 export async function login(

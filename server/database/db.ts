@@ -273,6 +273,9 @@ let pgTxClient: pg.PoolClient | null = null;
 let sqlJsTxActive = false;
 
 export async function withTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  if (pgTxClient || sqlJsTxActive) {
+    throw new Error('Nested transactions are not supported — use SAVEPOINT or refactor to single transaction');
+  }
   if (isPostgres()) {
     const client = await getPgPool().connect();
     pgTxClient = client;
@@ -291,18 +294,18 @@ export async function withTransaction<T>(fn: () => Promise<T>): Promise<T> {
   } else {
     const db = await getDb();
     if (!db) throw new Error('Database not available for transaction');
-    sqlJsTxActive = true;
-    db.run('BEGIN IMMEDIATE');
     try {
+      sqlJsTxActive = true;
+      db.run('BEGIN IMMEDIATE');
       const result = await fn();
       db.run('COMMIT');
       saveDb(db);
-      sqlJsTxActive = false;
       return result;
     } catch (e) {
       try { db.run('ROLLBACK'); } catch {}
-      sqlJsTxActive = false;
       throw e;
+    } finally {
+      sqlJsTxActive = false;
     }
   }
 }
@@ -338,6 +341,8 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`);
     postgresSchemaInitialized = true;
   } catch (err) {
     console.error('Error auto-initializing PostgreSQL schema:', err);
@@ -753,7 +758,9 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
       FOREIGN KEY (to_stock_id) REFERENCES stocks(id),
       FOREIGN KEY (product_id) REFERENCES products(id),
       FOREIGN KEY (transferred_by) REFERENCES users(id)
-    );`
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`
   ];
 
   for (const q of migrationQueries) {

@@ -44,11 +44,11 @@
     }
 
     // Offline mode: register the safe service worker (network-first pages,
-    // so online users always see fresh HTML/CSS). Any worker from an older
-    // cache version is replaced automatically on activation.
+    // so online users always see fresh HTML/CSS). Version query busts stale
+    // caches after deploy — old workers are replaced on activation.
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/sw.js').catch(function (err) {
+        navigator.serviceWorker.register('/sw.js?v=4').catch(function (err) {
           console.log('[SW] registration failed:', err);
         });
       });

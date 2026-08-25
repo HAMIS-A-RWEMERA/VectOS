@@ -36,14 +36,12 @@ describe('Authentication & security', () => {
     expect(res.headers.location).toContain('/login');
   });
 
-  it('no longer hard-blocks POST requests without a CSRF token', async () => {
-    // Token enforcement was removed: stale service-worker caches made the
-    // strict 403 gate lock legitimate users out of login.
+  it('rejects POST requests without a CSRF token (403)', async () => {
     const res = await request(app).post('/login').type('form').send({
       email: 'someone@test.rw', password: 'whatever'
     });
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('Account not found');
+    expect(res.status).toBe(403);
+    expect(res.text).toContain('Security Check Failed');
   });
 
   it('locks an identity after 8 failed attempts', async () => {

@@ -127,7 +127,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
     return next();
   } catch (err: any) {
-    return next();
+    console.error('Auth verification error:', err);
+    return res.status(503).render('error', {
+      title: 'Service Temporarily Unavailable — VectOS',
+      message: 'Unable to verify your session at this time. Please refresh the page and try again.',
+      path: req.path
+    });
   }
 }
 

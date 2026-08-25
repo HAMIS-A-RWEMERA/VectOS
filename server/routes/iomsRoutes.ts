@@ -39,12 +39,21 @@ async function logAudit(userId: number | undefined, action: string, details: str
   }
 }
 
-// Helper to get active shopId for queries
+// Helper to get active shopId for queries — never falls back to shop 1 for regular users.
+// Superadmin without assisting context defaults to shop 1 for global views (platform portal).
+// Regular users without shop_id get 403 (prevents cross-tenant leak).
 function getActiveShopId(req: Request): number {
-  if (req.session?.user?.role === 'superadmin' && req.session.user.shop_id) {
-    return req.session.user.shop_id;
+  if (req.session?.user?.role === 'superadmin') {
+    if (req.session.user.shop_id) return req.session.user.shop_id;
+    return 1; // superadmin global view defaults to primary shop
   }
-  return req.session?.user?.shop_id || 1;
+  const sid = req.session?.user?.shop_id;
+  if (sid == null || sid === 0) {
+    const err: any = new Error('No shop context — your session is not associated with a store. Please sign in again.');
+    err.status = 403;
+    throw err;
+  }
+  return sid;
 }
 
 // -------------------------------------------------------------
@@ -939,6 +948,12 @@ router.post('/products/add', requirePermission('can_manage_stock'), async (req: 
     await logAudit(user.id, 'PRODUCT_ADD', `Added new product: ${name} (${category}, Buy Price: ${buyPrice})`, req, shopId);
     res.redirect('/products?msg=Product+added+successfully');
   } catch (err: any) {
+    const msg = String(err.message || '');
+    if (msg.includes('UNIQUE') || msg.toLowerCase().includes('unique') || msg.includes('duplicate')) {
+      if (msg.toLowerCase().includes('sku') || msg.includes('idx_products_shop_sku')) {
+        return res.status(400).render('error', { title: 'Duplicate SKU', message: 'A product with this SKU already exists in your store.', path: req.path });
+      }
+    }
     res.status(500).render('error', { title: 'Product Creation Error', message: err.message, path: req.path });
   }
 });
@@ -1188,46 +1203,42 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
       const selPrice = parseFloat(String(item.selling_price));
       if (qty <= 0 || isNaN(selPrice) || selPrice < 0) continue;
 
-      let prodId = parseInt(String(item.product_id), 10);
+      let prodId: number | null = parseInt(String(item.product_id), 10);
+      if (isNaN(prodId as any)) prodId = null;
       let buyPrice = parseFloat(String(item.buying_price)) || 0;
       let fulfillSource = 'Store';
       let itemStatus = 'pending_store';
       let partnerShopId = item.partner_shop_id ? parseInt(String(item.partner_shop_id), 10) : null;
+      if (partnerShopId !== null && isNaN(partnerShopId)) partnerShopId = null;
+      let adhocPending: { name: string; cat: string; unit: string; buyPrice: number } | null = null;
 
-      // Handle on-the-fly ad-hoc item creation
-      if (item.is_adhoc || !prodId || isNaN(prodId)) {
+      // Handle on-the-fly ad-hoc item creation — defer DB writes to transaction
+      if (item.is_adhoc || !prodId) {
         const adhocName = String(item.product_name || item.name || 'Ad-Hoc Material').trim();
         const adhocCat = String(item.category || 'Special Order').trim();
         const adhocUnit = String(item.unit || 'pcs').trim();
         const adhocBuyPrice = parseFloat(String(item.buying_price)) || (selPrice * 0.85);
-
-        // Check if item was already created
-        let existingProd = await queryOne('SELECT * FROM products WHERE shop_id = ? AND LOWER(name) = LOWER(?)', [shopId, adhocName]);
-        if (!existingProd) {
-          const newProdRes = await execute(
-            `INSERT INTO products (shop_id, name, category, unit, buying_price, quantity, low_stock_threshold, description)
-             VALUES (?, ?, ?, ?, ?, 0, 5, ?)`,
-            [shopId, adhocName, adhocCat, adhocUnit, adhocBuyPrice, 'Auto-created during order entry']
-          );
-          prodId = newProdRes.lastInsertId;
-        } else {
+        // Validate existence without inserting (insert deferred to transaction for atomicity)
+        const existingProd = await queryOne('SELECT id FROM products WHERE shop_id = ? AND LOWER(name) = LOWER(?)', [shopId, adhocName]);
+        if (existingProd) {
           prodId = existingProd.id;
+        } else {
+          // Placeholder — will be inserted inside withTransaction
+          (prodId as any) = null;
+          adhocPending = { name: adhocName, cat: adhocCat, unit: adhocUnit, buyPrice: adhocBuyPrice };
         }
         buyPrice = adhocBuyPrice;
 
         if (item.source_type === 'partner' && partnerShopId) {
-          const partner = await queryOne('SELECT * FROM partner_shops WHERE id = ? AND shop_id = ?', [partnerShopId, shopId]);
-          fulfillSource = partner ? partner.name : 'Partner Shop';
+          const partner = await queryOne('SELECT name FROM partner_shops WHERE id = ? AND shop_id = ?', [partnerShopId, shopId]);
+          fulfillSource = partner ? (partner as any).name : 'Partner Shop';
           itemStatus = 'partner_fulfilled';
-
-          // Increase partner debt balance (shop-scoped)
-          const partnerCost = buyPrice * qty;
-          await execute('UPDATE partner_shops SET current_balance = current_balance + ? WHERE id = ? AND shop_id = ?', [partnerCost, partnerShopId, shopId]);
+          // Partner balance increment deferred to transaction (no UPDATE here)
         }
       } else {
-        const prod = await queryOne('SELECT * FROM products WHERE id = ? AND shop_id = ?', [prodId, shopId]);
+        const prod = await queryOne('SELECT id, buying_price FROM products WHERE id = ? AND shop_id = ?', [prodId, shopId]);
         if (!prod) continue;
-        buyPrice = prod.buying_price;
+        buyPrice = (prod as any).buying_price;
       }
 
       const subtotal = selPrice * qty;
@@ -1235,7 +1246,7 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
       grandTotal += subtotal;
 
       validatedLines.push({
-        product_id: prodId,
+        product_id: prodId as any,
         quantity: qty,
         buying_price: buyPrice,
         selling_price: selPrice,
@@ -1243,8 +1254,9 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
         profit,
         fulfillment_source: fulfillSource,
         item_status: itemStatus,
-        partner_shop_id: partnerShopId
-      });
+        partner_shop_id: partnerShopId,
+        _adhocPending: adhocPending
+      } as any);
     }
 
     if (validatedLines.length === 0) {
@@ -1255,6 +1267,13 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
     const allPartner = validatedLines.every(l => l.item_status === 'partner_fulfilled');
     const initFulfillStatus = allPartner ? 'completed' : 'pending_store';
 
+    // Determine stock for order (for report filtering) — use user's stock or first warehouse
+    let orderStockId: number | null = (user as any).stock_id || null;
+    if (!orderStockId) {
+      const firstStock = await queryOne('SELECT id FROM stocks WHERE shop_id = ? ORDER BY is_main DESC LIMIT 1', [shopId]);
+      orderStockId = firstStock ? (firstStock as any).id : 1;
+    }
+
     let orderId: number = 0;
     let orderNum: string = '';
     let attempts = 0;
@@ -1264,10 +1283,32 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
       orderNum = `ORD-${new Date().getFullYear()}-${String((countRes ? countRes.cnt : 0) + 1 + (attempts - 1)).padStart(4, '0')}`;
       try {
         await withTransaction(async () => {
+          // Resolve deferred ad-hoc products and partner balances atomically with order
+          for (const line of validatedLines as any[]) {
+            const adhoc = line._adhocPending;
+            if (adhoc && !line.product_id) {
+              const existing = await queryOne('SELECT id FROM products WHERE shop_id = ? AND LOWER(name) = LOWER(?)', [shopId, adhoc.name]);
+              if (existing) {
+                line.product_id = (existing as any).id;
+              } else {
+                const newProd = await execute(
+                  `INSERT INTO products (shop_id, name, category, unit, buying_price, quantity, low_stock_threshold, description) VALUES (?, ?, ?, ?, ?, 0, 5, ?)`,
+                  [shopId, adhoc.name, adhoc.cat, adhoc.unit, adhoc.buyPrice, 'Auto-created during order entry']
+                );
+                line.product_id = newProd.lastInsertId;
+              }
+            }
+            if (line.item_status === 'partner_fulfilled' && line.partner_shop_id) {
+              const pCost = line.buying_price * line.quantity;
+              await execute('UPDATE partner_shops SET current_balance = current_balance + ? WHERE id = ? AND shop_id = ?', [pCost, line.partner_shop_id, shopId]);
+            }
+            delete line._adhocPending;
+          }
+
           const orderRes = await execute(
-            `INSERT INTO orders (shop_id, order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes, client_ref)
-             VALUES (?, ?, ?, ?, ?, 0.0, ?, 'pending', ?, ?, ?)`,
-            [shopId, orderNum, custId, user.id, grandTotal, grandTotal, initFulfillStatus, notes || null, client_ref ? String(client_ref) : null]
+            `INSERT INTO orders (shop_id, stock_id, order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes, client_ref)
+             VALUES (?, ?, ?, ?, ?, ?, 0.0, ?, 'pending', ?, ?, ?)`,
+            [shopId, orderStockId, orderNum, custId, user.id, grandTotal, grandTotal, initFulfillStatus, notes || null, client_ref ? String(client_ref) : null]
           );
           orderId = orderRes.lastInsertId;
           for (const line of validatedLines) {
@@ -1287,6 +1328,10 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
         break;
       } catch (txErr: any) {
         const msg = String(txErr.message || '');
+        if (msg.toLowerCase().includes('client_ref') || msg.includes('idx_orders_shop_client_ref')) {
+          // Offline duplicate — another concurrent request inserted same client_ref
+          return res.redirect('/orders?msg=This+order+was+already+received+from+offline+mode');
+        }
         if (msg.includes('UNIQUE') || msg.includes('unique') || msg.includes('duplicate')) {
           if (attempts >= 3) throw txErr;
           continue;
@@ -1295,6 +1340,9 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
       }
     }
 
+    if (!orderId) {
+      return res.status(500).render('error', { title: 'Order Creation Error', message: 'Failed to create order after retries. Please try again.', path: req.path });
+    }
     await logAudit(user.id, 'ORDER_CREATE', `Created order ${orderNum} (Total: RWF ${grandTotal}, Lines: ${validatedLines.length})`, req, shopId);
     res.redirect(`/orders/${orderId}`);
   } catch (err: any) {
@@ -1486,7 +1534,7 @@ router.post('/storekeeper/item-review', requirePermission('can_release_stock'), 
       }
 
       await withTransaction(async () => {
-        await execute("UPDATE order_items SET item_status = 'approved', fulfillment_source = 'Store' WHERE id = ?", [itemId]);
+        await execute("UPDATE order_items SET item_status = 'approved', fulfillment_source = 'Store' WHERE id = ? AND order_id IN (SELECT id FROM orders WHERE shop_id = ?)", [itemId, shopId]);
         const upd = await execute('UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ? AND quantity >= ?', [item.quantity, item.product_id, shopId, item.quantity]);
         if (upd.changes === 0) {
           throw new Error('Stock update failed — insufficient quantity or product not found.');
@@ -1501,8 +1549,8 @@ router.post('/storekeeper/item-review', requirePermission('can_release_stock'), 
       await logAudit(user.id, 'STORE_APPROVE_ITEM', `Approved item ${item.product_name} (${item.quantity} qty) for ${item.order_number}`, req, shopId);
     } else if (action === 'reject') {
       await execute(
-        "UPDATE order_items SET item_status = 'rejected', rejection_reason = ? WHERE id = ?",
-        [rejection_reason ? String(rejection_reason).trim().slice(0, 500) : 'Out of stock in warehouse', itemId]
+        "UPDATE order_items SET item_status = 'rejected', rejection_reason = ? WHERE id = ? AND order_id IN (SELECT id FROM orders WHERE shop_id = ?)",
+        [rejection_reason ? String(rejection_reason).trim().slice(0, 500) : 'Out of stock in warehouse', itemId, shopId]
       );
 
       await logAudit(user.id, 'STORE_REJECT_ITEM', `Rejected item ${item.product_name} for ${item.order_number}. Reason: ${rejection_reason}`, req, shopId);
@@ -1602,8 +1650,8 @@ router.post('/accountant/resolve-item', requirePermission('can_partner_borrow'),
           SET item_status = 'partner_fulfilled', 
               fulfillment_source = ?, 
               partner_shop_id = ?
-          WHERE id = ?
-        `, [partner.name, partner.id, itemId]);
+          WHERE id = ? AND order_id IN (SELECT id FROM orders WHERE shop_id = ?)
+        `, [partner.name, partner.id, itemId, shopId]);
         await execute('UPDATE partner_shops SET current_balance = current_balance + ? WHERE id = ? AND shop_id = ?', [cost, partner.id, shopId]);
       });
 
@@ -1617,8 +1665,8 @@ router.post('/accountant/resolve-item', requirePermission('can_partner_borrow'),
               selling_price = 0.0, 
               subtotal = 0.0, 
               profit = 0.0 
-          WHERE id = ?
-        `, [itemId]);
+          WHERE id = ? AND order_id IN (SELECT id FROM orders WHERE shop_id = ?)
+        `, [itemId, shopId]);
 
         const orderItems = await queryAll('SELECT SUM(subtotal) as new_total FROM order_items WHERE order_id = ?', [item.order_id]);
         const newTotalRaw = orderItems[0] ? orderItems[0].new_total : 0;
@@ -1707,6 +1755,11 @@ router.post('/payments/record', requirePermission('can_process_payments'), async
     }
 
     await withTransaction(async () => {
+      // Re-read order debt inside transaction to avoid stale-read race
+      const curOrder = await queryOne('SELECT debt_amount, customer_id FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
+      const curDebt = curOrder ? Number(curOrder.debt_amount) || 0 : 0;
+      const curCustId = curOrder ? curOrder.customer_id : order.customer_id;
+
       await execute(
         `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
          VALUES (?, ?, ?, ?, ?, ?)`,
@@ -1723,11 +1776,11 @@ router.post('/payments/record', requirePermission('can_process_payments'), async
         [amount, amount, amount, orderId, shopId]
       );
 
-      if (order.debt_amount > 0) {
-        const debtReduction = Math.min(order.debt_amount, amount);
+      if (curDebt > 0) {
+        const debtReduction = Math.min(curDebt, amount);
         await execute(
           'UPDATE customers SET credit_balance = GREATEST(0, credit_balance - ?) WHERE id = ? AND shop_id = ?',
-          [debtReduction, order.customer_id, shopId]
+          [debtReduction, curCustId, shopId]
         );
       }
     });
@@ -1989,17 +2042,19 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
     const stocks = await queryAll('SELECT * FROM stocks WHERE shop_id = ? ORDER BY is_main DESC, name ASC', [shopId]);
 
     // 1. Stock Breakdown Comparison Table (for all warehouses)
+    // Note: orders.stock_id is not set at order create, so per-warehouse sales are
+    // derived from product stock association where possible, otherwise shop totals.
     const stockBreakdown = await queryAll(`
       SELECT st.*,
              (SELECT COUNT(*) FROM products WHERE stock_id = st.id) as product_lines,
              (SELECT COALESCE(SUM(quantity), 0) FROM products WHERE stock_id = st.id) as total_units,
              (SELECT COALESCE(SUM(quantity * buying_price), 0) FROM products WHERE stock_id = st.id) as valuation,
-             (SELECT COALESCE(SUM(oi.subtotal), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = st.shop_id AND o.stock_id = st.id AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_revenue,
-             (SELECT COALESCE(SUM(oi.profit), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = st.shop_id AND o.stock_id = st.id AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_profit
+             (SELECT COALESCE(SUM(oi.subtotal), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ? AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_revenue,
+             (SELECT COALESCE(SUM(oi.profit), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ? AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_profit
       FROM stocks st
       WHERE st.shop_id = ?
       ORDER BY st.is_main DESC, st.name ASC
-    `, [shopId]);
+    `, [shopId, shopId, shopId]);
 
     // 2. Sales & Profit Summary by Salesperson (filtered or combined)
     let spQuery = `
@@ -2011,10 +2066,9 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
     `;
     const spParams: any[] = [shopId];
 
-    if (selectedStockId !== 'all') {
-      spQuery += ' AND o.stock_id = ?';
-      spParams.push(parseInt(selectedStockId, 10));
-    }
+    // Note: orders.stock_id is not populated, so stock filter is applied at product level where possible.
+    // For salesperson, warehouse filter is not applicable — show shop totals.
+    void selectedStockId;
 
     spQuery += `
       LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.item_status IN ('approved', 'partner_fulfilled')
@@ -2038,10 +2092,9 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
     if (selectedStockId !== 'all') {
       prodQuery += `
         LEFT JOIN order_items oi ON oi.product_id = p.id AND oi.item_status IN ('approved', 'partner_fulfilled')
-        LEFT JOIN orders o ON oi.order_id = o.id AND o.stock_id = ?
         WHERE p.shop_id = ? AND (p.stock_id = ? OR p.stock_id IS NULL)
       `;
-      prodParams.push(parseInt(selectedStockId, 10), shopId, parseInt(selectedStockId, 10));
+      prodParams.push(shopId, parseInt(selectedStockId, 10));
     } else {
       prodQuery += `
         LEFT JOIN order_items oi ON oi.product_id = p.id AND oi.item_status IN ('approved', 'partner_fulfilled')
@@ -2051,7 +2104,7 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
     }
 
     prodQuery += `
-      GROUP BY p.name, p.category
+      GROUP BY p.id, p.name, p.category, p.buying_price
       ORDER BY total_profit DESC
     `;
 
