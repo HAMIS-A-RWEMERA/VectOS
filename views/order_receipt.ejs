@@ -3,9 +3,121 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Receipt <%= order.order_number %> â€” VectOS Kigali</title>
+  <title>Receipt <%= order.order_number %> — <%= shopInfo ? shopInfo.name : 'VectOS' %></title>
   <link rel="stylesheet" href="/styles/tailwind.css">
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @page { margin: 12mm; size: A4; }
+    }
+    body { background: #f8fafc; }
+    @media print { body { background: white; } }
+  </style>
+</head>
+<body class="text-slate-800 antialiased">
+  <!-- Print button -->
+  <div class="no-print max-w-3xl mx-auto px-4 pt-6 flex justify-between items-center">
+    <a href="/orders/<%= order.id %>" class="text-sm text-slate-600 hover:text-slate-900">&larr; Back to Order</a>
+    <button onclick="window.print()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow">Print Receipt</button>
+  </div>
 
+  <div class="max-w-3xl mx-auto bg-white my-6 rounded-2xl shadow-xl overflow-hidden print:shadow-none print:rounded-none print:my-0">
+    <!-- Shop header -->
+    <div class="bg-slate-950 text-white px-8 py-6">
+      <div class="flex justify-between items-start gap-4">
+        <div>
+          <h1 class="text-xl font-black tracking-wide uppercase"><%= shopInfo ? shopInfo.name : 'VectOS Depot' %></h1>
+          <p class="text-xs text-slate-400 mt-1"><%= shopInfo ? shopInfo.location : 'Kigali, Rwanda' %> • <%= shopInfo ? shopInfo.phone : '' %></p>
+          <% if (shopInfo && shopInfo.tin_number) { %><p class="text-xs font-mono text-amber-400 mt-1">TIN: <%= shopInfo.tin_number %></p><% } %>
+        </div>
+        <div class="text-right">
+          <p class="text-xs uppercase tracking-widest text-slate-400">Official Receipt</p>
+          <p class="text-lg font-mono font-black text-amber-400 mt-1"><%= order.order_number %></p>
+          <p class="text-xs text-slate-400"><%= new Date(order.created_at).toLocaleString('en-GB') %></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Customer + Order meta -->
+    <div class="grid grid-cols-2 gap-0 divide-x divide-slate-100 border-y border-slate-200">
+      <div class="px-8 py-4">
+        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Billed To</p>
+        <p class="text-sm font-bold text-slate-900 mt-1"><%= order.customer_name %></p>
+        <p class="text-xs text-slate-600"><%= order.customer_phone %><% if (order.customer_id_number) { %> • ID: <%= order.customer_id_number %><% } %></p>
+        <p class="text-xs text-slate-500"><%= order.customer_address || '' %></p>
+      </div>
+      <div class="px-8 py-4">
+        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Order Details</p>
+        <p class="text-xs text-slate-600 mt-1">Salesperson: <span class="font-semibold text-slate-900"><%= order.salesperson_name %></span></p>
+        <p class="text-xs text-slate-600">Status: <span class="font-mono text-[11px] uppercase"><%= order.payment_status %> / <%= order.fulfillment_status %></span></p>
+        <% if (order.notes) { %><p class="text-xs italic text-slate-500 mt-1">"<%= order.notes %>"</p><% } %>
+      </div>
+    </div>
+
+    <!-- Items -->
+    <div class="px-8 py-6">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b-2 border-slate-900 text-[11px] uppercase tracking-widest text-slate-500">
+            <th class="text-left py-2.5 font-bold">#</th>
+            <th class="text-left py-2.5 font-bold">Item</th>
+            <th class="text-center py-2.5 font-bold">Qty</th>
+            <th class="text-right py-2.5 font-bold">Price</th>
+            <th class="text-right py-2.5 font-bold">Amount</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <% items.forEach((it, idx) => { %>
+            <tr>
+              <td class="py-3 text-xs text-slate-400 font-mono"><%= idx+1 %></td>
+              <td class="py-3">
+                <p class="font-semibold text-slate-900 text-sm"><%= it.product_name %></p>
+                <p class="text-xs text-slate-500 font-mono"><%= it.product_sku || '' %> • <%= it.product_unit || 'pcs' %></p>
+                <% if (it.fulfillment_source && it.fulfillment_source !== 'Store') { %><p class="text-[10px] text-amber-600"><%= it.fulfillment_source %></p><% } %>
+              </td>
+              <td class="py-3 text-center font-mono font-bold"><%= it.quantity %></td>
+              <td class="py-3 text-right font-mono">RWF <%= Number(it.selling_price||0).toLocaleString('en-US') %></td>
+              <td class="py-3 text-right font-mono font-bold">RWF <%= Number(it.subtotal||0).toLocaleString('en-US') %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Totals -->
+    <div class="px-8 py-5 bg-slate-50 border-t border-slate-200">
+      <div class="max-w-xs ml-auto space-y-2 text-sm">
+        <div class="flex justify-between"><span class="text-slate-500">Subtotal</span><span class="font-mono font-bold">RWF <%= Number(order.total_amount||0).toLocaleString('en-US') %></span></div>
+        <div class="flex justify-between"><span class="text-slate-500">Paid</span><span class="font-mono text-emerald-600">RWF <%= Number(order.paid_amount||0).toLocaleString('en-US') %></span></div>
+        <% if ((order.debt_amount||0) > 0) { %>
+          <div class="flex justify-between text-rose-600 font-bold border-t border-slate-200 pt-2"><span>Balance Due</span><span class="font-mono">RWF <%= Number(order.debt_amount).toLocaleString('en-US') %></span></div>
+        <% } else { %>
+          <div class="flex justify-between text-emerald-600 font-bold border-t border-slate-200 pt-2"><span>Paid in Full</span><span>✓</span></div>
+        <% } %>
+        <p class="text-[11px] text-slate-400">Payment: <span class="uppercase font-mono"><%= order.payment_status %></span> • Fulfillment: <%= order.fulfillment_status %></p>
+      </div>
+    </div>
+
+    <% if (payments && payments.length) { %>
+      <div class="px-8 py-4 border-t border-slate-100">
+        <p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">Payments</p>
+        <table class="w-full text-xs">
+          <thead><tr class="text-[11px] uppercase text-slate-400 border-b"><th class="text-left py-1">Date</th><th class="text-right py-1">Amount</th><th class="text-left py-1">Method</th><th class="text-left py-1">Ref</th></tr></thead>
+          <tbody class="divide-y divide-slate-100 font-mono">
+            <% payments.forEach(p=>{ %><tr><td class="py-1.5 text-slate-600"><%= new Date(p.created_at).toLocaleDateString('en-GB') %></td><td class="py-1.5 text-right font-bold">RWF <%= Number(p.amount).toLocaleString('en-US') %></td><td class="py-1.5 uppercase"><%= p.payment_method %></td><td class="py-1.5"><%= p.reference_no||'-' %></td></tr><% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+
+    <!-- Footer -->
+    <div class="px-8 py-5 border-t border-slate-200 text-center">
+      <p class="text-xs text-slate-500"><%= shopInfo && shopInfo.receipt_footer_text ? shopInfo.receipt_footer_text : 'Thank you for choosing us! Goods once sold in good condition are not returnable.' %></p>
+      <p class="text-[10px] font-mono text-slate-400 mt-2">Generated by VectOS — Depot ERP • <%= new Date().toLocaleString('en-GB') %> • <%= order.order_number %></p>
+    </div>
+  </div>
+
+  <script>if(typeof lucide!=='undefined') lucide.createIcons();</script>
 </body>
 </html>
-

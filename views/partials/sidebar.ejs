@@ -2,6 +2,10 @@
 <!-- Top Navbar / Header Bar -->
 <header class="no-print bg-[var(--c-panel)] border-b border-[var(--c-border)] sticky top-0 z-40 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between shadow-xl gap-2">
   <div class="flex items-center space-x-3">
+    <!-- Mobile hamburger -->
+    <button type="button" onclick="toggleMobileNav()" class="md:hidden p-2 -ml-2 text-slate-400 hover:text-white hover:bg-[var(--c-chip)] rounded-lg transition-colors" aria-label="Open navigation">
+      <i data-lucide="menu" class="w-5 h-5"></i>
+    </button>
     <a href="/dashboard" class="flex items-center space-x-2.5 group">
       <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0">
         <i data-lucide="building-2" class="w-5 h-5"></i>
@@ -77,6 +81,55 @@
     </div>
   </div>
 </header>
+
+<!-- Mobile Drawer (hidden on md+) -->
+<div id="mobileNavDrawer" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="toggleMobileNav()"></div>
+  <aside class="relative w-72 max-w-[85vw] h-full bg-[var(--c-panel)] border-r border-[var(--c-border)] flex flex-col overflow-y-auto shadow-2xl">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--c-border)]">
+      <span class="font-black text-sm text-white uppercase tracking-wide"><%= typeof shop !== 'undefined' && shop ? shop.name : 'VECTOS' %></span>
+      <button type="button" onclick="toggleMobileNav()" class="p-2 text-slate-400 hover:text-white rounded-lg" aria-label="Close navigation"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <div class="p-4 space-y-5">
+      <% if (user.role === 'superadmin') { %>
+        <div>
+          <p class="px-3 text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-1.5">Platform Owner</p>
+          <nav class="space-y-1"><a href="/admin/shops" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20"><i data-lucide="building" class="w-4 h-4"></i><span>All Rwanda Depots</span></a></nav>
+        </div>
+      <% } %>
+      <div>
+        <p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Core Modules</p>
+        <nav class="space-y-1 text-xs">
+          <a href="/dashboard" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="layout-dashboard" class="w-4 h-4 text-amber-500"></i><span>Dashboard</span></a>
+          <a href="/orders" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="shopping-cart" class="w-4 h-4 text-emerald-400"></i><span>Orders & Sales</span></a>
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_create_orders) { %><a href="/orders/new" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20"><i data-lucide="plus-circle" class="w-4 h-4"></i><span>New Order</span></a><% } %>
+          <a href="/products" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="package" class="w-4 h-4 text-blue-400"></i><span>Inventory Stock</span></a>
+          <a href="/stocks" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="warehouse" class="w-4 h-4 text-amber-400"></i><span>Multi-Stock Depots</span></a>
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_manage_customers) { %><a href="/customers" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="users" class="w-4 h-4 text-purple-400"></i><span>Customers & Debt</span></a><% } %>
+        </nav>
+      </div>
+      <div>
+        <p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Operational Queues</p>
+        <nav class="space-y-1 text-xs">
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_release_stock) { %><a href="/storekeeper" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="warehouse" class="w-4 h-4 text-orange-400"></i><span>Storekeeper Dispatch</span></a><% } %>
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_partner_borrow) { %><a href="/accountant/rejected-items" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="refresh-cw" class="w-4 h-4 text-rose-400"></i><span>Resolve Rejected Items</span></a><% } %>
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_process_payments) { %><a href="/payments" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="credit-card" class="w-4 h-4 text-teal-400"></i><span>Payments & Cashier</span></a><% } %>
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_manage_partners) { %><a href="/partners" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="store" class="w-4 h-4 text-indigo-400"></i><span>Partner Shops</span></a><% } %>
+        </nav>
+      </div>
+      <div>
+        <p class="px-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5">Management & Control</p>
+        <nav class="space-y-1 text-xs">
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_view_reports) { %><a href="/reports" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="bar-chart-3" class="w-4 h-4 text-amber-400"></i><span>Profit & Reports</span></a><% } %>
+          <% if (user.role === 'manager' || user.role === 'superadmin' || user.can_manage_users) { %><a href="/users" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="shield-check" class="w-4 h-4 text-cyan-400"></i><span>Staff Roles</span></a><% } %>
+          <a href="/settings" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="settings" class="w-4 h-4"></i><span>Settings</span></a>
+          <% if (user.role === 'manager' || user.role === 'superadmin') { %><a href="/audit-logs" onclick="toggleMobileNav()" class="flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-[var(--c-chip)] text-slate-300"><i data-lucide="file-text" class="w-4 h-4 text-slate-500"></i><span>Audit Trail</span></a><% } %>
+        </nav>
+      </div>
+    </div>
+  </aside>
+</div>
+<script>function toggleMobileNav(){var d=document.getElementById('mobileNavDrawer');if(!d)return;d.classList.toggle('hidden');if(!d.classList.contains('hidden')&&typeof lucide!=='undefined')lucide.createIcons();document.body.style.overflow=d.classList.contains('hidden')?'':'hidden';}</script>
 
 <!-- App Main Layout Container -->
 <div class="flex flex-1 min-h-0 overflow-hidden">

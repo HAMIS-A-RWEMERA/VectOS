@@ -97,8 +97,16 @@ export function csrfValidate(req: Request, res: Response, next: NextFunction): v
   const cookieToken = req.cookies?.[CSRF_COOKIE];
   const supplied = req.body?._csrf || req.headers['x-csrf-token'];
 
-  // Multipart uploads parse AFTER this middleware runs; accept header fallback.
-  if (!supplied && req.headers['content-type']?.includes('multipart/form-data')) {
+  // Multipart uploads parse AFTER this middleware — body._csrf not yet available.
+  // Require X-CSRF-Token header for multipart; do not bypass unconditionally.
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    if (!cookieToken || !req.headers['x-csrf-token'] || req.headers['x-csrf-token'] !== cookieToken) {
+      return res.status(403).render('error', {
+        title: 'Security Check Failed',
+        message: 'Your session token was missing or expired. Please go back, refresh the page, and try again.',
+        path: req.path
+      });
+    }
     return next();
   }
 

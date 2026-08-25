@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { queryAll, queryOne, execute, withTransaction } from '../database/db';
@@ -375,7 +375,8 @@ router.get('/admin/shops', requireSuperAdmin, async (req: Request, res: Response
 
     res.render('admin/shops', { user, shops, allUsers, allStocks, stats, message: req.query.msg || null });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'SuperAdmin Error', message: err.message, path: req.path });
+    console.error('SuperAdmin Error:', err);
+    res.status(500).render('error', { title: 'SuperAdmin Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -394,7 +395,8 @@ router.post('/admin/shops/approve/:id', requireSuperAdmin, async (req: Request, 
 
     res.redirect('/admin/shops?msg=Company+and+Manager+approved+and+activated+successfully');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Approval Error', message: err.message, path: req.path });
+    console.error('Approval Error:', err);
+    res.status(500).render('error', { title: 'Approval Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -420,7 +422,8 @@ router.post('/admin/shops/toggle-status/:id', requireSuperAdmin, async (req: Req
 
     res.redirect('/admin/shops?msg=Company+status+and+staff+access+updated+successfully');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Status Error', message: err.message, path: req.path });
+    console.error('Status Error:', err);
+    res.status(500).render('error', { title: 'Status Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -448,7 +451,8 @@ router.post('/admin/shops/update-billing/:id', requireSuperAdmin, async (req: Re
 
     res.redirect('/admin/shops?msg=Billing+and+pricing+structure+updated');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Billing Update Error', message: err.message, path: req.path });
+    console.error('Billing Update Error:', err);
+    res.status(500).render('error', { title: 'Billing Update Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -479,7 +483,8 @@ router.post('/admin/users/reset-password/:id', requireSuperAdmin, async (req: Re
 
     res.redirect('/admin/shops?msg=' + encodeURIComponent(`Password reset for ${targetUser.name}. Temporary password: ${tempPassword} — share it securely; they must change it in Settings.`));
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Password Reset Error', message: err.message, path: req.path });
+    console.error('Password Reset Error:', err);
+    res.status(500).render('error', { title: 'Password Reset Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -522,7 +527,8 @@ router.post('/admin/users/toggle-activation/:id', requireSuperAdmin, async (req:
 
     res.redirect('/admin/shops?msg=User+activation+status+updated+successfully');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'User Activation Error', message: err.message, path: req.path });
+    console.error('User Activation Error:', err);
+    res.status(500).render('error', { title: 'User Activation Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -638,7 +644,7 @@ router.get('/dashboard', requireAuth, async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error('Dashboard Error:', err);
-    res.status(500).render('error', { title: 'Dashboard Error', message: err.message, path: req.path });
+    res.status(500).render('error', { title: 'Dashboard Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -652,22 +658,36 @@ router.get('/products', requireAuth, async (req: Request, res: Response) => {
   const search = req.query.search ? String(req.query.search).trim() : '';
   const category = req.query.category ? String(req.query.category) : '';
   const msg = req.query.msg ? String(req.query.msg) : null;
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+  const limit = Math.min(100, Math.max(10, parseInt(String(req.query.limit || '50'), 10) || 50));
+  const offset = (page - 1) * limit;
 
   try {
     let sql = 'SELECT * FROM products WHERE shop_id = ?';
+    let countSql = 'SELECT COUNT(*) as total FROM products WHERE shop_id = ?';
     const params: any[] = [shopId];
+    const countParams: any[] = [shopId];
 
     if (search) {
-      sql += ' AND (name LIKE ? OR sku LIKE ? OR description LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      const escSearch = search.replace(/[%_\\]/g, '\\$&');
+      sql += ' AND (name LIKE ? ESCAPE "\\" OR sku LIKE ? ESCAPE "\\" OR description LIKE ? ESCAPE "\\")';
+      countSql += ' AND (name LIKE ? ESCAPE "\\" OR sku LIKE ? ESCAPE "\\" OR description LIKE ? ESCAPE "\\")';
+      params.push(`%${escSearch}%`, `%${escSearch}%`, `%${escSearch}%`);
+      countParams.push(`%${escSearch}%`, `%${escSearch}%`, `%${escSearch}%`);
     }
     if (category) {
       sql += ' AND category = ?';
+      countSql += ' AND category = ?';
       params.push(category);
+      countParams.push(category);
     }
-    sql += ' ORDER BY name ASC';
+    sql += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
 
     const products = await queryAll(sql, params);
+    const countRes = await queryOne<{ total: number }>(countSql, countParams);
+    const total = countRes ? Number(countRes.total) : 0;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
     const categoriesRes = await queryAll('SELECT DISTINCT category FROM products WHERE shop_id = ? ORDER BY category ASC', [shopId]);
     const categories = categoriesRes.map(c => c.category);
 
@@ -677,10 +697,12 @@ router.get('/products', requireAuth, async (req: Request, res: Response) => {
       categories,
       search,
       selectedCategory: category,
-      msg
+      msg,
+      pagination: { page, limit, total, totalPages }
     });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Products Error', message: err.message, path: req.path });
+    console.error('Products Error:', err);
+    res.status(500).render('error', { title: 'Products Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -842,7 +864,7 @@ router.post('/products/import-excel', requirePermission('can_manage_stock'), upl
     res.redirect(`/products?msg=Bulk+import+successful!+Added+${insertedCount}+new+products,+updated+${updatedCount}+products.`);
   } catch (err: any) {
     console.error('Excel Import Error:', err);
-    res.status(500).render('error', { title: 'Bulk Import Failed', message: err.message, path: req.path });
+    res.status(500).render('error', { title: 'Bulk Import Failed', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -890,7 +912,8 @@ router.post('/products/batch-add', requirePermission('can_manage_stock'), async 
     await logAudit(user.id, 'BATCH_ADD', `Added ${addedCount} products via batch quick entry.`, req, shopId);
     res.redirect(`/products?msg=${addedCount}+products+added+successfully`);
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Batch Add Error', message: err.message, path: req.path });
+    console.error('Batch Add Error:', err);
+    res.status(500).render('error', { title: 'Batch Add Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -954,7 +977,8 @@ router.post('/products/add', requirePermission('can_manage_stock'), async (req: 
         return res.status(400).render('error', { title: 'Duplicate SKU', message: 'A product with this SKU already exists in your store.', path: req.path });
       }
     }
-    res.status(500).render('error', { title: 'Product Creation Error', message: err.message, path: req.path });
+    console.error('Product Creation Error:', err);
+    res.status(500).render('error', { title: 'Product Creation Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -995,7 +1019,8 @@ router.post('/products/adjust-stock', requirePermission('can_manage_stock'), asy
     await logAudit(user.id, 'STOCK_UPDATE', `Updated stock for ${product.name}: ${adjQty > 0 ? '+' : ''}${adjQty} (New Qty: ${newQty})`, req, shopId);
     res.redirect('/products?msg=Stock+updated+successfully');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Stock Update Error', message: err.message, path: req.path });
+    console.error('Stock Update Error:', err);
+    res.status(500).render('error', { title: 'Stock Update Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1019,7 +1044,8 @@ router.get('/customers', requireAuth, async (req: Request, res: Response) => {
 
     res.render('customers', { user, customers });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Customers Error', message: err.message, path: req.path });
+    console.error('Customers Error:', err);
+    res.status(500).render('error', { title: 'Customers Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1046,7 +1072,8 @@ router.post('/customers/add', requirePermission('can_manage_customers'), async (
     await logAudit(user.id, 'CUSTOMER_ADD', `Registered new customer: ${name} (${phone})`, req, shopId);
     res.redirect('/customers');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Customer Registration Error', message: err.message, path: req.path });
+    console.error('Customer Registration Error:', err);
+    res.status(500).render('error', { title: 'Customer Registration Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1080,7 +1107,8 @@ router.get('/orders', requireAuth, async (req: Request, res: Response) => {
     const orders = await queryAll(sql, params);
     res.render('orders', { user, orders, filterStatus });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Orders List Error', message: err.message, path: req.path });
+    console.error('Orders List Error:', err);
+    res.status(500).render('error', { title: 'Orders List Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1096,7 +1124,8 @@ router.get('/orders/new', requirePermission('can_create_orders'), async (req: Re
 
     res.render('order_new', { user, customers, products, partners });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'New Order Form Error', message: err.message, path: req.path });
+    console.error('New Order Form Error:', err);
+    res.status(500).render('error', { title: 'New Order Form Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1347,7 +1376,7 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
     res.redirect(`/orders/${orderId}`);
   } catch (err: any) {
     console.error('Order creation error:', err);
-    res.status(500).render('error', { title: 'Order Creation Error', message: err.message, path: req.path });
+    res.status(500).render('error', { title: 'Order Creation Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1392,7 +1421,8 @@ router.get('/orders/:id', requireAuth, async (req: Request, res: Response) => {
 
     res.render('order_detail', { user, order, items, payments, partners, shopInfo });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Order View Error', message: err.message, path: req.path });
+    console.error('Order View Error:', err);
+    res.status(500).render('error', { title: 'Order View Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1430,7 +1460,8 @@ router.get('/orders/:id/receipt', requirePermission('can_print_full_receipt'), a
 
     res.render('order_receipt', { order, items, shopInfo, payments });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Receipt Generation Error', message: err.message, path: req.path });
+    console.error('Receipt Generation Error:', err);
+    res.status(500).render('error', { title: 'Receipt Generation Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1467,7 +1498,8 @@ router.get('/orders/:id/delivery-note', requirePermission('can_print_delivery_no
 
     res.render('delivery_note', { order, items, shopInfo });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Delivery Slip Error', message: err.message, path: req.path });
+    console.error('Delivery Slip Error:', err);
+    res.status(500).render('error', { title: 'Delivery Slip Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1501,7 +1533,8 @@ router.get('/storekeeper', requirePermission('can_release_stock'), async (req: R
 
     res.render('storekeeper', { user, pendingItems, recentlyReviewed });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Storekeeper Module Error', message: err.message, path: req.path });
+    console.error('Storekeeper Module Error:', err);
+    res.status(500).render('error', { title: 'Storekeeper Module Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1561,7 +1594,8 @@ router.post('/storekeeper/item-review', requirePermission('can_release_stock'), 
     await checkAndUpdateOrderCompletion(item.order_id, shopId);
     res.redirect('/storekeeper');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Storekeeper Review Error', message: err.message, path: req.path });
+    console.error('Storekeeper Review Error:', err);
+    res.status(500).render('error', { title: 'Storekeeper Review Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1614,7 +1648,8 @@ router.get('/accountant/rejected-items', requirePermission('can_partner_borrow')
 
     res.render('accountant_rejected', { user, rejectedItems, partners });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Accountant Resolution Error', message: err.message, path: req.path });
+    console.error('Accountant Resolution Error:', err);
+    res.status(500).render('error', { title: 'Accountant Resolution Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1692,7 +1727,8 @@ router.post('/accountant/resolve-item', requirePermission('can_partner_borrow'),
     await checkAndUpdateOrderCompletion(item.order_id, shopId);
     res.redirect('/accountant/rejected-items');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Resolution Error', message: err.message, path: req.path });
+    console.error('Resolution Error:', err);
+    res.status(500).render('error', { title: 'Resolution Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1725,7 +1761,8 @@ router.get('/payments', requireAuth, async (req: Request, res: Response) => {
 
     res.render('payments', { user, payments, debtOrders });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Payments Module Error', message: err.message, path: req.path });
+    console.error('Payments Module Error:', err);
+    res.status(500).render('error', { title: 'Payments Module Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1788,7 +1825,8 @@ router.post('/payments/record', requirePermission('can_process_payments'), async
     await logAudit(user.id, 'PAYMENT_RECORDED', `Recorded payment of RWF ${amount} for order ${order.order_number} (${finalMethod.toUpperCase()})`, req, shopId);
     res.redirect('/payments');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Payment Recording Error', message: err.message, path: req.path });
+    console.error('Payment Recording Error:', err);
+    res.status(500).render('error', { title: 'Payment Recording Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1804,7 +1842,8 @@ router.get('/partners', requireAuth, async (req: Request, res: Response) => {
     const partners = await queryAll('SELECT * FROM partner_shops WHERE shop_id = ? ORDER BY name ASC', [shopId]);
     res.render('partners', { user, partners });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Partners Module Error', message: err.message, path: req.path });
+    console.error('Partners Module Error:', err);
+    res.status(500).render('error', { title: 'Partners Module Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1822,7 +1861,8 @@ router.post('/partners/add', requirePermission('can_manage_partners'), async (re
     await logAudit(user.id, 'PARTNER_ADD', `Added partner shop: ${name} (${phone})`, req, shopId);
     res.redirect('/partners');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Partner Registration Error', message: err.message, path: req.path });
+    console.error('Partner Registration Error:', err);
+    res.status(500).render('error', { title: 'Partner Registration Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1875,7 +1915,8 @@ router.get('/stocks', requireAuth, async (req: Request, res: Response) => {
       error
     });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Stocks Module Error', message: err.message, path: req.path });
+    console.error('Stocks Module Error:', err);
+    res.status(500).render('error', { title: 'Stocks Module Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -1911,7 +1952,8 @@ router.post('/stocks/add', requireManager, async (req: Request, res: Response) =
     await logAudit(user.id, 'STOCK_WAREHOUSE_ADD', `Added new stock depot: "${name}" (${finalCode}) at ${location}`, req, shopId);
     res.redirect('/stocks?msg=New+warehouse+depot+registered+successfully');
   } catch (err: any) {
-    res.redirect('/stocks?error=' + encodeURIComponent(err.message));
+    console.error('Stocks Error:', err);
+    res.redirect('/stocks?error=' + encodeURIComponent('An unexpected error occurred.'));
   }
 });
 
@@ -2024,7 +2066,8 @@ router.post('/stocks/transfer', requirePermission('can_manage_stock'), async (re
 
     res.redirect(`/stocks?msg=Successfully+transferred+${qty}+units+of+${encodeURIComponent(sourceProduct.name)}`);
   } catch (err: any) {
-    res.redirect('/stocks?error=' + encodeURIComponent(err.message));
+    console.error('Stocks Error:', err);
+    res.redirect('/stocks?error=' + encodeURIComponent('An unexpected error occurred.'));
   }
 });
 
@@ -2146,7 +2189,8 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
       }
     });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Reports Module Error', message: err.message, path: req.path });
+    console.error('Reports Module Error:', err);
+    res.status(500).render('error', { title: 'Reports Module Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -2171,7 +2215,8 @@ router.get('/users', requireManager, async (req: Request, res: Response) => {
     const users = await queryAll(sql, params);
     res.render('users', { user, users, msg: req.query.msg || null });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Users Module Error', message: err.message, path: req.path });
+    console.error('Users Module Error:', err);
+    res.status(500).render('error', { title: 'Users Module Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -2251,7 +2296,8 @@ router.post('/users/add', requireManager, async (req: Request, res: Response) =>
     await logAudit(currentUser.id, 'USER_CREATE', `Created employee account "${name}" (pending SuperAdmin activation)`, req, shopId);
     res.redirect('/users?msg=Employee+account+created+and+activated+successfully');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'User Creation Error', message: err.message, path: req.path });
+    console.error('User Creation Error:', err);
+    res.status(500).render('error', { title: 'User Creation Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -2353,7 +2399,8 @@ router.post('/users/edit/:id', requireManager, async (req: Request, res: Respons
     await logAudit(currentUser.id, 'USER_EDIT_PERMISSIONS', `Updated permissions & profile for employee ${name} (#${targetId})`, req, shopId);
     res.redirect('/users?msg=User+profile+and+permissions+updated+successfully');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'User Update Error', message: err.message, path: req.path });
+    console.error('User Update Error:', err);
+    res.status(500).render('error', { title: 'User Update Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -2404,7 +2451,8 @@ router.post('/users/delete/:id', requireManager, async (req: Request, res: Respo
 
     res.redirect('/users?msg=User+status+updated');
   } catch (err: any) {
-    res.status(500).render('error', { title: 'User Removal Error', message: err.message, path: req.path });
+    console.error('User Removal Error:', err);
+    res.status(500).render('error', { title: 'User Removal Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -2425,7 +2473,8 @@ router.get('/settings', requireAuth, async (req: Request, res: Response) => {
       error: req.query.error || null 
     });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Settings Error', message: err.message, path: req.path });
+    console.error('Settings Error:', err);
+    res.status(500).render('error', { title: 'Settings Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -2464,7 +2513,8 @@ router.post('/settings/company', requireAuth, async (req: Request, res: Response
     await logAudit(user.id, 'COMPANY_SETTINGS_UPDATE', `Updated company profile details for "${name}" (TIN: ${tin_number})`, req, shopId);
     res.redirect('/settings?msg=Company+details+updated+successfully');
   } catch (err: any) {
-    res.redirect('/settings?error=' + encodeURIComponent(err.message));
+    console.error('Settings Error:', err);
+    res.redirect('/settings?error=' + encodeURIComponent('An unexpected error occurred.'));
   }
 });
 
@@ -2499,7 +2549,8 @@ router.post('/settings/password', requireAuth, async (req: Request, res: Respons
     await logAudit(user.id, 'PASSWORD_PROFILE_UPDATE', `Updated credentials/profile details for ${user.email}`, req, user.shop_id);
     res.redirect('/settings?msg=Profile+updated+successfully');
   } catch (err: any) {
-    res.redirect('/settings?error=' + encodeURIComponent(err.message));
+    console.error('Settings Error:', err);
+    res.redirect('/settings?error=' + encodeURIComponent('An unexpected error occurred.'));
   }
 });
 
@@ -2530,7 +2581,8 @@ router.get('/audit-logs', requireManager, async (req: Request, res: Response) =>
     const logs = await queryAll(sql, params);
     res.render('audit_logs', { user, logs });
   } catch (err: any) {
-    res.status(500).render('error', { title: 'Audit Logs Error', message: err.message, path: req.path });
+    console.error('Audit Logs Error:', err);
+    res.status(500).render('error', { title: 'Audit Logs Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
 
@@ -2544,8 +2596,9 @@ router.get('/products/search', requireAuth, async (req: Request, res: Response) 
     let sql = 'SELECT * FROM products WHERE shop_id = ?';
     const params: any[] = [shopId];
     if (q) {
-      sql += " AND (LOWER(name) LIKE ? OR LOWER(sku) LIKE ? OR LOWER(category) LIKE ? OR LOWER(COALESCE(barcode, '')) LIKE ?)";
-      const like = `%${q.toLowerCase()}%`;
+      const escQ = q.toLowerCase().replace(/[%_\\]/g, '\\$&');
+      sql += " AND (LOWER(name) LIKE ? ESCAPE '\\' OR LOWER(sku) LIKE ? ESCAPE '\\' OR LOWER(category) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(barcode, '')) LIKE ? ESCAPE '\\')";
+      const like = `%${escQ}%`;
       params.push(like, like, like, like);
     }
     sql += ' ORDER BY name ASC LIMIT 200';
@@ -2676,105 +2729,6 @@ router.post('/verify-2fa', async (req: Request, res: Response) => {
 // REPORTS DASHBOARD — revenue, profit, dead stock, receivables
 // -------------------------------------------------------------
 
-router.get('/reports', requireAuth, async (req: Request, res: Response) => {
-  const u = req.session.user!;
-  const allowed = u.role === 'superadmin' || u.role === 'manager' || Number(u.can_view_reports) === 1;
-  if (!allowed) {
-    return res.status(403).render('error', {
-      title: 'Access Denied',
-      message: 'You do not have permission to view business reports.',
-      path: req.path
-    });
-  }
-  const shopId = getActiveShopId(req);
 
-  try {
-    // Date helpers differ between SQLite (sql.js) and Postgres (Supabase)
-    const pg = isPostgres();
-    const monthExpr = pg ? "to_char(created_at, 'YYYY-MM')" : "strftime('%Y-%m', created_at)";
-    const cutoffExpr = pg ? "NOW() - INTERVAL '90 days'" : "date('now', '-90 day')";
-    const cutoff30 = pg ? "NOW() - INTERVAL '30 days'" : "date('now', '-30 day')";
-    const activeItems = "('pending_store','approved','partner_fulfilled','completed')";
-
-    // Monthly revenue & collections (last 12 months)
-    const monthly = await queryAll(`
-      SELECT ${monthExpr.replace('created_at', 'o.created_at')} AS ym,
-             SUM(o.total_amount) AS revenue,
-             SUM(o.paid_amount) AS collected
-      FROM orders o
-      WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled'
-      GROUP BY ym ORDER BY ym ASC LIMIT 12
-    `, [shopId]);
-
-    // Monthly gross profit from line items
-    const monthlyProfit = await queryAll(`
-      SELECT ${monthExpr.replace('created_at', 'o.created_at')} AS ym,
-             SUM(CASE WHEN oi.item_status IN ${activeItems} THEN oi.profit ELSE 0 END) AS profit
-      FROM order_items oi JOIN orders o ON oi.order_id = o.id
-      WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled'
-      GROUP BY ym ORDER BY ym ASC LIMIT 12
-    `, [shopId]);
-
-    // Best sellers (last 90 days)
-    const topProducts = await queryAll(`
-      SELECT oi.product_name AS name, SUM(oi.quantity) AS qty, SUM(oi.subtotal) AS amount
-      FROM order_items oi JOIN orders o ON oi.order_id = o.id
-      WHERE o.shop_id = ? AND oi.item_status IN ${activeItems} AND o.created_at >= ${cutoffExpr}
-      GROUP BY oi.product_name ORDER BY qty DESC LIMIT 8
-    `, [shopId]);
-
-    // Dead stock: sitting in the warehouse, not sold in 90+ days
-    const deadStock = await queryAll(`
-      SELECT p.name, p.category, p.quantity, (p.quantity * p.buying_price) AS tied_value
-      FROM products p
-      WHERE p.shop_id = ? AND p.quantity > 0 AND p.id NOT IN (
-        SELECT oi.product_id FROM order_items oi
-        JOIN orders o ON oi.order_id = o.id
-        WHERE oi.item_status IN ${activeItems} AND o.created_at >= ${cutoffExpr}
-      )
-      ORDER BY tied_value DESC LIMIT 10
-    `, [shopId]);
-    const deadStockTotal = await queryOne<{ v: number }>(`
-      SELECT COALESCE(SUM(p.quantity * p.buying_price), 0) AS v
-      FROM products p
-      WHERE p.shop_id = ? AND p.quantity > 0 AND p.id NOT IN (
-        SELECT oi.product_id FROM order_items oi
-        JOIN orders o ON oi.order_id = o.id
-        WHERE oi.item_status IN ${activeItems} AND o.created_at >= ${cutoffExpr}
-      )
-    `, [shopId]);
-
-    // Top debtors
-    const debtors = await queryAll(`
-      SELECT name, phone, credit_balance FROM customers
-      WHERE shop_id = ? AND credit_balance > 0
-      ORDER BY credit_balance DESC LIMIT 8
-    `, [shopId]);
-    const receivables = await queryOne<{ v: number }>(
-      'SELECT COALESCE(SUM(credit_balance), 0) AS v FROM customers WHERE shop_id = ?', [shopId]
-    );
-
-    // 30-day performance snapshot
-    const kpi30 = await queryOne<{ rev: number; profit: number }>(`
-      SELECT
-        (SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o WHERE o.shop_id = ? AND o.created_at >= ${cutoff30} AND o.fulfillment_status != 'cancelled') AS rev,
-        (SELECT COALESCE(SUM(oi.profit), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ? AND o.created_at >= ${cutoff30} AND oi.item_status IN ${activeItems}) AS profit
-    `, [shopId, shopId]);
-
-    res.render('reports', {
-      title: 'Business Intelligence Reports — VectOS',
-      monthly, monthlyProfit, topProducts, deadStock, debtors,
-      kpis: {
-        revenue30: kpi30?.rev || 0,
-        profit30: kpi30?.profit || 0,
-        receivables: receivables?.v || 0,
-        deadStockValue: deadStockTotal?.v || 0
-      },
-      isPostgres: pg
-    });
-  } catch (err: any) {
-    res.status(500).render('error', { title: 'Reports Error', message: err.message, path: req.path });
-  }
-});
 
 export default router;
