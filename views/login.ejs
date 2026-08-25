@@ -21,6 +21,7 @@
       <% } %>
 
       <form action="/login" method="POST" class="space-y-4">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
         <div>
           <label for="email" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Work Email Address</label>
           <div class="mt-1.5 relative">

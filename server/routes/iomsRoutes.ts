@@ -65,8 +65,10 @@ router.get('/login', async (req: Request, res: Response) => {
   if (req.session && req.session.user) {
     return res.redirect('/dashboard');
   }
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
   const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
-  res.render('login', { error: null, shops });
+  res.render('login', { error: null, shops, csrfToken: res.locals.csrfToken });
 });
 
 // Process Login
@@ -78,7 +80,10 @@ router.post('/login', async (req: Request, res: Response) => {
   const throttle = await throttleCheck(email);
   if (!throttle.ok) {
     const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
     return res.render('login', {
+      csrfToken: res.locals.csrfToken,
       error: `Too many failed sign-in attempts. This account is temporarily locked. Try again in about ${throttle.retryAfterMin} minute(s) or contact your administrator.`,
       shops
     });
@@ -101,26 +106,35 @@ router.post('/login', async (req: Request, res: Response) => {
     if (!user) {
       await throttleFail(email);
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
-      return res.render('login', { error: 'Account not found. Please verify the email address.', shops });
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    return res.render('login', { csrfToken: res.locals.csrfToken, error: 'Account not found. Please verify the email address.', shops });
     }
 
     if (Number(user.is_active) !== 1 || (user.activation_status && user.activation_status !== 'active')) {
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
-      return res.render('login', { error: 'Your user account is inactive or pending approval. Please contact your manager or platform administrator.', shops });
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    return res.render('login', { csrfToken: res.locals.csrfToken, error: 'Your user account is inactive or pending approval. Please contact your manager or platform administrator.', shops });
     }
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       await throttleFail(email);
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
-      return res.render('login', { error: 'Invalid password. Please check your credentials.', shops });
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    return res.render('login', { csrfToken: res.locals.csrfToken, error: 'Invalid password. Please check your credentials.', shops });
     }
 
     await throttleClear(email);
 
     if (user.role !== 'superadmin' && user.shop_status === 'pending') {
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.set('Pragma', 'no-cache');
       return res.render('login', { 
+        csrfToken: res.locals.csrfToken,
         error: 'Your Hardware Store registration is pending approval by the Platform Super Administrator. Access will be unlocked upon payment confirmation.', 
         shops 
       });
@@ -128,7 +142,10 @@ router.post('/login', async (req: Request, res: Response) => {
 
     if (user.role !== 'superadmin' && user.shop_status === 'suspended') {
       const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.set('Pragma', 'no-cache');
       return res.render('login', { 
+        csrfToken: res.locals.csrfToken,
         error: 'Your Hardware Store subscription is currently suspended. Please contact the platform admin for renewal.', 
         shops 
       });
@@ -178,7 +195,9 @@ router.post('/login', async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     const shops = await queryAll("SELECT id, name, code, location, status FROM shops WHERE status = 'active' ORDER BY name ASC");
-    res.render('login', { error: 'Authentication error: ' + err.message, shops });
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.render('login', { csrfToken: res.locals.csrfToken, error: 'Authentication error: ' + err.message, shops });
   }
 });
 
