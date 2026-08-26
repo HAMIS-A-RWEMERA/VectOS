@@ -455,9 +455,15 @@ router.post('/admin/shops/update-billing/:id', requireSuperAdmin, async (req: Re
     const shop = await queryOne('SELECT * FROM shops WHERE id = ?', [shopId]);
     if (!shop) return res.status(404).send('Shop not found');
 
-    const accounts = Math.max(1, parseInt(billed_accounts) || 1);
-    const stocks = Math.max(1, parseInt(billed_stocks) || 1);
-    const fee = parseFloat(monthly_fee) || (15000 + accounts * 5000 + stocks * 5000);
+    const rawAccounts = parseInt(billed_accounts, 10);
+    const accounts = Number.isFinite(rawAccounts) && rawAccounts >= 1 ? Math.max(1, rawAccounts) : 1;
+    const rawStocks = parseInt(billed_stocks, 10);
+    const stocks = Number.isFinite(rawStocks) && rawStocks >= 1 ? Math.max(1, rawStocks) : 1;
+    const rawFee = parseFloat(monthly_fee);
+    const fee = Number.isFinite(rawFee) && rawFee >= 0 ? rawFee : (15000 + accounts * 5000 + stocks * 5000);
+    if (!Number.isFinite(fee) || fee < 0) {
+      return res.status(400).render('error', { title: 'Invalid Billing', message: 'Monthly fee must be a valid non-negative finite number.', path: req.path });
+    }
 
     await execute(
       `UPDATE shops SET 
@@ -587,11 +593,11 @@ router.get('/dashboard', requireAuth, async (req: Request, res: Response) => {
     // Current shop details
     const shopInfo = await queryOne('SELECT * FROM shops WHERE id = ?', [shopId]);
 
-    // Shared KPIs scoped to shop
+    // Shared KPIs scoped to shop — use CURRENT_DATE which is portable (SQLite and PG)
     const todaySales = await queryOne(`
       SELECT COALESCE(SUM(total_amount), 0) as total, COUNT(*) as count 
       FROM orders 
-      WHERE shop_id = ? AND DATE(created_at) = DATE('now')
+      WHERE shop_id = ? AND CAST(created_at AS DATE) = CURRENT_DATE
     `, [shopId]).catch(() => null) || { total: 0, count: 0 };
 
     // Total Profit (Sum of profit across completed order items)
@@ -599,7 +605,7 @@ router.get('/dashboard', requireAuth, async (req: Request, res: Response) => {
       SELECT COALESCE(SUM(oi.profit), 0) as total_profit
       FROM order_items oi
       JOIN orders o ON oi.order_id = o.id
-      WHERE o.shop_id = ? AND DATE(o.created_at) = DATE('now') AND oi.item_status IN ('approved', 'partner_fulfilled')
+      WHERE o.shop_id = ? AND CAST(o.created_at AS DATE) = CURRENT_DATE AND oi.item_status IN ('approved', 'partner_fulfilled')
     `, [shopId]);
     const todayProfit = todayProfitRes ? todayProfitRes.total_profit : 0;
 
@@ -821,8 +827,24 @@ router.post('/products/import-excel', requirePermission('can_manage_stock'), upl
       const sku = (row['SKU / Code'] || row['SKU'] || row['sku'] || row['Code'] || row['code'] || '').toString().trim() || null;
       const category = (row['Category'] || row['category'] || 'General Hardware').toString().trim();
       const unit = (row['Unit'] || row['unit'] || 'pcs').toString().trim();
-      let buyingPrice = parseFloat(row['Buying Price'] || row['buying_price'] || row['Cost'] || row['Price'] || 0) || 0;
-      if (!isFinite(buyingPrice) || buyingPrice < 0) buyingPrice = 0;
+      // Determine raw buying price string from Excel row
+      const rawBuyingPriceStr = row['Buying Price'] || row['buying_price'] || row['Cost'] || row['Price'];
+
+      // If the value is missing/empty, skip this row rather than silently converting to 0.
+      // Legacy code used `|| 0` which made indistinguishable NaN/missing → 0,
+      // corrupting financial data. Preserve legitimate 0 values explicitly.
+      if (rawBuyingPriceStr === undefined || rawBuyingPriceStr === null || String(rawBuyingPriceStr).trim() === '') {
+        skippedRows++;
+        continue;
+      }
+
+      const parsedPrice = parseFloat(rawBuyingPriceStr);
+      if (!isFinite(parsedPrice) || parsedPrice < 0) {
+        // Invalid numeric value (NaN, Infinity, negative) — skip row, don't corrupt data.
+        skippedRows++;
+        continue;
+      }
+      let buyingPrice = parsedPrice;
       const rawQty = row['Initial Quantity'] || row['Quantity'] || row['quantity'] || row['Stock'] || row['qty'] || 0;
       const quantity = parseInt(rawQty, 10);
       if (isNaN(quantity)) { skippedRows++; continue; }
@@ -906,8 +928,16 @@ router.post('/products/batch-add', requirePermission('can_manage_stock'), async 
       const name = String(item.name || '').trim();
       if (!name) continue;
 
-      const buyingPrice = parseFloat(item.buying_price) || 0;
-      const quantity = parseInt(item.quantity, 10) || 0;
+      const rawBuyPrice = parseFloat(item.buying_price);
+      if (!Number.isFinite(rawBuyPrice) || rawBuyPrice < 0) {
+        return res.status(400).render('error', { title: 'Invalid Product Data', message: `Buying price for "${name}" must be a valid non-negative number.`, path: req.path });
+      }
+      const buyingPrice = rawBuyPrice;
+      const rawQty = parseInt(item.quantity, 10);
+      if (!Number.isFinite(rawQty) || rawQty < 0 || !Number.isInteger(rawQty)) {
+        return res.status(400).render('error', { title: 'Invalid Product Data', message: `Quantity for "${name}" must be a valid non-negative integer.`, path: req.path });
+      }
+      const quantity = rawQty;
       const category = item.category || 'General';
       const unit = item.unit || 'pcs';
       const sku = item.sku || null;
@@ -1092,6 +1122,10 @@ router.post('/customers/add', requirePermission('can_manage_customers'), async (
     res.redirect('/customers');
   } catch (err: any) {
     console.error('Customer Registration Error:', err);
+    const msg = String(err.message || '');
+    if (msg.includes('UNIQUE') || msg.toLowerCase().includes('duplicate') || msg.includes('idx_customers_shop_phone')) {
+      return res.status(400).render('error', { title: 'Duplicate Customer', message: `A customer with phone number ${phone} already exists.`, path: req.path });
+    }
     res.status(500).render('error', { title: 'Customer Registration Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });
@@ -1100,11 +1134,14 @@ router.post('/customers/add', requirePermission('can_manage_customers'), async (
 // ORDERS MODULE (Creation, Ad-Hoc Items & Partner Sourcing)
 // -------------------------------------------------------------
 
-// Orders List View
+// Orders List View — paginated to prevent OOM on large shops
 router.get('/orders', requireAuth, async (req: Request, res: Response) => {
   const user = req.session.user!;
   const shopId = getActiveShopId(req);
   const filterStatus = req.query.status ? String(req.query.status) : '';
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+  const limit = Math.min(100, Math.max(10, parseInt(String(req.query.limit || '50'), 10) || 50));
+  const offset = (page - 1) * limit;
 
   try {
     let sql = `
@@ -1114,17 +1151,25 @@ router.get('/orders', requireAuth, async (req: Request, res: Response) => {
       JOIN users u ON o.salesperson_id = u.id
       WHERE o.shop_id = ?
     `;
+    let countSql = 'SELECT COUNT(*) as total FROM orders o WHERE o.shop_id = ?';
     const params: any[] = [shopId];
+    const countParams: any[] = [shopId];
 
     if (filterStatus) {
       sql += ' AND (o.fulfillment_status = ? OR o.payment_status = ?)';
+      countSql += ' AND (o.fulfillment_status = ? OR o.payment_status = ?)';
       params.push(filterStatus, filterStatus);
+      countParams.push(filterStatus, filterStatus);
     }
 
-    sql += ' ORDER BY o.id DESC';
+    sql += ' ORDER BY o.id DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
 
     const orders = await queryAll(sql, params);
-    res.render('orders', { user, orders, filterStatus });
+    const countRes = await queryOne<{ total: number }>(countSql, countParams);
+    const total = countRes ? Number(countRes.total) : 0;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    res.render('orders', { user, orders, filterStatus, pagination: { page, limit, total, totalPages } });
   } catch (err: any) {
     console.error('Orders List Error:', err);
     res.status(500).render('error', { title: 'Orders List Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
@@ -1249,7 +1294,9 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
     for (const item of parsedItems) {
       const qty = parseInt(String(item.quantity), 10);
       const selPrice = parseFloat(String(item.selling_price));
-      if (qty <= 0 || isNaN(selPrice) || selPrice < 0) continue;
+      if (!Number.isFinite(qty) || !Number.isFinite(selPrice) || qty <= 0 || selPrice < 0 || !Number.isInteger(qty)) {
+        return res.status(400).render('error', { title: 'Invalid Order Data', message: 'Each order item must have a valid positive integer quantity and non-negative finite selling price.', path: req.path });
+      }
 
       let prodId: number | null = parseInt(String(item.product_id), 10);
       if (isNaN(prodId as any)) prodId = null;
@@ -1266,6 +1313,9 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
         const adhocCat = String(item.category || 'Special Order').trim();
         const adhocUnit = String(item.unit || 'pcs').trim();
         const adhocBuyPrice = parseFloat(String(item.buying_price)) || (selPrice * 0.85);
+        if (!Number.isFinite(adhocBuyPrice) || adhocBuyPrice < 0) {
+          return res.status(400).render('error', { title: 'Invalid Order Data', message: `Buying price for ad-hoc item "${adhocName}" must be a valid non-negative finite number.`, path: req.path });
+        }
         // Validate existence without inserting (insert deferred to transaction for atomicity)
         const existingProd = await queryOne('SELECT id FROM products WHERE shop_id = ? AND LOWER(name) = LOWER(?)', [shopId, adhocName]);
         if (existingProd) {
@@ -1327,8 +1377,9 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
     let attempts = 0;
     while (attempts < 3) {
       attempts++;
-      const countRes = await queryOne('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?', [shopId]);
-      orderNum = `ORD-${new Date().getFullYear()}-${String((countRes ? countRes.cnt : 0) + 1 + (attempts - 1)).padStart(4, '0')}`;
+      const maxRes = await queryOne<{ max_num: number }>('SELECT COALESCE(MAX(CAST(SUBSTR(order_number, 10) AS INTEGER)), 0) as max_num FROM orders');
+      const maxNum = maxRes ? Number(maxRes.max_num) : 0;
+      orderNum = `ORD-${new Date().getFullYear()}-${String(maxNum + 1 + (attempts - 1)).padStart(4, '0')}`;
       try {
         await withTransaction(async () => {
           // Resolve deferred ad-hoc products and partner balances atomically with order
@@ -1735,6 +1786,15 @@ router.post('/accountant/resolve-item', requirePermission('can_partner_borrow'),
             'UPDATE orders SET total_amount = ?, debt_amount = ?, payment_status = ? WHERE id = ? AND shop_id = ?',
             [newTotal, newDebt, payStatus, item.order_id, shopId]
           );
+          // Reverse customer credit for the removed subtotal (inside same transaction)
+          const oldTotal = Number(order.total_amount) || 0;
+          const creditReduction = Math.max(0, oldTotal - newTotal);
+          if (creditReduction > 0) {
+            await execute(
+              'UPDATE customers SET credit_balance = CASE WHEN credit_balance - ? < 0 THEN 0 ELSE credit_balance - ? END WHERE id = ? AND shop_id = ?',
+              [creditReduction, creditReduction, order.customer_id, shopId]
+            );
+          }
         }
       });
 
@@ -1822,21 +1882,21 @@ router.post('/payments/record', requirePermission('can_process_payments'), async
         [shopId, orderId, amount, finalMethod, reference_no ? String(reference_no).trim() || `PAY-${Date.now()}` : `PAY-${Date.now()}`, user.id]
       );
 
-      // Atomic update: avoid lost-update race (read-then-write)
+      // Atomic update: avoid lost-update race (read-then-write) — CASE is portable PG/SQLite
       await execute(
         `UPDATE orders SET
            paid_amount = paid_amount + ?,
-           debt_amount = GREATEST(0, total_amount - (paid_amount + ?)),
+           debt_amount = CASE WHEN total_amount - (paid_amount + ?) < 0 THEN 0 ELSE total_amount - (paid_amount + ?) END,
            payment_status = CASE WHEN (paid_amount + ?) >= total_amount THEN 'paid' ELSE 'partial' END
          WHERE id = ? AND shop_id = ?`,
-        [amount, amount, amount, orderId, shopId]
+        [amount, amount, amount, amount, orderId, shopId]
       );
 
       if (curDebt > 0) {
         const debtReduction = Math.min(curDebt, amount);
         await execute(
-          'UPDATE customers SET credit_balance = GREATEST(0, credit_balance - ?) WHERE id = ? AND shop_id = ?',
-          [debtReduction, curCustId, shopId]
+          'UPDATE customers SET credit_balance = CASE WHEN credit_balance - ? < 0 THEN 0 ELSE credit_balance - ? END WHERE id = ? AND shop_id = ?',
+          [debtReduction, debtReduction, curCustId, shopId]
         );
       }
     });
@@ -2111,8 +2171,8 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
              (SELECT COUNT(*) FROM products WHERE stock_id = st.id) as product_lines,
              (SELECT COALESCE(SUM(quantity), 0) FROM products WHERE stock_id = st.id) as total_units,
              (SELECT COALESCE(SUM(quantity * buying_price), 0) FROM products WHERE stock_id = st.id) as valuation,
-             (SELECT COALESCE(SUM(oi.subtotal), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ? AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_revenue,
-             (SELECT COALESCE(SUM(oi.profit), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ? AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_profit
+             (SELECT COALESCE(SUM(oi.subtotal), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN products p ON oi.product_id = p.id WHERE o.shop_id = ? AND p.stock_id = st.id AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_revenue,
+             (SELECT COALESCE(SUM(oi.profit), 0) FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN products p ON oi.product_id = p.id WHERE o.shop_id = ? AND p.stock_id = st.id AND oi.item_status IN ('approved', 'partner_fulfilled')) as sales_profit
       FROM stocks st
       WHERE st.shop_id = ?
       ORDER BY st.is_main DESC, st.name ASC

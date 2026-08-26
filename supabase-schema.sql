@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS users (
   can_manage_partners INTEGER DEFAULT 0,
   can_void_orders INTEGER DEFAULT 0,
   can_edit_company_settings INTEGER DEFAULT 0,
+  twofa_secret TEXT,
+  twofa_enabled INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -82,6 +84,7 @@ CREATE TABLE IF NOT EXISTS products (
   stock_id INTEGER DEFAULT 1 REFERENCES stocks(id) ON DELETE SET NULL,
   name VARCHAR(255) NOT NULL,
   sku VARCHAR(100),
+  barcode TEXT,
   category VARCHAR(100) NOT NULL,
   unit VARCHAR(50) DEFAULT 'pcs',
   buying_price NUMERIC(15,2) NOT NULL CHECK(buying_price >= 0),
@@ -131,6 +134,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_status VARCHAR(50) DEFAULT 'pending' CHECK(payment_status IN ('pending', 'paid', 'partial', 'debt')),
   fulfillment_status VARCHAR(50) DEFAULT 'pending_store' CHECK(fulfillment_status IN ('pending_accountant', 'pending_store', 'resolving_rejected', 'completed', 'cancelled')),
   notes TEXT,
+  client_ref TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -199,7 +203,16 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 13. EXPRESS SESSION PERSISTENCE (For Netlify Serverless Lambdas)
+-- 13. LOGIN THROTTLE (Brute-force protection)
+CREATE TABLE IF NOT EXISTS login_throttle (
+  id SERIAL PRIMARY KEY,
+  identity TEXT UNIQUE NOT NULL,
+  attempts INTEGER DEFAULT 0,
+  locked_until TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. EXPRESS SESSION PERSISTENCE (For Netlify Serverless Lambdas)
 -- NOTE: WITH (OIDS) was removed in PostgreSQL 12+ and causes errors on Supabase.
 CREATE TABLE IF NOT EXISTS "session" (
   "sid" varchar NOT NULL COLLATE "default",
@@ -213,6 +226,7 @@ CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
 -- Unique constraints for multi-tenant data integrity
 CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);
 
 -- ============================================================================
 -- INITIAL SEED DATA
@@ -239,7 +253,7 @@ ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('stocks_id_seq', (SELECT COALESCE(MAX(id), 1) FROM stocks));
 
--- Seed SuperAdmin & Staff ($2a$10$95XvNrvuUj61g1Fk7vNl/OHu5W7bcfn3tI5Lq2YkC3YyQW1V6jK2K -> password123)
+-- Seed SuperAdmin & Staff ($2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6 -> password123)
 INSERT INTO users (
   id, shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status,
   can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
@@ -247,11 +261,11 @@ INSERT INTO users (
   can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings
 )
 VALUES 
-  (1, 1, 1, 'VectOS Super Admin', 'admin@vectos.co.rw', '$2a$10$95XvNrvuUj61g1Fk7vNl/OHu5W7bcfn3tI5Lq2YkC3YyQW1V6jK2K', 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-  (2, 1, 1, 'Jean-Luc Hakizimana', 'manager@quincaille.rw', '$2a$10$95XvNrvuUj61g1Fk7vNl/OHu5W7bcfn3tI5Lq2YkC3YyQW1V6jK2K', 'manager', 'Store Owner / Manager', '+250 788 100 001', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-  (3, 1, 1, 'Marie-Claire Umutoni', 'sales@quincaille.rw', '$2a$10$95XvNrvuUj61g1Fk7vNl/OHu5W7bcfn3tI5Lq2YkC3YyQW1V6jK2K', 'salesperson', 'Sales & Counter Cashier', '+250 788 100 002', 1, 'active', 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0),
-  (4, 1, 1, 'Patrick Nshimiyimana', 'accountant@quincaille.rw', '$2a$10$95XvNrvuUj61g1Fk7vNl/OHu5W7bcfn3tI5Lq2YkC3YyQW1V6jK2K', 'accountant', 'Finance & Head Cashier', '+250 788 100 003', 1, 'active', 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0),
-  (5, 1, 1, 'Emmanuel Bizimana', 'storekeeper@quincaille.rw', '$2a$10$95XvNrvuUj61g1Fk7vNl/OHu5W7bcfn3tI5Lq2YkC3YyQW1V6jK2K', 'storekeeper', 'Warehouse Storekeeper', '+250 788 100 004', 1, 'active', 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0)
+  (1, 1, 1, 'VectOS Super Admin', 'admin@vectos.co.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+  (2, 1, 1, 'Jean-Luc Hakizimana', 'manager@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'manager', 'Store Owner / Manager', '+250 788 100 001', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
+  (3, 1, 1, 'Marie-Claire Umutoni', 'sales@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'salesperson', 'Sales & Counter Cashier', '+250 788 100 002', 1, 'active', 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0),
+  (4, 1, 1, 'Patrick Nshimiyimana', 'accountant@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'accountant', 'Finance & Head Cashier', '+250 788 100 003', 1, 'active', 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0),
+  (5, 1, 1, 'Emmanuel Bizimana', 'storekeeper@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'storekeeper', 'Warehouse Storekeeper', '+250 788 100 004', 1, 'active', 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0)
 ON CONFLICT (id) DO UPDATE SET 
   password = EXCLUDED.password,
   is_active = 1,

@@ -94,6 +94,19 @@
         </tbody>
       </table>
     </div>
+    <% if (typeof pagination !== 'undefined' && pagination.totalPages > 1) { %>
+      <div class="flex items-center justify-between px-4 py-3 border-t border-[var(--c-border)] bg-[var(--c-panel2)] text-xs">
+        <span class="text-slate-400">Page <%= pagination.page %> of <%= pagination.totalPages %> • <%= pagination.total %> total • <%= orders.length %> shown</span>
+        <div class="flex gap-2">
+          <% if (pagination.page > 1) { %>
+            <a href="/orders?page=<%= pagination.page-1 %>&limit=<%= pagination.limit %><% if(filterStatus){ %>&status=<%= encodeURIComponent(filterStatus) %><% } %>" class="px-3 py-1.5 rounded-lg bg-[var(--c-chip)] hover:bg-[var(--c-hover)] text-slate-300">← Prev</a>
+          <% } %>
+          <% if (pagination.page < pagination.totalPages) { %>
+            <a href="/orders?page=<%= pagination.page+1 %>&limit=<%= pagination.limit %><% if(filterStatus){ %>&status=<%= encodeURIComponent(filterStatus) %><% } %>" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold">Next →</a>
+          <% } %>
+        </div>
+      </div>
+    <% } %>
   </div>
 </div>
 

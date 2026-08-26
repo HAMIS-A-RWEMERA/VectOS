@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const { Pool } = pg;
 
@@ -187,9 +188,10 @@ export function saveDb(dbToSave?: SqlJsDatabase) {
 
 export async function queryAll<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   if (isPostgres()) {
-    if (pgTxClient) {
+    const txClient = pgTxStorage.getStore();
+    if (txClient) {
       const pgSql = formatPgSql(sql);
-      const res = await pgTxClient.query(pgSql, params);
+      const res = await txClient.query(pgSql, params);
       return res.rows as T[];
     }
     const pool = getPgPool();
@@ -218,7 +220,7 @@ export async function queryOne<T = any>(sql: string, params: any[] = []): Promis
 export async function execute(sql: string, params: any[] = []): Promise<{ lastInsertId: number; changes: number }> {
   if (isPostgres()) {
     // Use transaction client if inside withTransaction
-    const target = pgTxClient || null;
+    const target = pgTxStorage.getStore() || null;
     const doQuery = async (pgSql: string) => {
       if (target) return target.query(pgSql, params);
       return getPgPool().query(pgSql, params);
@@ -256,7 +258,7 @@ export async function execute(sql: string, params: any[] = []): Promise<{ lastIn
     lastInsertId = Number(res[0].values[0][0]);
     changes = Number(res[0].values[0][1]);
   }
-  if (!sqlJsTxActive) saveDb(db);
+  if (!sqlJsTxStorage.getStore()) saveDb(db);
   return { lastInsertId, changes };
 }
 
@@ -269,44 +271,43 @@ let postgresSchemaInitialized = false;
 // inside the callback share the same transaction. SQLite: BEGIN IMMEDIATE
 // on the single sql.js instance, saveDb only on COMMIT.
 // ---------------------------------------------------------------------------
-let pgTxClient: pg.PoolClient | null = null;
-let sqlJsTxActive = false;
+const pgTxStorage = new AsyncLocalStorage<pg.PoolClient>();
+const sqlJsTxStorage = new AsyncLocalStorage<boolean>();
 
 export async function withTransaction<T>(fn: () => Promise<T>): Promise<T> {
-  if (pgTxClient || sqlJsTxActive) {
+  if (pgTxStorage.getStore() || sqlJsTxStorage.getStore()) {
     throw new Error('Nested transactions are not supported — use SAVEPOINT or refactor to single transaction');
   }
   if (isPostgres()) {
     const client = await getPgPool().connect();
-    pgTxClient = client;
-    try {
-      await client.query('BEGIN');
-      const result = await fn();
-      await client.query('COMMIT');
-      return result;
-    } catch (e) {
-      try { await client.query('ROLLBACK'); } catch {}
-      throw e;
-    } finally {
-      pgTxClient = null;
-      client.release();
-    }
+    return pgTxStorage.run(client, async () => {
+      try {
+        await client.query('BEGIN');
+        const result = await fn();
+        await client.query('COMMIT');
+        return result;
+      } catch (e) {
+        try { await client.query('ROLLBACK'); } catch {}
+        throw e;
+      } finally {
+        client.release();
+      }
+    });
   } else {
     const db = await getDb();
     if (!db) throw new Error('Database not available for transaction');
-    try {
-      sqlJsTxActive = true;
-      db.run('BEGIN IMMEDIATE');
-      const result = await fn();
-      db.run('COMMIT');
-      saveDb(db);
-      return result;
-    } catch (e) {
-      try { db.run('ROLLBACK'); } catch {}
-      throw e;
-    } finally {
-      sqlJsTxActive = false;
-    }
+    return sqlJsTxStorage.run(true, async () => {
+      try {
+        db.run('BEGIN IMMEDIATE');
+        const result = await fn();
+        db.run('COMMIT');
+        saveDb(db);
+        return result;
+      } catch (e) {
+        try { db.run('ROLLBACK'); } catch {}
+        throw e;
+      }
+    });
   }
 }
 
@@ -323,7 +324,16 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
       const schemaSqlPath = path.join(process.cwd(), 'supabase-schema.sql');
       if (fs.existsSync(schemaSqlPath)) {
         const sqlContent = fs.readFileSync(schemaSqlPath, 'utf-8');
-        await pool.query(sqlContent);
+        try {
+          await pool.query(sqlContent);
+        } catch (e: any) {
+          // Handle concurrent CREATE EXTENSION race (IF NOT EXISTS is not fully concurrent-safe)
+          if (String(e.message).includes('pg_extension_name_index') || String(e.message).includes('already exists')) {
+            console.log('Extension already exists (concurrent init), continuing schema init');
+          } else {
+            throw e;
+          }
+        }
         console.log('Supabase PostgreSQL schema and seed data loaded successfully!');
       }
     }
@@ -341,8 +351,18 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS login_throttle (
+        id SERIAL PRIMARY KEY,
+        identity TEXT UNIQUE NOT NULL,
+        attempts INTEGER DEFAULT 0,
+        locked_until TIMESTAMP WITH TIME ZONE,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`);
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`);
     postgresSchemaInitialized = true;
   } catch (err) {
     console.error('Error auto-initializing PostgreSQL schema:', err);
@@ -350,7 +370,8 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
 }
 
 
-export async function migrateUsersTableIfNeeded(db: SqlJsDatabase): Promise<void> {
+export async function migrateUsersTableIfNeeded(db: SqlJsDatabase | null): Promise<void> {
+  if (isPostgres() || !db) return;
   try {
     const tableDefRes = db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'");
     if (tableDefRes.length > 0 && tableDefRes[0].values.length > 0) {
@@ -423,8 +444,46 @@ export async function migrateUsersTableIfNeeded(db: SqlJsDatabase): Promise<void
   }
 }
 
-export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase): Promise<void> {
+export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase | null): Promise<void> {
+  // PostgreSQL path uses queryOne/execute, not sql.js db.exec
+  if (isPostgres()) {
+    try {
+      const adminPass = await bcrypt.hash('password123', 10);
+      const existing = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', ['admin@vectos.co.rw']);
+      if (existing) {
+        await execute(`
+          UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'VectOS Super Admin',
+              can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
+              can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
+              can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
+              can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1
+          WHERE LOWER(TRIM(email)) = ?`, [adminPass, 'admin@vectos.co.rw']);
+      } else {
+        const old = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', ['admin@quincaille.rw']);
+        if (old) {
+          await execute(`
+            UPDATE users SET email = 'admin@vectos.co.rw', password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'VectOS Super Admin',
+                can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
+                can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
+                can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
+                can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1
+            WHERE LOWER(TRIM(email)) = ?`, [adminPass, 'admin@quincaille.rw']);
+        } else {
+          await execute(`
+            INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+              can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+              can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings)
+            VALUES (?, ?, ?, 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
+            ['VectOS Super Admin', 'admin@vectos.co.rw', adminPass]);
+        }
+      }
+    } catch (err) {
+      console.error('Error in ensureAdminAccounts (PG):', err);
+    }
+    return;
+  }
   const db = dbToUse || (await getDb());
+  if (!db) return;
   try {
     await migrateUsersTableIfNeeded(db);
     const adminPass = await bcrypt.hash('password123', 10);
@@ -760,7 +819,8 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
       FOREIGN KEY (transferred_by) REFERENCES users(id)
     );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`
   ];
 
   for (const q of migrationQueries) {

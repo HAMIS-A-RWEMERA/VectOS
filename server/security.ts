@@ -133,9 +133,17 @@ interface ThrottleRow {
   locked_until: string | null;
 }
 
+function parseThrottleDate(value: any): number {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  const str = String(value);
+  if (str.includes('Z') || str.includes('+')) return new Date(str).getTime();
+  // SQLite CURRENT_TIMESTAMP is 'YYYY-MM-DD HH:MM:SS' in UTC
+  return new Date(str.replace(' ', 'T') + 'Z').getTime();
+}
 function isLocked(row: ThrottleRow): boolean {
   if (!row.locked_until) return false;
-  return new Date(row.locked_until + 'Z').getTime() > Date.now();
+  return parseThrottleDate(row.locked_until) > Date.now();
 }
 
 export async function throttleCheck(identity: string): Promise<{ ok: boolean; retryAfterMin?: number }> {
@@ -146,7 +154,7 @@ export async function throttleCheck(identity: string): Promise<{ ok: boolean; re
     );
     if (row && isLocked(row)) {
       const remaining = Math.ceil(
-        (new Date(row.locked_until! + 'Z').getTime() - Date.now()) / 60000
+        (parseThrottleDate(row.locked_until) - Date.now()) / 60000
       );
       return { ok: false, retryAfterMin: Math.max(1, remaining) };
     }
@@ -163,13 +171,14 @@ export async function throttleFail(identity: string): Promise<void> {
       'SELECT attempts, locked_until, updated_at FROM login_throttle WHERE identity = ?',
       [id]
     );
-    const cutoff = new Date(Date.now() - WINDOW_MINUTES * 60000).toISOString();
+    const cutoff = new Date(Date.now() - WINDOW_MINUTES * 60000);
     if (row && isLocked(row)) return;
-    const attempts = row && row.updated_at && new Date(row.updated_at + 'Z') > new Date(cutoff)
+    const rowUpdated = parseThrottleDate(row?.updated_at);
+    const attempts = row && rowUpdated > cutoff.getTime()
       ? row.attempts + 1
       : 1;
     const locked = attempts >= MAX_ATTEMPTS
-      ? new Date(Date.now() + WINDOW_MINUTES * 60000).toISOString().replace('T', ' ').slice(0, 19)
+      ? new Date(Date.now() + WINDOW_MINUTES * 60000).toISOString()
       : null;
     if (row) {
       await execute(

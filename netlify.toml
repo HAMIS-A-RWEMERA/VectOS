@@ -11,7 +11,7 @@
   included_files = ["views/**", "public/**", "supabase-schema.sql"]
 
 [functions.server]
-  external_node_modules = ["pg", "bcryptjs", "ejs", "express", "sql.js", "xlsx"]
+  external_node_modules = ["pg", "bcryptjs", "connect-pg-simple", "ejs", "express", "sql.js", "xlsx"]
 
 [[redirects]]
   from = "/*"
