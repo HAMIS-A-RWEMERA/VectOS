@@ -859,7 +859,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
 
   try {
     const result = await withTransaction(async () => {
-      // 1. Resolve or create customer if new
+      // 1. Resolve or create customer if new, or fallback to Walk-in Client
       let finalCustomerId: number | null = customer_id ? Number(customer_id) : null;
 
       if (finalCustomerId) {
@@ -868,7 +868,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           throw new Error('Specified customer does not belong to this store.');
         }
       } else if (customer_name) {
-        const existing = await queryOne('SELECT id FROM customers WHERE shop_id = ? AND phone = ?', [shopId, customer_phone || '']);
+        const existing = await queryOne('SELECT id FROM customers WHERE shop_id = ? AND (name = ? OR (phone != \'\' AND phone = ?))', [shopId, customer_name.trim(), customer_phone || '']);
         if (existing) {
           finalCustomerId = existing.id;
         } else {
@@ -877,6 +877,17 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
             [shopId, customer_name.trim(), customer_phone ? customer_phone.trim() : '']
           );
           finalCustomerId = newCust.lastInsertId;
+        }
+      } else {
+        let walkIn = await queryOne('SELECT id FROM customers WHERE shop_id = ? AND (name = ? OR name = ?)', [shopId, 'Walk-in Client', 'Walk-in Customer']);
+        if (!walkIn) {
+          const newCust = await execute(
+            `INSERT INTO customers (shop_id, name, phone, credit_balance) VALUES (?, 'Walk-in Client', '', 0.0)`,
+            [shopId]
+          );
+          finalCustomerId = newCust.lastInsertId;
+        } else {
+          finalCustomerId = walkIn.id;
         }
       }
 
@@ -915,7 +926,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
 
       const paid = paid_amount !== undefined ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) : totalAmount;
       const debt = Math.max(0, totalAmount - paid);
-      const paymentStatus = debt === 0 ? 'paid' : (paid > 0 ? 'partial' : 'unpaid');
+      const paymentStatus = debt === 0 ? 'paid' : (paid > 0 ? 'partial' : 'debt');
       const fulfillmentStatus = 'pending_store';
       const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
 

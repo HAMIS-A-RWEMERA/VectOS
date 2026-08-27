@@ -854,7 +854,8 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
     );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`
+    `DROP INDEX IF EXISTS idx_customers_shop_phone;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone) WHERE phone IS NOT NULL AND phone != '';`
   ];
 
   for (const q of migrationQueries) {
