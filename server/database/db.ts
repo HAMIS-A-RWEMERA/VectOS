@@ -41,6 +41,10 @@ export function isPostgres(): boolean {
   );
 }
 
+export function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
 export function getPgPool(): pg.Pool {
   if (pgPoolInstance) {
     return pgPoolInstance;
@@ -95,14 +99,44 @@ export function getDb(): Promise<SqlJsDatabase | null> {
 }
 
 async function initializeDb(): Promise<SqlJsDatabase | null> {
+  const isProd = isProduction();
+  const dbUrl = (
+    process.env.DATABASE_URL ||
+    process.env.SUPABASE_DATABASE_URL ||
+    process.env.SUPABASE_DB_URL ||
+    ''
+  ).trim();
+
+  // Strict P0-1 Requirement: In production, PostgreSQL DATABASE_URL is mandatory
+  if (isProd) {
+    if (!dbUrl) {
+      const errMsg = 'FATAL [VectOS]: NODE_ENV=production requires a valid PostgreSQL DATABASE_URL. Ephemeral in-memory database fallback is strictly prohibited in production.';
+      console.error(errMsg);
+      throw new Error('Production configuration error: DATABASE_URL is missing. Production mode requires a persistent PostgreSQL database.');
+    }
+
+    try {
+      const pool = getPgPool();
+      await pool.query('SELECT 1');
+      postgresAvailable = true;
+      console.log('✅ PostgreSQL production connection verified successfully.');
+      await initPostgresSchemaIfNeeded();
+      return null;
+    } catch (err: any) {
+      const sanitizedMsg = err?.message || String(err);
+      console.error(`FATAL [VectOS]: Production PostgreSQL connection failed (${sanitizedMsg}). Refusing to fall back to in-memory storage.`);
+      throw new Error(`Production database connection failed: ${sanitizedMsg}`);
+    }
+  }
+
   if (isPostgres()) {
     // In Postgres mode, ensure tables exist
     await initPostgresSchemaIfNeeded();
     return null;
   }
 
-  // If DATABASE_URL is set but we haven't tested connectivity yet, try it
-  if (!postgresAvailable && (process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL)) {
+  // Development/Test mode: If DATABASE_URL is set, test connectivity
+  if (!postgresAvailable && dbUrl) {
     try {
       const pool = getPgPool();
       await pool.query('SELECT 1');
@@ -112,10 +146,10 @@ async function initializeDb(): Promise<SqlJsDatabase | null> {
       return null;
     } catch (err) {
       const msg = (err as Error).message || String(err);
-      console.warn('PostgreSQL unreachable (' + msg + '), falling back to local sql.js.');
+      console.warn('PostgreSQL unreachable in development (' + msg + '), falling back to local SQLite.');
       postgresAvailable = false;
       pgPoolInstance = null;
-      // Fall through to sql.js below
+      // Fall through to local SQLite below in development
     }
   }
 

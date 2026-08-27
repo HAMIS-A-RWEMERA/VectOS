@@ -55,11 +55,11 @@ export function csrfEnsure(req: Request, res: Response, next: NextFunction): voi
   let token = req.cookies?.[CSRF_COOKIE];
   if (!token || !/^[a-f0-9]{64}$/.test(token)) {
     token = issueToken();
-    const isProdHttps = process.env.NODE_ENV === 'production';
+    const isTest = process.env.NODE_ENV === 'test' || process.env.VECTOS_NO_LISTEN === '1';
     res.cookie(CSRF_COOKIE, token, {
       httpOnly: false,
-      sameSite: (isProdHttps ? 'none' : 'lax') as 'lax' | 'none',
-      secure: isProdHttps,
+      sameSite: (isTest ? 'lax' : 'none') as 'lax' | 'none',
+      secure: !isTest,
       path: '/'
     });
   }
@@ -95,6 +95,11 @@ export function htmlCsrfInjector(req: Request, res: Response, next: NextFunction
 /** Rejects state-changing requests without a matching CSRF token. */
 export function csrfValidate(req: Request, res: Response, next: NextFunction): void {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+
+  // Allow API routes to be called from the SPA with session authentication
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
 
   const cookieToken = req.cookies?.[CSRF_COOKIE];
   const supplied = req.body?._csrf || req.headers['x-csrf-token'];

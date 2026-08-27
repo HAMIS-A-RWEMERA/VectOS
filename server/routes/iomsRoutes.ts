@@ -2160,7 +2160,8 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
   const selectedStockId = req.query.stock_id ? String(req.query.stock_id) : 'all';
 
   try {
-    // 0. Fetch all stock locations for this company
+    // 0. Fetch shop details & all stock locations for this company
+    const shop = await queryOne('SELECT * FROM shops WHERE id = ?', [shopId]);
     const stocks = await queryAll('SELECT * FROM stocks WHERE shop_id = ? ORDER BY is_main DESC, name ASC', [shopId]);
 
     // 1. Stock Breakdown Comparison Table (for all warehouses)
@@ -2251,8 +2252,41 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
       ? 'All Warehouses (Consolidated Total Business)' 
       : (stocks.find(s => String(s.id) === selectedStockId)?.name || 'Selected Warehouse');
 
+    // Dead stock detection (products with stock but 0 sales)
+    const deadStock = await queryAll(
+      `SELECT name, category, quantity, (quantity * buying_price) as tied_value
+       FROM products
+       WHERE shop_id = ? AND quantity > 0
+       AND id NOT IN (SELECT DISTINCT product_id FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ?)
+       ORDER BY tied_value DESC LIMIT 10`,
+      [shopId, shopId]
+    );
+
+    const deadStockValue = deadStock.reduce((acc, d) => acc + (d.tied_value || 0), 0);
+    const receivables = customerDebts.reduce((acc, c) => acc + (c.credit_balance || 0), 0);
+
+    const kpis = {
+      revenue30: totalBusinessRevenue,
+      profit30: totalBusinessProfit,
+      receivables,
+      deadStockValue
+    };
+
+    const topProducts = productPerformance.map(p => ({
+      name: p.name,
+      qty: p.total_units_sold || 0
+    }));
+
+    const monthly = [
+      { ym: 'Current Period', revenue: totalBusinessRevenue, collected: totalBusinessRevenue - receivables }
+    ];
+    const monthlyProfit = [
+      { ym: 'Current Period', profit: totalBusinessProfit }
+    ];
+
     res.render('reports', {
       user,
+      shop,
       stocks,
       selectedStockId,
       activeStockName,
@@ -2260,7 +2294,13 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
       salespersonProfit,
       productPerformance,
       customerDebts,
+      debtors: customerDebts,
       partnerBalances,
+      kpis,
+      topProducts,
+      deadStock,
+      monthly,
+      monthlyProfit,
       totals: {
         revenue: totalBusinessRevenue,
         profit: totalBusinessProfit,
@@ -2268,7 +2308,7 @@ router.get('/reports', requirePermission('can_view_reports'), async (req: Reques
       }
     });
   } catch (err: any) {
-    console.error('Reports Module Error:', err);
+    console.log('REPORTS ERROR FULL:', err?.message || err, err?.stack);
     res.status(500).render('error', { title: 'Reports Module Error', message: 'An unexpected operational error occurred. Please try again or contact support.', path: req.path });
   }
 });

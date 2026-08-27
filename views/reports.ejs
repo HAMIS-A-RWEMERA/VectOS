@@ -1,4 +1,5 @@
 <%- include('partials/header', { title: 'Business Intelligence Reports — VectOS' }) %>
+<%- include('partials/sidebar') %>
 
 <div class="space-y-6 p-4 sm:p-6">
 
@@ -182,7 +183,7 @@
     }
   });
 
-  <% if (topProducts.length > 0) { ?>
+  <% if (topProducts.length > 0) { %>
   // Top Sellers horizontal bars
   new Chart(document.getElementById('chartTop'), {
     type: 'bar',
@@ -201,7 +202,7 @@
   });
   <% } %>
 
-  <% if (deadStock.length > 0) { %}
+  <% if (deadStock.length > 0) { %>
   // Dead stock doughnut
   new Chart(document.getElementById('chartDead'), {
     type: 'doughnut',
