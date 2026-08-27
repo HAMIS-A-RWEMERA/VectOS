@@ -7,6 +7,7 @@ import { queryOne, execute } from './database/db';
 // 1. SECURITY HEADERS
 // ---------------------------------------------------------------------------
 export const helmetMiddleware = helmet({
+  frameguard: false,
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
@@ -26,7 +27,7 @@ export const helmetMiddleware = helmet({
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       connectSrc: ["'self'", 'https://unpkg.com'],
-      frameAncestors: ["'self'", 'https://*.netlify.app', 'https://*.aistudio.google.com'],
+      frameAncestors: ["'self'", 'https://*.netlify.app', 'https://*.aistudio.google.com', 'https://*.google.com', 'https://*.run.app', 'https://*.googleusercontent.com'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"]
@@ -54,10 +55,11 @@ export function csrfEnsure(req: Request, res: Response, next: NextFunction): voi
   let token = req.cookies?.[CSRF_COOKIE];
   if (!token || !/^[a-f0-9]{64}$/.test(token)) {
     token = issueToken();
+    const isProdHttps = process.env.NODE_ENV === 'production';
     res.cookie(CSRF_COOKIE, token, {
       httpOnly: false,
-      sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
+      sameSite: (isProdHttps ? 'none' : 'lax') as 'lax' | 'none',
+      secure: isProdHttps,
       path: '/'
     });
   }

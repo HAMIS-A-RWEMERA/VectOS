@@ -1,4 +1,4 @@
-﻿import { Router, Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { queryAll, queryOne, execute, withTransaction } from '../database/db';
@@ -788,7 +788,7 @@ router.get('/products/sample-template', requireAuth, async (req: Request, res: R
 });
 
 // Bulk Excel/CSV Product Import
-router.post('/products/import-excel', requirePermission('can_manage_stock'), uploadSpreadsheet.single('file'), async (req: Request, res: Response) => {
+router.post('/products/import-excel', requirePermission('can_manage_stock'), uploadSpreadsheet.single('file') as any, async (req: Request, res: Response) => {
   const user = req.session.user!;
   const shopId = getActiveShopId(req);
 

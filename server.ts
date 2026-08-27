@@ -99,7 +99,7 @@ app.use(
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
-  })
+  }) as any
 );
 
 // Make session user and active shop context available to all template views
