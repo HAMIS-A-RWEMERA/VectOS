@@ -10,7 +10,9 @@ import {
   Database,
   RefreshCw,
   Sparkles,
-  ShoppingBag
+  ShoppingBag,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -19,6 +21,8 @@ interface HeaderProps {
   availableShops: Shop[];
   isSuperAdmin: boolean;
   dbPersistent: boolean;
+  isDarkMode: boolean;
+  onToggleTheme: () => void;
   onLogout: () => void;
   onDemoSwitch: (role: string) => void;
   onSwitchShop: (shopId: number) => void;
@@ -31,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   availableShops,
   isSuperAdmin,
   dbPersistent,
+  isDarkMode,
+  onToggleTheme,
   onLogout,
   onDemoSwitch,
   onSwitchShop,
@@ -129,6 +135,15 @@ export const Header: React.FC<HeaderProps> = ({
             <ShoppingBag className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Open POS Counter</span>
             <span className="sm:hidden">POS</span>
+          </button>
+
+          {/* Theme Toggle Button */}
+          <button
+            onClick={onToggleTheme}
+            className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition"
+            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
           </button>
 
           {/* Database Mode Badge */}

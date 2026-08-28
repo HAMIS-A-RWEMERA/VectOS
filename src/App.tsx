@@ -23,6 +23,19 @@ export const App: React.FC = () => {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [dbPersistent, setDbPersistent] = useState(false);
   const [loadingUser, setLoadingUser] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('vectos_dark_mode');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('vectos_dark_mode', JSON.stringify(isDarkMode));
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   // App UI State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -150,7 +163,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
+    <div className={`min-h-screen ${isDarkMode ? 'bg-[#090d16] text-slate-100' : 'bg-slate-50 text-slate-900'} flex flex-col font-sans transition-colors duration-200`}>
       {/* Top Header */}
       <Header
         user={user}
@@ -158,6 +171,8 @@ export const App: React.FC = () => {
         availableShops={availableShops}
         isSuperAdmin={isSuperAdmin}
         dbPersistent={dbPersistent}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         onLogout={handleLogout}
         onDemoSwitch={handleDemoSwitch}
         onSwitchShop={handleSwitchShop}
@@ -175,7 +190,7 @@ export const App: React.FC = () => {
         />
 
         {/* Content View Area */}
-        <main className="flex-1 overflow-y-auto min-h-0 bg-[#0A0D12]">
+        <main className={`flex-1 overflow-y-auto min-h-0 ${isDarkMode ? 'bg-[#090d16]' : 'bg-slate-50'}`}>
           {activeTab === 'dashboard' && (
             <DashboardView
               stats={dashboardStats}

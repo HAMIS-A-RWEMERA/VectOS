@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import apiRoutes from './server/routes/apiRoutes';
 import iomsRoutes from './server/routes/iomsRoutes';
+import billingRoutes from './server/routes/billingRoutes';
 import { getDb, isPostgres, getPgPool, isProduction } from './server/database/db';
 import {
   helmetMiddleware,
@@ -111,17 +112,48 @@ app.use('/public', express.static(path.join(process.cwd(), 'public')));
 
 // 1. Mount JSON REST API routes FIRST
 app.use('/api', apiRoutes);
+app.use('/api', billingRoutes);
 
 // 2. Mount Legacy SSR & Management routes
 app.use('/legacy', iomsRoutes);
 app.use(iomsRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req: Request, res: Response) => {
+// Upgraded Health check endpoint for Gate 9 Production Hardening
+app.get('/api/health', async (req: Request, res: Response) => {
+  let dbHealthy = false;
+  try {
+    if (isPostgres()) {
+      await getPgPool().query('SELECT 1');
+      dbHealthy = true;
+    } else {
+      const db = await getDb();
+      dbHealthy = Boolean(db);
+    }
+  } catch {
+    dbHealthy = false;
+  }
+
+  let dlqCount = 0;
+  let retryCount = 0;
+  try {
+    const { queryOne } = await import('./server/database/db');
+    const dlq = await queryOne<{ count: number }>('SELECT COUNT(*) as count FROM webhook_events WHERE status = ?', ['DEAD_LETTER']);
+    const retry = await queryOne<{ count: number }>('SELECT COUNT(*) as count FROM webhook_events WHERE status = ?', ['RETRY_PENDING']);
+    dlqCount = dlq?.count || 0;
+    retryCount = retry?.count || 0;
+  } catch {}
+
   res.json({ 
-    status: 'ok', 
+    status: dbHealthy ? 'ok' : 'degraded',
     time: new Date().toISOString(), 
-    database: isPostgres() ? 'PostgreSQL' : 'sql.js (SQLite)' 
+    database: isPostgres() ? 'PostgreSQL' : 'sql.js (SQLite)',
+    dbHealthy,
+    queues: {
+      deadLetterWebhooks: dlqCount,
+      pendingRetryWebhooks: retryCount
+    },
+    uptimeSec: process.uptime(),
+    memoryUsage: process.memoryUsage()
   });
 });
 
