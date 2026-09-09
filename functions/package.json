@@ -1,0 +1,29 @@
+{
+  "name": "vectos-functions",
+  "private": true,
+  "version": "1.0.0",
+  "description": "VectOS ERP serverless backend for Firebase Cloud Functions",
+  "main": "index.cjs",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "bcryptjs": "^3.0.3",
+    "connect-pg-simple": "^10.0.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.3",
+    "ejs": "^6.0.1",
+    "express": "^4.21.2",
+    "express-session": "^1.19.0",
+    "firebase-functions": "^7.3.2",
+    "helmet": "^8.3.0",
+    "multer": "^2.2.0",
+    "otplib": "^13.5.0",
+    "pg": "^8.23.0",
+    "qrcode": "^1.5.4",
+    "serverless-http": "^4.0.0",
+    "sql.js": "^1.14.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

@@ -200,6 +200,8 @@ async function setupViteAndListen() {
   if (
     process.env.NETLIFY !== 'true' &&
     process.env.AWS_LAMBDA_FUNCTION_NAME === undefined &&
+    process.env.FUNCTION_TARGET === undefined &&
+    process.env.FIREBASE_CONFIG === undefined &&
     process.env.VECTOS_NO_LISTEN !== '1'
   ) {
     const server = app.listen(PORT, '0.0.0.0', () => {

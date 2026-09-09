@@ -1,0 +1,14 @@
+{
+  "hosting": {
+    "public": "functions/dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "**/server.cjs", "**/server.cjs.map"],
+    "rewrites": [{ "source": "**", "function": "vectos" }]
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "vectos",
+      "runtime": "nodejs20"
+    }
+  ]
+}
