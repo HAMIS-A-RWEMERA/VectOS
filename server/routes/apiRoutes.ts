@@ -178,7 +178,12 @@ router.post('/auth/login', async (req: Request, res: Response) => {
       can_manage_customers: Boolean(user.can_manage_customers),
       can_manage_partners: Boolean(user.can_manage_partners),
       can_void_orders: Boolean(user.can_void_orders),
-      can_edit_company_settings: Boolean(user.can_edit_company_settings)
+      can_edit_company_settings: Boolean(user.can_edit_company_settings),
+      can_view_audit_trail: Boolean(user.can_view_audit_trail),
+      can_reset_passwords: Boolean(user.can_reset_passwords),
+      can_view_all_tenants: Boolean(user.can_view_all_tenants),
+      can_manage_subscriptions: Boolean(user.can_manage_subscriptions),
+      force_password_change: Number(user.force_password_change || 0)
     };
 
     let shop = null;
@@ -198,6 +203,46 @@ router.post('/auth/login', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Login API error:', err);
     res.status(500).json({ error: 'Internal login processing error' });
+  }
+});
+
+// Change Password (Self-Service for Logged-In User)
+router.post('/auth/change-password', requireAuth, async (req: Request, res: Response) => {
+  const user = req.session.user;
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password are required.' });
+  }
+
+  if (newPassword.trim().length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+  }
+
+  try {
+    const dbUser = await queryOne('SELECT * FROM users WHERE id = ?', [user.id]);
+    if (!dbUser) {
+      return res.status(404).json({ error: 'User account not found.' });
+    }
+
+    const match = await bcrypt.compare(currentPassword, dbUser.password);
+    if (!match) {
+      return res.status(400).json({ error: 'Current password is incorrect.' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword.trim(), 10);
+    await execute('UPDATE users SET password = ?, force_password_change = 0 WHERE id = ?', [hashed, user.id]);
+
+    await logApiAudit(req, 'PASSWORD_CHANGED', `User ${user.name} (${user.email}) successfully changed their account password.`, user.shop_id || 1);
+
+    if (req.session.user) {
+      req.session.user.force_password_change = 0;
+    }
+
+    res.json({ success: true, message: 'Password updated successfully.' });
+  } catch (err: any) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Failed to update password.' });
   }
 });
 
@@ -270,7 +315,12 @@ router.post('/auth/demo-switch', async (req: Request, res: Response) => {
     can_manage_customers: Boolean(user.can_manage_customers),
     can_manage_partners: Boolean(user.can_manage_partners),
     can_void_orders: Boolean(user.can_void_orders),
-    can_edit_company_settings: Boolean(user.can_edit_company_settings)
+    can_edit_company_settings: Boolean(user.can_edit_company_settings),
+    can_view_audit_trail: Boolean(user.can_view_audit_trail),
+    can_reset_passwords: Boolean(user.can_reset_passwords),
+    can_view_all_tenants: Boolean(user.can_view_all_tenants),
+    can_manage_subscriptions: Boolean(user.can_manage_subscriptions),
+    force_password_change: Number(user.force_password_change || 0)
   };
 
   let shop = null;
@@ -501,6 +551,93 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
   } catch (err: any) {
     console.error('Create product error:', err);
     res.status(500).json({ error: 'Failed to create product. Ensure SKU is unique within this store.' });
+  }
+});
+
+// Bulk Import Products (Excel/CSV upload & bulk staging)
+router.post('/products/bulk-import', requireAuth, requireTenant, requirePermission('can_import_export_stock'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const { products: rawProducts, stock_id } = req.body;
+
+  if (!rawProducts || !Array.isArray(rawProducts) || rawProducts.length === 0) {
+    return res.status(400).json({ error: 'No products provided for bulk import.' });
+  }
+
+  try {
+    let finalStockId = stock_id ? Number(stock_id) : 1;
+    const stockExists = await queryOne('SELECT id FROM stocks WHERE id = ? AND shop_id = ?', [finalStockId, shopId]);
+    if (!stockExists) {
+      const mainStock = await queryOne('SELECT id FROM stocks WHERE shop_id = ? AND is_main = 1 LIMIT 1', [shopId]);
+      finalStockId = mainStock?.id || 1;
+    }
+
+    let insertedCount = 0;
+    let updatedCount = 0;
+    const errors: string[] = [];
+
+    await withTransaction(async () => {
+      for (let i = 0; i < rawProducts.length; i++) {
+        const item = rawProducts[i];
+        if (!item.name || typeof item.name !== 'string' || !item.name.trim()) {
+          errors.push(`Row #${i + 1}: Name is required`);
+          continue;
+        }
+
+        const name = item.name.trim();
+        const sku = (item.sku && String(item.sku).trim()) || `SKU-${Date.now().toString().slice(-5)}${i.toString().padStart(3, '0')}`;
+        const barcode = item.barcode ? String(item.barcode).trim() : null;
+        const category = (item.category && String(item.category).trim()) || 'General Hardware';
+        const unit = (item.unit && String(item.unit).trim()) || 'Pcs';
+        const buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Number(item.quantity) : 0;
+        const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Number(item.low_stock_threshold)) : 10;
+        const description = item.description ? String(item.description).trim() : null;
+
+        // Check if SKU exists for this shop
+        const existing = await queryOne('SELECT id, quantity FROM products WHERE shop_id = ? AND sku = ?', [shopId, sku]);
+        if (existing) {
+          await execute(
+            `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+            [name, category, unit, buying_price, quantity, low_stock_threshold, description, existing.id, shopId]
+          );
+          if (quantity > 0) {
+            await execute(
+              `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+               VALUES (?, ?, ?, ?, 'Stock Received', 'Bulk Import Replenishment', ?)`,
+              [shopId, finalStockId, existing.id, quantity, req.session?.user?.id || 1]
+            );
+          }
+          updatedCount++;
+        } else {
+          const resInsert = await execute(
+            `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description]
+          );
+          if (quantity > 0) {
+            await execute(
+              `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+               VALUES (?, ?, ?, ?, 'Stock Received', 'Initial Bulk Import', ?)`,
+              [shopId, finalStockId, resInsert.lastInsertId, quantity, req.session?.user?.id || 1]
+            );
+          }
+          insertedCount++;
+        }
+      }
+    });
+
+    await logApiAudit(req, 'PRODUCTS_BULK_IMPORTED', `Bulk imported ${insertedCount} new products and updated ${updatedCount} existing items.`);
+
+    res.json({
+      success: true,
+      message: `Bulk import completed: ${insertedCount} created, ${updatedCount} updated.`,
+      insertedCount,
+      updatedCount,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err: any) {
+    console.error('Bulk import error:', err);
+    res.status(500).json({ error: 'Bulk product import failed: ' + (err.message || 'Unknown database error') });
   }
 });
 
@@ -767,14 +904,22 @@ router.post('/stocks/transfer', requireAuth, requireTenant, requirePermission('c
 router.get('/orders', requireAuth, requireTenant, async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const status = (req.query.status as string || '').trim();
+  const period = (req.query.period as string || 'all').toLowerCase();
+  const startDate = req.query.startDate as string;
+  const endDate = req.query.endDate as string;
+  const limit = Math.min(2000, Math.max(10, Number(req.query.limit) || 100));
 
   try {
     let sql = `
       SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+             p_user.name as payment_approved_by_name,
+             s_user.name as stock_released_by_name,
              (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as item_count
       FROM orders o
       LEFT JOIN customers c ON o.customer_id = c.id
       LEFT JOIN users u ON o.salesperson_id = u.id
+      LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+      LEFT JOIN users s_user ON o.stock_released_by = s_user.id
       WHERE o.shop_id = ?
     `;
     const params: any[] = [shopId];
@@ -784,9 +929,34 @@ router.get('/orders', requireAuth, requireTenant, async (req: Request, res: Resp
       params.push(status, status);
     }
 
-    sql += ` ORDER BY o.created_at DESC LIMIT 50`;
-    const orders = await queryAll(sql, params);
+    const now = new Date();
+    if (period === 'day' || period === 'today' || period === 'daily') {
+      const d = new Date(now);
+      d.setHours(0, 0, 0, 0);
+      sql += ` AND o.created_at >= ?`;
+      params.push(d.toISOString());
+    } else if (period === 'week' || period === 'weekly') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 7);
+      sql += ` AND o.created_at >= ?`;
+      params.push(d.toISOString());
+    } else if (period === 'month' || period === 'monthly') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 30);
+      sql += ` AND o.created_at >= ?`;
+      params.push(d.toISOString());
+    } else if (startDate && endDate) {
+      sql += ` AND o.created_at >= ? AND o.created_at <= ?`;
+      params.push(new Date(startDate).toISOString(), new Date(endDate).toISOString());
+    } else if (startDate) {
+      sql += ` AND o.created_at >= ?`;
+      params.push(new Date(startDate).toISOString());
+    }
 
+    sql += ` ORDER BY o.created_at DESC LIMIT ?`;
+    params.push(limit);
+
+    const orders = await queryAll(sql, params);
     res.json({ orders });
   } catch (err: any) {
     console.error('Orders API error:', err);
@@ -802,10 +972,15 @@ router.get('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
   try {
     const order = await queryOne(
       `SELECT o.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address,
-              u.name as salesperson_name, s.name as shop_name, s.tin_number, s.receipt_footer_text, s.phone as shop_phone
+              u.name as salesperson_name, 
+              p_user.name as payment_approved_by_name,
+              s_user.name as stock_released_by_name,
+              s.name as shop_name, s.tin_number, s.receipt_footer_text, s.phone as shop_phone
        FROM orders o
        LEFT JOIN customers c ON o.customer_id = c.id
        LEFT JOIN users u ON o.salesperson_id = u.id
+       LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+       LEFT JOIN users s_user ON o.stock_released_by = s_user.id
        LEFT JOIN shops s ON o.shop_id = s.id
        WHERE o.id = ? AND o.shop_id = ?`,
       [orderId, shopId]
@@ -929,23 +1104,29 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
       const paymentStatus = debt === 0 ? 'paid' : (paid > 0 ? 'partial' : 'debt');
       const fulfillmentStatus = 'pending_store';
       const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+      const currentUserId = req.session?.user?.id || 1;
 
-      // 3. Insert Order Record
+      // 3. Insert Order Record (with payment approver if paid on creation)
       const orderRes = await execute(
-        `INSERT INTO orders (shop_id, stock_id, order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO orders (
+          shop_id, stock_id, order_number, customer_id, salesperson_id,
+          total_amount, paid_amount, debt_amount, payment_status, fulfillment_status,
+          notes, payment_approved_by, payment_approved_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           shopId,
           1,
           orderNumber,
           finalCustomerId,
-          req.session?.user?.id || 1,
+          currentUserId,
           totalAmount,
           paid,
           debt,
           paymentStatus,
           fulfillmentStatus,
-          notes || null
+          notes || null,
+          paid > 0 ? currentUserId : null,
+          paid > 0 ? new Date().toISOString() : null
         ]
       );
 
@@ -975,7 +1156,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, 1, ?, ?, 'Sale', ?, ?)`,
-          [shopId, pi.product_id, -pi.quantity, `Sale for Order ${orderNumber}`, req.session?.user?.id || 1]
+          [shopId, pi.product_id, -pi.quantity, `Sale for Order ${orderNumber}`, currentUserId]
         );
       }
 
@@ -990,7 +1171,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
             paid,
             payment_method || 'cash',
             payment_reference || null,
-            req.session?.user?.id || 1
+            currentUserId
           ]
         );
       }
@@ -1006,7 +1187,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
       return { orderId, orderNumber, totalAmount, paid, debt };
     });
 
-    await logApiAudit(req, 'ORDER_CREATED', `Placed Order ${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()}`);
+    await logApiAudit(req, 'ORDER_CREATED', `Salesperson ${req.session?.user?.name || 'Staff'} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? 'RWF ' + result.paid.toLocaleString() + ' paid' : 'Unpaid'})`);
 
     const createdOrder = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [result.orderId, shopId]);
     res.json({ success: true, order: createdOrder });
@@ -1021,6 +1202,8 @@ router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermissio
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
   const { amount, payment_method, reference_no } = req.body;
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || 'Cashier';
 
   const payAmt = Number(amount);
   if (isNaN(payAmt) || payAmt <= 0) {
@@ -1043,7 +1226,7 @@ router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermissio
           payAmt,
           payment_method || 'cash',
           reference_no || null,
-          req.session?.user?.id || 1
+          currentUserId
         ]
       );
 
@@ -1052,8 +1235,10 @@ router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermissio
       const newPaymentStatus = newDebt === 0 ? 'paid' : 'partial';
 
       await execute(
-        `UPDATE orders SET paid_amount = ?, debt_amount = ?, payment_status = ? WHERE id = ? AND shop_id = ?`,
-        [newPaid, newDebt, newPaymentStatus, orderId, shopId]
+        `UPDATE orders 
+         SET paid_amount = ?, debt_amount = ?, payment_status = ?, payment_approved_by = ?, payment_approved_at = CURRENT_TIMESTAMP 
+         WHERE id = ? AND shop_id = ?`,
+        [newPaid, newDebt, newPaymentStatus, currentUserId, orderId, shopId]
       );
 
       if (order.customer_id) {
@@ -1064,7 +1249,7 @@ router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermissio
       }
     });
 
-    await logApiAudit(req, 'PAYMENT_RECORDED', `Recorded payment of RWF ${payAmt.toLocaleString()} for Order #${orderId}`);
+    await logApiAudit(req, 'PAYMENT_CONFIRMED', `Payment of RWF ${payAmt.toLocaleString()} (${payment_method || 'cash'}) confirmed by ${currentUserName} for Order #${order.order_number || orderId}`);
 
     const updatedOrder = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
     res.json({ success: true, order: updatedOrder });
@@ -1079,6 +1264,8 @@ router.post('/orders/:id/status', requireAuth, requireTenant, requirePermission(
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
   const { fulfillment_status, reason } = req.body;
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || 'Storekeeper';
 
   try {
     const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
@@ -1086,13 +1273,22 @@ router.post('/orders/:id/status', requireAuth, requireTenant, requirePermission(
       return res.status(404).json({ error: 'Order not found in this store' });
     }
 
-    await execute(
-      `UPDATE orders SET fulfillment_status = ? WHERE id = ? AND shop_id = ?`,
-      [fulfillment_status, orderId, shopId]
-    );
+    const isReleasing = fulfillment_status === 'approved' || fulfillment_status === 'dispatched' || fulfillment_status === 'completed';
+
+    if (isReleasing) {
+      await execute(
+        `UPDATE orders SET fulfillment_status = ?, stock_released_by = ?, stock_released_at = CURRENT_TIMESTAMP WHERE id = ? AND shop_id = ?`,
+        [fulfillment_status, currentUserId, orderId, shopId]
+      );
+    } else {
+      await execute(
+        `UPDATE orders SET fulfillment_status = ? WHERE id = ? AND shop_id = ?`,
+        [fulfillment_status, orderId, shopId]
+      );
+    }
 
     let itemStatus = 'pending_store';
-    if (fulfillment_status === 'approved' || fulfillment_status === 'dispatched' || fulfillment_status === 'completed') {
+    if (isReleasing) {
       itemStatus = 'approved';
     }
     if (fulfillment_status === 'rejected') itemStatus = 'rejected';
@@ -1102,7 +1298,13 @@ router.post('/orders/:id/status', requireAuth, requireTenant, requirePermission(
       [itemStatus, reason || null, orderId]
     );
 
-    await logApiAudit(req, 'ORDER_STATUS_CHANGED', `Changed Order #${orderId} fulfillment status to ${fulfillment_status}`);
+    if (isReleasing) {
+      await logApiAudit(req, 'STOCK_RELEASED', `Physical stock for Order #${order.order_number || orderId} released & dispatched from warehouse by ${currentUserName} (Status: ${fulfillment_status})`);
+    } else if (fulfillment_status === 'rejected') {
+      await logApiAudit(req, 'STOCK_REJECTED', `Order #${order.order_number || orderId} items rejected at warehouse by ${currentUserName}. Reason: ${reason || 'Out of stock'}`);
+    } else {
+      await logApiAudit(req, 'ORDER_STATUS_CHANGED', `Changed Order #${order.order_number || orderId} fulfillment status to ${fulfillment_status} by ${currentUserName}`);
+    }
 
     const updated = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
     res.json({ success: true, order: updated });
@@ -1268,12 +1470,19 @@ router.get('/users', requireAuth, requireTenant, requireManager, async (req: Req
 
   try {
     const sql = isSuper
-      ? `SELECT u.id, u.shop_id, u.stock_id, u.name, u.email, u.role, u.job_title, u.phone, u.is_active, u.activation_status, s.name as shop_name 
+      ? `SELECT u.id, u.shop_id, u.stock_id, u.name, u.email, u.role, u.job_title, u.phone, u.is_active, u.activation_status,
+                u.can_create_orders, u.can_process_payments, u.can_release_stock, u.can_manage_stock, u.can_import_export_stock,
+                u.can_partner_borrow, u.can_view_reports, u.can_view_buying_prices, u.can_give_discounts, u.can_manage_users,
+                u.can_print_full_receipt, u.can_print_delivery_note, u.can_manage_customers, u.can_manage_partners, u.can_void_orders,
+                u.can_edit_company_settings, u.can_view_audit_trail, u.can_reset_passwords, u.can_view_all_tenants, u.can_manage_subscriptions,
+                u.force_password_change, s.name as shop_name 
          FROM users u LEFT JOIN shops s ON u.shop_id = s.id ORDER BY u.role DESC, u.name ASC`
       : `SELECT id, shop_id, stock_id, name, email, role, job_title, phone, is_active, activation_status,
                 can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
                 can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
-                can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings
+                can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
+                can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
+                force_password_change
          FROM users WHERE shop_id = ? ORDER BY role DESC, name ASC`;
     const params = isSuper ? [] : [shopId];
 
@@ -1285,11 +1494,11 @@ router.get('/users', requireAuth, requireTenant, requireManager, async (req: Req
   }
 });
 
-// Create Staff User (Store Manager can only create staff within their store)
+// Create Staff User (Store Manager can only create staff within their store; SuperAdmin can create across all)
 router.post('/users', requireAuth, requireTenant, requireManager, async (req: Request, res: Response) => {
-  const shopId = res.locals.shopId;
   const currentUser = req.session.user;
-  const { name, email, password, role, job_title, phone, permissions } = req.body;
+  const { name, email, password, role, job_title, phone, permissions, shop_id } = req.body;
+  const targetShopId = currentUser.role === 'superadmin' && shop_id ? Number(shop_id) : res.locals.shopId;
 
   if (!name || !email || !password) {
     return res.status(400).json({ error: 'Name, email, and initial password are required' });
@@ -1310,10 +1519,12 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status,
         can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
         can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
-        can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
+        can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
+        force_password_change
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
-        shopId,
+        targetShopId,
         name.trim(),
         email.trim().toLowerCase(),
         hashedPassword,
@@ -1335,12 +1546,16 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         p.can_manage_customers !== undefined ? (p.can_manage_customers ? 1 : 0) : 1,
         p.can_manage_partners ? 1 : 0,
         p.can_void_orders ? 1 : 0,
-        p.can_edit_company_settings ? 1 : 0
+        p.can_edit_company_settings ? 1 : 0,
+        p.can_view_audit_trail ? 1 : 0,
+        p.can_reset_passwords ? 1 : 0,
+        p.can_view_all_tenants ? 1 : 0,
+        p.can_manage_subscriptions ? 1 : 0
       ]
     );
 
     await logApiAudit(req, 'USER_CREATED', `Created staff user ${name} (${email}) with role ${assignedRole}`);
-    const created = await queryOne('SELECT id, name, email, role, job_title FROM users WHERE id = ? AND shop_id = ?', [result.lastInsertId, shopId]);
+    const created = await queryOne('SELECT id, name, email, role, job_title FROM users WHERE id = ?', [result.lastInsertId]);
     res.json({ success: true, user: created });
   } catch (err: any) {
     console.error('Create user error:', err);
@@ -1353,11 +1568,11 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
   const shopId = res.locals.shopId;
   const targetUserId = Number(req.params.id);
   const currentUser = req.session.user;
-  const { name, phone, role, job_title, is_active, permissions, password } = req.body;
+  const { name, phone, role, job_title, is_active, permissions, password, force_password_change } = req.body;
 
   try {
-    const existing = await queryOne('SELECT * FROM users WHERE id = ? AND shop_id = ?', [targetUserId, shopId]);
-    if (!existing && currentUser.role !== 'superadmin') {
+    const existing = await queryOne('SELECT * FROM users WHERE id = ?', [targetUserId]);
+    if (!existing || (currentUser.role !== 'superadmin' && existing.shop_id !== shopId)) {
       return res.status(404).json({ error: 'User account not found in this store' });
     }
 
@@ -1376,6 +1591,7 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
     }
     if (job_title !== undefined) { updates.push('job_title = ?'); params.push(job_title); }
     if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active ? 1 : 0); }
+    if (force_password_change !== undefined) { updates.push('force_password_change = ?'); params.push(force_password_change ? 1 : 0); }
     if (password && password.trim().length >= 6) {
       const hash = await bcrypt.hash(password.trim(), 10);
       updates.push('password = ?');
@@ -1387,7 +1603,8 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
         'can_create_orders', 'can_process_payments', 'can_release_stock', 'can_manage_stock',
         'can_import_export_stock', 'can_partner_borrow', 'can_view_reports', 'can_view_buying_prices',
         'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
-        'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings'
+        'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
+        'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions'
       ];
       for (const pk of permKeys) {
         if (permissions[pk] !== undefined) {
@@ -1400,19 +1617,47 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
     if (updates.length > 0) {
       let sql = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
       params.push(targetUserId);
-      if (currentUser.role !== 'superadmin') {
-        sql += ' AND shop_id = ?';
-        params.push(shopId);
-      }
       await execute(sql, params);
     }
 
-    await logApiAudit(req, 'USER_UPDATED', `Updated staff user #${targetUserId}`);
+    await logApiAudit(req, 'USER_UPDATED', `Updated staff user #${targetUserId} (${name || existing.name})`);
     const updated = await queryOne('SELECT id, name, email, role, job_title, is_active FROM users WHERE id = ?', [targetUserId]);
     res.json({ success: true, user: updated });
   } catch (err: any) {
     console.error('Update user error:', err);
     res.status(500).json({ error: 'Failed to update user profile' });
+  }
+});
+
+// Admin / Manager Reset Password for an Employee
+router.post('/users/:id/reset-password', requireAuth, requireTenant, requirePermission('can_reset_passwords'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const targetUserId = Number(req.params.id);
+  const currentUser = req.session.user;
+  const { newPassword } = req.body;
+
+  if (!newPassword || newPassword.trim().length < 6) {
+    return res.status(400).json({ error: 'New temporary password must be at least 6 characters long.' });
+  }
+
+  try {
+    const targetUser = await queryOne('SELECT * FROM users WHERE id = ?', [targetUserId]);
+    if (!targetUser || (currentUser.role !== 'superadmin' && targetUser.shop_id !== shopId)) {
+      return res.status(404).json({ error: 'Target user account not found.' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword.trim(), 10);
+    await execute('UPDATE users SET password = ?, force_password_change = 1 WHERE id = ?', [hashed, targetUserId]);
+
+    await logApiAudit(req, 'PASSWORD_RESET', `Administrator ${currentUser.name} reset password for user #${targetUserId} (${targetUser.email}) with required first-login change.`, targetUser.shop_id || 1);
+
+    res.json({
+      success: true,
+      message: `Password for ${targetUser.name} has been reset. They will be required to change it on their next login.`
+    });
+  } catch (err: any) {
+    console.error('Admin reset password error:', err);
+    res.status(500).json({ error: 'Failed to reset password.' });
   }
 });
 
@@ -1555,6 +1800,36 @@ router.put('/shops/:id', requireAuth, requireManager, async (req: Request, res: 
 
 router.get('/reports/summary', requireAuth, requireTenant, requirePermission('can_view_reports'), async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
+  const period = (req.query.period as string || 'all').toLowerCase();
+  const startDate = req.query.startDate as string;
+  const endDate = req.query.endDate as string;
+
+  let dateFilter = '';
+  const dateParams: any[] = [];
+
+  const now = new Date();
+  if (period === 'day' || period === 'today' || period === 'daily') {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    dateFilter = ' AND o.created_at >= ?';
+    dateParams.push(d.toISOString());
+  } else if (period === 'week' || period === 'weekly') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 7);
+    dateFilter = ' AND o.created_at >= ?';
+    dateParams.push(d.toISOString());
+  } else if (period === 'month' || period === 'monthly') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 30);
+    dateFilter = ' AND o.created_at >= ?';
+    dateParams.push(d.toISOString());
+  } else if (startDate && endDate) {
+    dateFilter = ' AND o.created_at >= ? AND o.created_at <= ?';
+    dateParams.push(new Date(startDate).toISOString(), new Date(endDate).toISOString());
+  } else if (startDate) {
+    dateFilter = ' AND o.created_at >= ?';
+    dateParams.push(new Date(startDate).toISOString());
+  }
 
   try {
     const categorySales = await queryAll(
@@ -1562,9 +1837,9 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id
-       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}
        GROUP BY p.category ORDER BY revenue DESC`,
-      [shopId]
+      [shopId, ...dateParams]
     );
 
     const topSellingProducts = await queryAll(
@@ -1572,29 +1847,42 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id
-       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled'
-       GROUP BY p.id, p.name, p.sku, p.category ORDER BY total_revenue DESC LIMIT 10`,
-      [shopId]
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}
+       GROUP BY p.id, p.name, p.sku, p.category ORDER BY total_revenue DESC LIMIT 20`,
+      [shopId, ...dateParams]
     );
 
     const salespersonPerformance = await queryAll(
       `SELECT u.name, u.email, COUNT(o.id) as total_orders, COALESCE(SUM(o.total_amount), 0) as total_sales
        FROM orders o
        JOIN users u ON o.salesperson_id = u.id
-       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}
        GROUP BY u.id, u.name, u.email ORDER BY total_sales DESC`,
-      [shopId]
+      [shopId, ...dateParams]
+    );
+
+    const financialOverview = await queryOne(
+      `SELECT 
+         COUNT(o.id) as total_orders,
+         COALESCE(SUM(o.total_amount), 0) as total_revenue,
+         COALESCE(SUM(o.paid_amount), 0) as total_paid,
+         COALESCE(SUM(o.debt_amount), 0) as total_debt
+       FROM orders o
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}`,
+      [shopId, ...dateParams]
     );
 
     const auditLogs = await queryAll(
       `SELECT a.*, u.name as user_name, u.role as user_role
        FROM audit_logs a
        LEFT JOIN users u ON a.user_id = u.id
-       WHERE a.shop_id = ? ORDER BY a.created_at DESC LIMIT 30`,
+       WHERE a.shop_id = ? ORDER BY a.created_at DESC LIMIT 50`,
       [shopId]
     );
 
     res.json({
+      period,
+      financialOverview: financialOverview || { total_orders: 0, total_revenue: 0, total_paid: 0, total_debt: 0 },
       categorySales,
       topSellingProducts,
       salespersonPerformance,
@@ -1603,6 +1891,64 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
   } catch (err: any) {
     console.error('Reports API error:', err);
     res.status(500).json({ error: 'Failed to generate store reports' });
+  }
+});
+
+// Full Audit Trail with Filtering (SuperAdmin sees all or filtered by shop, Manager sees their own store)
+router.get('/reports/audit', requireAuth, requireTenant, requirePermission('can_view_audit_trail'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const user = req.session.user;
+  const action = (req.query.action as string || '').trim();
+  const search = (req.query.search as string || '').trim();
+  const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 100));
+
+  try {
+    let sql = `
+      SELECT a.*, u.name as user_name, u.role as user_role, u.email as user_email, s.name as shop_name
+      FROM audit_logs a
+      LEFT JOIN users u ON a.user_id = u.id
+      LEFT JOIN shops s ON a.shop_id = s.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (user.role !== 'superadmin' || req.query.shop_id) {
+      const targetShop = req.query.shop_id ? Number(req.query.shop_id) : shopId;
+      sql += ` AND a.shop_id = ?`;
+      params.push(targetShop);
+    }
+
+    if (action && action !== 'all') {
+      sql += ` AND a.action = ?`;
+      params.push(action);
+    }
+
+    if (search) {
+      sql += ` AND (a.details LIKE ? OR u.name LIKE ? OR u.email LIKE ?)`;
+      const term = `%${search}%`;
+      params.push(term, term, term);
+    }
+
+    sql += ` ORDER BY a.created_at DESC LIMIT ?`;
+    params.push(limit);
+
+    const logs = await queryAll(sql, params);
+
+    // Also get distinct action list for quick filtering
+    const actionsQuery = user.role === 'superadmin'
+      ? `SELECT DISTINCT action FROM audit_logs ORDER BY action ASC`
+      : `SELECT DISTINCT action FROM audit_logs WHERE shop_id = ? ORDER BY action ASC`;
+    const actionsParams = user.role === 'superadmin' ? [] : [shopId];
+    const distinctActions = await queryAll(actionsQuery, actionsParams);
+
+    res.json({
+      success: true,
+      logs,
+      availableActions: distinctActions.map((a: any) => a.action)
+    });
+  } catch (err: any) {
+    console.error('Audit trail API error:', err);
+    res.status(500).json({ error: 'Failed to fetch audit log trail' });
   }
 });
 

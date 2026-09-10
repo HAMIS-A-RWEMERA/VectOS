@@ -31,15 +31,20 @@ export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchPartners();
-  }, []);
+    if (user) {
+      fetchPartners();
+    }
+  }, [user]);
 
   const fetchPartners = async () => {
     try {
       setLoading(true);
       const res = await api.getPartners();
       setPartners(res.partners || []);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
+        return;
+      }
       console.error('Error fetching partner shops:', err);
     } finally {
       setLoading(false);

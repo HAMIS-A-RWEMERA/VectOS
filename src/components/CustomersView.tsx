@@ -34,15 +34,20 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchCustomers();
-  }, []);
+    if (user) {
+      fetchCustomers();
+    }
+  }, [user]);
 
   const fetchCustomers = async () => {
     try {
       setLoading(true);
       const res = await api.getCustomers();
       setCustomers(res.customers || []);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
+        return;
+      }
       console.error('Error loading customers:', err);
     } finally {
       setLoading(false);

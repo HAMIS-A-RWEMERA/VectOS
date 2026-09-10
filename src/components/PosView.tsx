@@ -57,8 +57,10 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
   // Load products, categories, customers, stocks
   useEffect(() => {
-    loadData();
-  }, []);
+    if (user) {
+      loadData();
+    }
+  }, [user]);
 
   const loadData = async () => {
     try {
@@ -72,6 +74,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       setCustomers(custRes.customers || []);
       setStocks(stockRes.stocks || []);
     } catch (err: any) {
+      if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
+        return;
+      }
       console.error('POS Load Error:', err);
     }
   };

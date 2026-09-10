@@ -15,6 +15,7 @@ import { SuperAdminView } from './components/SuperAdminView';
 import { ReportsView } from './components/ReportsView';
 import { ReceiptModal } from './components/ReceiptModal';
 import { LoginModal } from './components/LoginModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -42,9 +43,10 @@ export const App: React.FC = () => {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
 
-  // Receipt Modal
+  // Modals
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [selectedOrderIdForInspection, setSelectedOrderIdForInspection] = useState<number | null>(null);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   // Notification Banner
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -162,6 +164,36 @@ export const App: React.FC = () => {
     setActiveTab('orders');
   };
 
+  if (loadingUser) {
+    return (
+      <div className={`min-h-screen ${isDarkMode ? 'bg-[#090d16] text-slate-100' : 'bg-slate-50 text-slate-900'} flex items-center justify-center font-sans`}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-xl shadow-amber-500/20 text-slate-950 font-black text-2xl animate-pulse">
+            V
+          </div>
+          <div className="flex items-center gap-2 text-sm text-slate-400 font-medium">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+            Loading VectOS Retail ERP...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className={`min-h-screen ${isDarkMode ? 'bg-[#090d16] text-slate-100' : 'bg-slate-50 text-slate-900'} flex items-center justify-center font-sans`}>
+        <LoginModal
+          onLoginSuccess={(u, s) => {
+            setUser(u);
+            setShop(s);
+            loadDashboardStats();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-[#090d16] text-slate-100' : 'bg-slate-50 text-slate-900'} flex flex-col font-sans transition-colors duration-200`}>
       {/* Top Header */}
@@ -177,6 +209,7 @@ export const App: React.FC = () => {
         onDemoSwitch={handleDemoSwitch}
         onSwitchShop={handleSwitchShop}
         onOpenPos={() => setActiveTab('pos')}
+        onOpenChangePassword={() => setIsChangePasswordOpen(true)}
       />
 
       {/* Main Body */}
@@ -246,7 +279,7 @@ export const App: React.FC = () => {
           )}
 
           {activeTab === 'reports' && (
-            <ReportsView user={user} />
+            <ReportsView user={user} shop={shop} />
           )}
         </main>
       </div>
@@ -267,13 +300,18 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Login Modal when logged out */}
-      {!user && !loadingUser && (
-        <LoginModal
-          onLoginSuccess={(u, s) => {
-            setUser(u);
-            setShop(s);
-            loadDashboardStats();
+      {/* Self-Service & Enforced Password Change Modal */}
+      {(isChangePasswordOpen || user?.force_password_change === 1) && (
+        <ChangePasswordModal
+          isForced={user?.force_password_change === 1}
+          onClose={() => setIsChangePasswordOpen(false)}
+          onSuccess={() => {
+            setIsChangePasswordOpen(false);
+            if (user) {
+              setUser({ ...user, force_password_change: 0 });
+            }
+            setToastMessage('Password updated successfully!');
+            setTimeout(() => setToastMessage(null), 4000);
           }}
         />
       )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, User } from '../types';
+import { Product, User, StockLocation } from '../types';
 import { api } from '../services/api';
+import { BulkImportModal } from './BulkImportModal';
 import { 
   Package, 
   Plus, 
@@ -12,7 +13,9 @@ import {
   Boxes, 
   CheckCircle2, 
   X,
-  ArrowUpDown
+  ArrowUpDown,
+  UploadCloud,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface ProductsViewProps {
@@ -21,6 +24,7 @@ interface ProductsViewProps {
 
 export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
   const [products, setProducts] = useState<Product[]>([]);
+  const [stocks, setStocks] = useState<StockLocation[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,6 +35,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
 
   // Form states
@@ -53,11 +58,24 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const canManageStock = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.can_manage_stock;
+  const canBulkImport = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.role === 'accountant' || user?.can_import_export_stock;
   const canViewBuyingPrices = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'accountant' || user?.can_view_buying_prices;
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    if (user) {
+      fetchProducts();
+      fetchStocks();
+    }
+  }, [user]);
+
+  const fetchStocks = async () => {
+    try {
+      const res = await api.getStocks();
+      setStocks(res.stocks || []);
+    } catch (e) {
+      console.error('Error fetching stock locations:', e);
+    }
+  };
 
   const fetchProducts = async () => {
     try {
@@ -65,7 +83,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
       const res = await api.getProducts();
       setProducts(res.products || []);
       setCategories(['All', ...(res.categories || [])]);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
+        return;
+      }
       console.error('Error fetching products:', err);
     } finally {
       setLoading(false);
@@ -200,15 +221,29 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
           </p>
         </div>
 
-        {canManageStock && (
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add New Product</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2.5">
+          {canBulkImport && (
+            <button
+              onClick={() => setIsBulkImportOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs shadow-md transition transform active:scale-95"
+              title="Bulk import products from CSV or Excel table"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-amber-400" />
+              <span className="hidden sm:inline">Bulk Stock Import (CSV/Excel)</span>
+              <span className="sm:hidden">Bulk Import</span>
+            </button>
+          )}
+
+          {canManageStock && (
+            <button
+              onClick={handleOpenAdd}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add New Product</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -572,6 +607,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Bulk Stock Import Modal */}
+      {isBulkImportOpen && (
+        <BulkImportModal
+          stocks={stocks}
+          onClose={() => setIsBulkImportOpen(false)}
+          onSuccess={() => {
+            setIsBulkImportOpen(false);
+            fetchProducts();
+          }}
+        />
       )}
     </div>
   );

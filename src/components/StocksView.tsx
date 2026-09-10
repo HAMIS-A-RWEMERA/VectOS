@@ -50,8 +50,10 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
   const canManage = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper';
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (user) {
+      loadData();
+    }
+  }, [user]);
 
   const loadData = async () => {
     try {
@@ -64,14 +66,17 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
       setTransfers(stockRes.transfers || []);
       setProducts(prodRes.products || []);
 
-      if (stockRes.stocks.length >= 2) {
+      if (stockRes.stocks && stockRes.stocks.length >= 2) {
         setFromStockId(stockRes.stocks[0].id);
         setToStockId(stockRes.stocks[1].id);
       }
-      if (prodRes.products.length > 0) {
+      if (prodRes.products && prodRes.products.length > 0) {
         setSelectedProductId(prodRes.products[0].id);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
+        return;
+      }
       console.error('Error loading warehouse data:', err);
     } finally {
       setLoading(false);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Order, User, Shop } from '../types';
 import { api } from '../services/api';
+import { exportOrdersPdf, exportSingleOrderPdf } from '../services/pdfExport';
 import { 
   FileText, 
   Search, 
@@ -16,7 +17,8 @@ import {
   AlertCircle,
   Smartphone,
   Building,
-  Plus
+  Plus,
+  Download
 } from 'lucide-react';
 
 interface OrdersViewProps {
@@ -35,6 +37,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'all'>('month');
   const [searchQuery, setSearchQuery] = useState('');
   
   // Selected Order for drawer/detail
@@ -55,8 +58,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const canReleaseStock = user?.role === 'storekeeper' || user?.role === 'manager' || user?.role === 'superadmin' || user?.can_release_stock;
 
   useEffect(() => {
-    fetchOrders();
-  }, [statusFilter]);
+    if (user) {
+      fetchOrders();
+    }
+  }, [user, statusFilter, period]);
 
   useEffect(() => {
     if (initialSelectedOrderId && orders.length > 0) {
@@ -67,13 +72,44 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const res = await api.getOrders(statusFilter);
+      const res = await api.getOrders({
+        status: statusFilter,
+        period,
+        limit: 1000
+      });
       setOrders(res.orders || []);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
+        return;
+      }
       console.error('Error fetching orders:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const getPeriodLabel = (p: string) => {
+    switch (p) {
+      case 'day': return 'Daily (Today)';
+      case 'week': return 'Weekly (Past 7 Days)';
+      case 'month': return 'Monthly (Past 30 Days)';
+      default: return 'All Time';
+    }
+  };
+
+  const handleExportOrdersPdf = () => {
+    if (orders.length === 0) {
+      alert('No orders found in this timeframe to export.');
+      return;
+    }
+    exportOrdersPdf({
+      orders: filteredOrders,
+      period,
+      periodLabel: getPeriodLabel(period),
+      statusFilter,
+      shop,
+      user,
+    });
   };
 
   const handleViewOrder = async (orderId: number) => {
@@ -144,19 +180,53 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-7xl mx-auto">
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Orders, Invoices & Dispatch
+              Orders, Invoices & Transactions
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {orders.length} Records
+              {filteredOrders.length} Records ({getPeriodLabel(period)})
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
             Complete lifecycle management: POS counter orders, warehouse approvals, and credit settlements.
           </p>
+        </div>
+
+        {/* Time Horizon Selector & Export Action */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Period Selector */}
+          <div className="flex items-center bg-[#121620] p-1 rounded-xl border border-slate-800 text-xs">
+            {[
+              { id: 'day', label: 'Daily (Today)' },
+              { id: 'week', label: 'Weekly (7d)' },
+              { id: 'month', label: 'Monthly (30d)' },
+              { id: 'all', label: 'All Time' },
+            ].map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setPeriod(p.id as any)}
+                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition ${
+                  period === p.id
+                    ? 'bg-amber-500 text-slate-950 shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Export PDF Button */}
+          <button
+            onClick={handleExportOrdersPdf}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/20 border border-rose-500/30 transition"
+          >
+            <FileText className="w-4 h-4 text-white" />
+            <span>Export Transactions PDF</span>
+          </button>
         </div>
       </div>
 
@@ -296,12 +366,29 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   {selectedOrder.order_number}
                 </h2>
               </div>
-              <button
-                onClick={() => setIsDetailOpen(false)}
-                className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => exportSingleOrderPdf({ order: selectedOrder, items: orderItems, payments: orderPayments, shop })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-600/20 to-rose-600/20 hover:from-red-600/30 hover:to-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs transition shadow-sm"
+                  title="Download Official Commercial Invoice PDF"
+                >
+                  <FileText className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Invoice PDF</span>
+                </button>
+                <button
+                  onClick={() => onPrintReceipt(selectedOrder)}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+                  title="Print Thermal POS Receipt"
+                >
+                  <Printer className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setIsDetailOpen(false)}
+                  className="w-8 h-8 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition hover:bg-slate-700"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Status & Quick Action Pipeline */}
@@ -380,24 +467,63 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </div>
             </div>
 
-            {/* Customer Details */}
-            <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Client Profile</p>
-              <div className="flex justify-between text-slate-300">
-                <span>Name:</span>
-                <strong className="text-white">{selectedOrder.customer_name || 'Walk-in Cash Client'}</strong>
-              </div>
-              {selectedOrder.customer_phone && (
+            {/* Customer Details & Audit Signatures */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Client Profile</p>
                 <div className="flex justify-between text-slate-300">
-                  <span>Telephone:</span>
-                  <span className="font-mono text-amber-400">{selectedOrder.customer_phone}</span>
+                  <span>Name:</span>
+                  <strong className="text-white">{selectedOrder.customer_name || 'Walk-in Cash Client'}</strong>
                 </div>
-              )}
-              {selectedOrder.notes && (
-                <div className="pt-2 border-t border-slate-800 text-slate-400 italic">
-                  Notes: {selectedOrder.notes}
+                {selectedOrder.customer_phone && (
+                  <div className="flex justify-between text-slate-300">
+                    <span>Telephone:</span>
+                    <span className="font-mono text-amber-400">{selectedOrder.customer_phone}</span>
+                  </div>
+                )}
+                {selectedOrder.notes && (
+                  <div className="pt-2 border-t border-slate-800 text-slate-400 italic">
+                    Notes: {selectedOrder.notes}
+                  </div>
+                )}
+              </div>
+
+              {/* Immutable Chain-of-Custody Signatures */}
+              <div className="p-4 rounded-xl bg-gradient-to-br from-slate-900 via-[#141A25] to-slate-900 border border-slate-800 space-y-2 text-xs">
+                <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>Audit Signatures</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-mono">ENFORCED</span>
+                </p>
+                
+                <div className="space-y-1 text-slate-300">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Sold By:</span>
+                    <span className="font-semibold text-white">{selectedOrder.salesperson_name || 'Staff'}</span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Payment Approved By:</span>
+                    <span className="font-semibold text-emerald-300">
+                      {selectedOrder.payment_approved_by_name ? (
+                        `${selectedOrder.payment_approved_by_name}`
+                      ) : (
+                        <span className="text-slate-400 italic">Pending Cashier</span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Stock Released By:</span>
+                    <span className="font-semibold text-blue-300">
+                      {selectedOrder.stock_released_by_name ? (
+                        `${selectedOrder.stock_released_by_name}`
+                      ) : (
+                        <span className="text-slate-400 italic">Pending Warehouse</span>
+                      )}
+                    </span>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Order Items Table */}

@@ -18,17 +18,34 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     ...(options.headers as Record<string, string> || {})
   };
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include'
-  });
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include'
+    });
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || 'Server request failed');
+    let data: any = {};
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      data = await response.json().catch(() => ({}));
+    } else {
+      const text = await response.text().catch(() => '');
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text || `HTTP ${response.status}` };
+      }
+    }
+
+    if (!response.ok) {
+      const errMsg = data.error || data.message || `Server request failed (${response.status})`;
+      throw new Error(errMsg);
+    }
+    return data;
+  } catch (err: any) {
+    throw err;
   }
-  return data;
 }
 
 export const api = {
@@ -37,6 +54,10 @@ export const api = {
   login: (email: string, password: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password })
+  }),
+  changePassword: (currentPassword: string, newPassword: string) => request<{ success: boolean; message: string }>('/api/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword })
   }),
   demoSwitch: (role: string, email?: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/demo-switch', {
     method: 'POST',
@@ -62,6 +83,10 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(productData)
   }),
+  bulkImportProducts: (products: any[], stock_id?: number) => request<{ success: boolean; message: string; insertedCount: number; updatedCount: number; errors?: string[] }>('/api/products/bulk-import', {
+    method: 'POST',
+    body: JSON.stringify({ products, stock_id })
+  }),
   updateProduct: (id: number, productData: Partial<Product>) => request<{ success: boolean; product: Product }>(`/api/products/${id}`, {
     method: 'PUT',
     body: JSON.stringify(productData)
@@ -84,7 +109,19 @@ export const api = {
     }),
 
   // Orders & POS
-  getOrders: (status = 'all') => request<{ orders: Order[] }>(`/api/orders?status=${encodeURIComponent(status)}`),
+  getOrders: (params?: string | { status?: string; period?: string; startDate?: string; endDate?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (typeof params === 'string') {
+      q.append('status', params);
+    } else if (params) {
+      if (params.status) q.append('status', params.status);
+      if (params.period) q.append('period', params.period);
+      if (params.startDate) q.append('startDate', params.startDate);
+      if (params.endDate) q.append('endDate', params.endDate);
+      if (params.limit) q.append('limit', String(params.limit));
+    }
+    return request<{ orders: Order[] }>(`/api/orders?${q.toString()}`);
+  },
   getOrderDetail: (id: number) => request<{ order: Order; items: any[]; payments: any[] }>(`/api/orders/${id}`),
   createOrder: (orderData: {
     customer_id?: number | null;
@@ -130,6 +167,14 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(userData)
   }),
+  updateUser: (id: number, userData: any) => request<{ success: boolean; user: User }>(`/api/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(userData)
+  }),
+  resetUserPassword: (id: number, newPassword: string) => request<{ success: boolean; message: string }>(`/api/users/${id}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ newPassword })
+  }),
 
   // SuperAdmin & Shops
   getShops: () => request<{ shops: Shop[] }>('/api/shops'),
@@ -142,6 +187,21 @@ export const api = {
     body: JSON.stringify(shopData)
   }),
 
-  // Reports
-  getReports: () => request<ReportSummary>('/api/reports/summary')
+  // Reports & Audits
+  getReports: (params?: { period?: string; startDate?: string; endDate?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.period) q.append('period', params.period);
+    if (params?.startDate) q.append('startDate', params.startDate);
+    if (params?.endDate) q.append('endDate', params.endDate);
+    const queryString = q.toString();
+    return request<ReportSummary>(queryString ? `/api/reports/summary?${queryString}` : '/api/reports/summary');
+  },
+  getAuditLogs: (params?: { search?: string; action?: string; limit?: number; shop_id?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.search) q.append('search', params.search);
+    if (params?.action) q.append('action', params.action);
+    if (params?.limit) q.append('limit', String(params.limit));
+    if (params?.shop_id) q.append('shop_id', String(params.shop_id));
+    return request<{ success: boolean; logs: any[]; availableActions: string[] }>(`/api/reports/audit?${q.toString()}`);
+  }
 };

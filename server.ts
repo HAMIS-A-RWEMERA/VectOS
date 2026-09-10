@@ -34,10 +34,15 @@ if (isProd) {
     throw new Error('Production configuration error: Insecure or missing SESSION_SECRET.');
   }
 
-  const dbUrl = (process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();
-  if (!dbUrl) {
-    console.error('FATAL [VectOS]: NODE_ENV=production requires a valid PostgreSQL DATABASE_URL.');
-    throw new Error('Production configuration error: Persistent PostgreSQL DATABASE_URL is mandatory in production.');
+  const hasSql = Boolean(
+    (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
+    process.env.DATABASE_URL ||
+    process.env.SUPABASE_DATABASE_URL ||
+    process.env.SUPABASE_DB_URL
+  );
+  if (!hasSql) {
+    console.error('FATAL [VectOS]: NODE_ENV=production requires a valid PostgreSQL database (Cloud SQL or DATABASE_URL).');
+    throw new Error('Production configuration error: Persistent PostgreSQL database is mandatory in production.');
   }
 }
 
@@ -65,16 +70,21 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Session Store Setup (PostgreSQL for Supabase/Production or Memory fallback)
+// Session Store Setup (PostgreSQL for Cloud SQL / Supabase / Production or Memory fallback)
 let sessionStore: session.Store | undefined;
-const hasDbUrl = Boolean(process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL);
+const hasDbUrl = Boolean(
+  (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
+  process.env.DATABASE_URL ||
+  process.env.SUPABASE_DATABASE_URL ||
+  process.env.SUPABASE_DB_URL
+);
 if (hasDbUrl) {
   try {
     const PgSession = connectPgSimple(session);
     sessionStore = new PgSession({
       pool: getPgPool(),
       tableName: 'session',
-      createTableIfMissing: true,
+      createTableIfMissing: false,
     });
   } catch (storeErr) {
     console.warn("Notice: Using standard session store fallback:", storeErr);

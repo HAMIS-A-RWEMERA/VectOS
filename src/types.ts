@@ -11,6 +11,7 @@ export interface User {
   phone?: string;
   is_active?: number;
   activation_status?: 'active' | 'pending_approval' | 'suspended';
+  force_password_change?: number;
   twofa_enabled?: boolean;
   can_create_orders?: boolean;
   can_process_payments?: boolean;
@@ -28,6 +29,10 @@ export interface User {
   can_manage_partners?: boolean;
   can_void_orders?: boolean;
   can_edit_company_settings?: boolean;
+  can_view_audit_trail?: boolean;
+  can_reset_passwords?: boolean;
+  can_view_all_tenants?: boolean;
+  can_manage_subscriptions?: boolean;
 }
 
 export interface Shop {
@@ -153,6 +158,26 @@ export interface Order {
   tin_number?: string;
   receipt_footer_text?: string;
   shop_phone?: string;
+  payment_approved_by?: number | null;
+  payment_approved_by_name?: string | null;
+  payment_approved_at?: string | null;
+  stock_released_by?: number | null;
+  stock_released_by_name?: string | null;
+  stock_released_at?: string | null;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  shop_id: number;
+  user_id?: number | null;
+  action: string;
+  details: string;
+  ip_address: string;
+  created_at: string;
+  user_name?: string;
+  user_email?: string;
+  user_role?: string;
+  user_job_title?: string;
 }
 
 export interface Customer {

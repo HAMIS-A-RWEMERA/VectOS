@@ -37,16 +37,34 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleQuickDemoLogin = async (demoEmail: string, roleCode: string) => {
+  const handleQuickDemoLogin = async (demoEmail: string, roleCode: string, pass: string) => {
     try {
       setLoading(true);
       setError('');
-      const res = await api.demoSwitch(roleCode, demoEmail);
-      if (res.success) {
-        onLoginSuccess(res.user, res.shop);
+      try {
+        const res = await api.demoSwitch(roleCode, demoEmail);
+        if (res.success && res.user) {
+          onLoginSuccess(res.user, res.shop);
+          return;
+        }
+      } catch (switchErr) {
+        // Fall back to direct login
+        const loginRes = await api.login(demoEmail, pass);
+        if (loginRes.success && loginRes.user) {
+          onLoginSuccess(loginRes.user, loginRes.shop);
+          return;
+        }
       }
     } catch (err: any) {
-      setError(err.message || 'Demo login failed.');
+      try {
+        const fallbackRes = await api.login(demoEmail, 'password123');
+        if (fallbackRes.success && fallbackRes.user) {
+          onLoginSuccess(fallbackRes.user, fallbackRes.shop);
+          return;
+        }
+      } catch (e) {
+        setError(err.message || 'Demo login failed.');
+      }
     } finally {
       setLoading(false);
     }
@@ -75,7 +93,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
               <button
                 key={idx}
                 type="button"
-                onClick={() => handleQuickDemoLogin(acc.email, acc.role.toLowerCase())}
+                onClick={() => handleQuickDemoLogin(acc.email, acc.role.toLowerCase(), acc.pass)}
                 className="w-full p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-left flex items-center justify-between transition group"
               >
                 <div>

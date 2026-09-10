@@ -12,7 +12,8 @@ import {
   Sparkles,
   ShoppingBag,
   Sun,
-  Moon
+  Moon,
+  KeyRound
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -27,6 +28,7 @@ interface HeaderProps {
   onDemoSwitch: (role: string) => void;
   onSwitchShop: (shopId: number) => void;
   onOpenPos: () => void;
+  onOpenChangePassword?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,7 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onDemoSwitch,
   onSwitchShop,
-  onOpenPos
+  onOpenPos,
+  onOpenChangePassword
 }) => {
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showShopMenu, setShowShopMenu] = useState(false);
@@ -199,10 +202,24 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* User Profile / Logout */}
           {user && (
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-400">
+            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
+              <div 
+                className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-400"
+                title={`${user.name} (${user.job_title || user.role})`}
+              >
                 {user.name.slice(0, 2).toUpperCase()}
               </div>
+
+              {onOpenChangePassword && (
+                <button
+                  onClick={onOpenChangePassword}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition"
+                  title="Change Password"
+                >
+                  <KeyRound className="w-4 h-4" />
+                </button>
+              )}
+
               <button
                 onClick={onLogout}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition"

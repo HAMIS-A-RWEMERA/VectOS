@@ -46,15 +46,20 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchShops();
-  }, []);
+    if (currentUser) {
+      fetchShops();
+    }
+  }, [currentUser]);
 
   const fetchShops = async () => {
     try {
       setLoading(true);
       const res = await api.getShops();
       setShops(res.shops || []);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
+        return;
+      }
       console.error('Error fetching shops:', err);
     } finally {
       setLoading(false);

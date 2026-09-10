@@ -35,6 +35,7 @@ let postgresAvailable = false;
 
 export function isPostgres(): boolean {
   return postgresAvailable && Boolean(
+    (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
     process.env.DATABASE_URL ||
     process.env.SUPABASE_DATABASE_URL ||
     process.env.SUPABASE_DB_URL
@@ -50,22 +51,42 @@ export function getPgPool(): pg.Pool {
     return pgPoolInstance;
   }
 
-  const connectionString = (
-    process.env.DATABASE_URL || 
-    process.env.SUPABASE_DATABASE_URL || 
-    process.env.SUPABASE_DB_URL || 
-    ''
-  ).trim();
+  if (process.env.SQL_HOST && process.env.SQL_DB_NAME) {
+    const user = process.env.SQL_USER || process.env.SQL_ADMIN_USER || 'postgres';
+    const password = process.env.SQL_PASSWORD || process.env.SQL_ADMIN_PASSWORD || '';
+    const host = process.env.SQL_HOST;
+    const port = parseInt(process.env.SQL_PORT || '5432', 10);
+    const database = process.env.SQL_DB_NAME;
 
-  const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+    pgPoolInstance = new Pool({
+      host,
+      port,
+      user,
+      password,
+      database,
+      ssl: false,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 15000,
+    });
+  } else {
+    const connectionString = (
+      process.env.DATABASE_URL || 
+      process.env.SUPABASE_DATABASE_URL || 
+      process.env.SUPABASE_DB_URL || 
+      ''
+    ).trim();
 
-  pgPoolInstance = new Pool({
-    connectionString,
-    ssl: isLocal ? false : { rejectUnauthorized: false },
-    max: 5,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
-  });
+    const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+
+    pgPoolInstance = new Pool({
+      connectionString,
+      ssl: isLocal ? false : { rejectUnauthorized: false },
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+  }
 
   pgPoolInstance.on('error', (err) => {
     console.error('Unexpected error on idle PostgreSQL client:', err);
@@ -100,19 +121,19 @@ export function getDb(): Promise<SqlJsDatabase | null> {
 
 async function initializeDb(): Promise<SqlJsDatabase | null> {
   const isProd = isProduction();
-  const dbUrl = (
+  const hasSql = Boolean(
+    (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
     process.env.DATABASE_URL ||
     process.env.SUPABASE_DATABASE_URL ||
-    process.env.SUPABASE_DB_URL ||
-    ''
-  ).trim();
+    process.env.SUPABASE_DB_URL
+  );
 
-  // Strict P0-1 Requirement: In production, PostgreSQL DATABASE_URL is mandatory
+  // Strict P0-1 Requirement: In production, PostgreSQL is mandatory
   if (isProd) {
-    if (!dbUrl) {
-      const errMsg = 'FATAL [VectOS]: NODE_ENV=production requires a valid PostgreSQL DATABASE_URL. Ephemeral in-memory database fallback is strictly prohibited in production.';
+    if (!hasSql) {
+      const errMsg = 'FATAL [VectOS]: NODE_ENV=production requires a valid PostgreSQL database (Cloud SQL or DATABASE_URL). Ephemeral in-memory database fallback is strictly prohibited in production.';
       console.error(errMsg);
-      throw new Error('Production configuration error: DATABASE_URL is missing. Production mode requires a persistent PostgreSQL database.');
+      throw new Error('Production configuration error: Persistent database is missing. Production mode requires a persistent PostgreSQL database.');
     }
 
     try {
@@ -129,14 +150,7 @@ async function initializeDb(): Promise<SqlJsDatabase | null> {
     }
   }
 
-  if (isPostgres()) {
-    // In Postgres mode, ensure tables exist
-    await initPostgresSchemaIfNeeded();
-    return null;
-  }
-
-  // Development/Test mode: If DATABASE_URL is set, test connectivity
-  if (!postgresAvailable && dbUrl) {
+  if (hasSql) {
     try {
       const pool = getPgPool();
       await pool.query('SELECT 1');
@@ -813,6 +827,11 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
     "ALTER TABLE users ADD COLUMN can_manage_partners INTEGER DEFAULT 0;",
     "ALTER TABLE users ADD COLUMN can_void_orders INTEGER DEFAULT 0;",
     "ALTER TABLE users ADD COLUMN can_edit_company_settings INTEGER DEFAULT 0;",
+    "ALTER TABLE users ADD COLUMN can_view_audit_trail INTEGER DEFAULT 0;",
+    "ALTER TABLE users ADD COLUMN can_reset_passwords INTEGER DEFAULT 0;",
+    "ALTER TABLE users ADD COLUMN can_view_all_tenants INTEGER DEFAULT 0;",
+    "ALTER TABLE users ADD COLUMN can_manage_subscriptions INTEGER DEFAULT 0;",
+    "ALTER TABLE users ADD COLUMN force_password_change INTEGER DEFAULT 0;",
     "ALTER TABLE customers ADD COLUMN id_number TEXT;",
     "ALTER TABLE customers ADD COLUMN shop_id INTEGER DEFAULT 1;",
     "ALTER TABLE products ADD COLUMN shop_id INTEGER DEFAULT 1;",
@@ -820,6 +839,10 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
     "ALTER TABLE partner_shops ADD COLUMN shop_id INTEGER DEFAULT 1;",
     "ALTER TABLE orders ADD COLUMN shop_id INTEGER DEFAULT 1;",
     "ALTER TABLE orders ADD COLUMN stock_id INTEGER DEFAULT 1;",
+    "ALTER TABLE orders ADD COLUMN payment_approved_by INTEGER;",
+    "ALTER TABLE orders ADD COLUMN payment_approved_at DATETIME;",
+    "ALTER TABLE orders ADD COLUMN stock_released_by INTEGER;",
+    "ALTER TABLE orders ADD COLUMN stock_released_at DATETIME;",
     "ALTER TABLE payments ADD COLUMN shop_id INTEGER DEFAULT 1;",
     "ALTER TABLE inventory_movements ADD COLUMN shop_id INTEGER DEFAULT 1;",
     "ALTER TABLE inventory_movements ADD COLUMN stock_id INTEGER DEFAULT 1;",

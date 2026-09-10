@@ -17,6 +17,10 @@ export type UserPermission =
   | 'can_manage_customers'
   | 'can_manage_partners'
   | 'can_void_orders'
+  | 'can_view_audit_trail'
+  | 'can_reset_passwords'
+  | 'can_view_all_tenants'
+  | 'can_manage_subscriptions'
   | 'can_edit_company_settings';
 
 declare module 'express-session' {
@@ -34,6 +38,7 @@ declare module 'express-session' {
       twofa_verified?: boolean;
       job_title?: string;
       phone?: string;
+      force_password_change?: number | boolean;
       activation_status?: 'active' | 'pending_approval' | 'suspended';
       activation_note?: string;
       can_create_orders?: number | boolean;
@@ -51,6 +56,10 @@ declare module 'express-session' {
       can_manage_customers?: number | boolean;
       can_manage_partners?: number | boolean;
       can_void_orders?: number | boolean;
+      can_view_audit_trail?: number | boolean;
+      can_reset_passwords?: number | boolean;
+      can_view_all_tenants?: number | boolean;
+      can_manage_subscriptions?: number | boolean;
       can_edit_company_settings?: number | boolean;
     };
   }
@@ -249,6 +258,10 @@ export function requirePermission(permission: UserPermission) {
       can_manage_customers: 'Manage Customer Profiles & Credit Balances',
       can_manage_partners: 'Manage Partner Shops & Sourcing Accounts',
       can_void_orders: 'Void / Cancel Sales Orders & Invoices',
+      can_view_audit_trail: 'View Internal Audit & Approvals Trail',
+      can_reset_passwords: 'Reset User Passwords & Override Credentials',
+      can_view_all_tenants: 'View Cross-Tenant Platform Overview',
+      can_manage_subscriptions: 'Manage Store Billing & Subscription Modules',
       can_edit_company_settings: 'Edit Company Profile & TIN Configuration'
     };
 
