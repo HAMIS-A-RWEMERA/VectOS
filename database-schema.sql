@@ -1,11 +1,7 @@
 -- ============================================================================
--- VectOS (Quincaille IOMS Kigali) - Supabase PostgreSQL Database Schema & Seed
--- Target: Supabase (PostgreSQL 15+)
--- Instructions: Run this entire script in your Supabase Dashboard -> SQL Editor -> New Query -> Run
+-- VectOS (Quincaille IOMS Kigali) - PostgreSQL Database Schema
+-- Production Ready for: Vercel Postgres / Neon / Cloud SQL / Supabase
 -- ============================================================================
-
--- 0. EXTENSIONS & CLEANUP
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. SHOPS / HARDWARE & TECH STORES (Multi-Tenancy)
 CREATE TABLE IF NOT EXISTS shops (
@@ -18,9 +14,9 @@ CREATE TABLE IF NOT EXISTS shops (
   location VARCHAR(255) DEFAULT 'Kigali, Rwanda',
   tin_number VARCHAR(50),
   receipt_footer_text TEXT DEFAULT 'Thank you for choosing us! Goods once sold in good condition are not returnable.',
-  status VARCHAR(50) DEFAULT 'pending' CHECK(status IN ('pending', 'active', 'suspended')),
-  business_type VARCHAR(100) DEFAULT 'Hardware & Construction',
-  subscription_plan VARCHAR(100) DEFAULT 'Starter Business (RWF 20,000/mo)',
+  status VARCHAR(50) DEFAULT 'active' CHECK(status IN ('pending', 'active', 'suspended')),
+  business_type VARCHAR(100) DEFAULT 'Hardware & Electronics',
+  subscription_plan VARCHAR(100) DEFAULT 'Standard Depot',
   billed_accounts INTEGER DEFAULT 1,
   billed_stocks INTEGER DEFAULT 1,
   monthly_fee NUMERIC(15,2) DEFAULT 20000.0,
@@ -42,7 +38,7 @@ CREATE TABLE IF NOT EXISTS stocks (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. USERS (SuperAdmin, Managers, and Granular Permission Employees)
+-- 3. USERS (SuperAdmin, Store Owners/Managers, and Staff)
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   shop_id INTEGER REFERENCES shops(id) ON DELETE CASCADE,
@@ -51,7 +47,7 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
   role VARCHAR(50) NOT NULL DEFAULT 'employee',
-  job_title VARCHAR(100) DEFAULT 'Operations Staff',
+  job_title VARCHAR(100) DEFAULT 'Store Staff',
   phone VARCHAR(50),
   is_active INTEGER DEFAULT 1,
   activation_status VARCHAR(50) DEFAULT 'active' CHECK(activation_status IN ('active', 'pending_approval', 'suspended')),
@@ -72,12 +68,17 @@ CREATE TABLE IF NOT EXISTS users (
   can_manage_partners INTEGER DEFAULT 0,
   can_void_orders INTEGER DEFAULT 0,
   can_edit_company_settings INTEGER DEFAULT 0,
+  can_view_audit_trail INTEGER DEFAULT 0,
+  can_reset_passwords INTEGER DEFAULT 0,
+  can_view_all_tenants INTEGER DEFAULT 0,
+  can_manage_subscriptions INTEGER DEFAULT 0,
+  force_password_change INTEGER DEFAULT 0,
   twofa_secret TEXT,
   twofa_enabled INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. PRODUCTS (Construction, Hardware & Tech Materials)
+-- 4. PRODUCTS (Hardware, Construction & Tech Materials)
 CREATE TABLE IF NOT EXISTS products (
   id SERIAL PRIMARY KEY,
   shop_id INTEGER DEFAULT 1 REFERENCES shops(id) ON DELETE CASCADE,
@@ -95,7 +96,7 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. CUSTOMERS (Construction Contractors & Individuals)
+-- 5. CUSTOMERS (Contractors & Individuals)
 CREATE TABLE IF NOT EXISTS customers (
   id SERIAL PRIMARY KEY,
   shop_id INTEGER DEFAULT 1 REFERENCES shops(id) ON DELETE CASCADE,
@@ -135,6 +136,10 @@ CREATE TABLE IF NOT EXISTS orders (
   fulfillment_status VARCHAR(50) DEFAULT 'pending_store' CHECK(fulfillment_status IN ('pending_accountant', 'pending_store', 'resolving_rejected', 'completed', 'cancelled')),
   notes TEXT,
   client_ref TEXT,
+  payment_approved_by INTEGER REFERENCES users(id),
+  payment_approved_at TIMESTAMP WITH TIME ZONE,
+  stock_released_by INTEGER REFERENCES users(id),
+  stock_released_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -148,10 +153,10 @@ CREATE TABLE IF NOT EXISTS order_items (
   selling_price NUMERIC(15,2) NOT NULL CHECK(selling_price >= 0),
   subtotal NUMERIC(15,2) NOT NULL,
   profit NUMERIC(15,2) NOT NULL,
-  fulfillment_source VARCHAR(50) DEFAULT 'Store',
+  fulfillment_source VARCHAR(100) DEFAULT 'Store',
   item_status VARCHAR(50) DEFAULT 'pending_store' CHECK(item_status IN ('pending_store', 'approved', 'rejected', 'partner_fulfilled', 'unavailable')),
   rejection_reason TEXT,
-  partner_shop_id INTEGER REFERENCES partner_shops(id) ON DELETE SET NULL
+  partner_shop_id INTEGER REFERENCES partner_shops(id)
 );
 
 -- 9. PAYMENTS
@@ -161,12 +166,12 @@ CREATE TABLE IF NOT EXISTS payments (
   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   amount NUMERIC(15,2) NOT NULL CHECK(amount > 0),
   payment_method VARCHAR(50) NOT NULL CHECK(payment_method IN ('cash', 'momo', 'bank_transfer', 'debt_credit')),
-  reference_no VARCHAR(100),
+  reference_no VARCHAR(255),
   recorded_by INTEGER NOT NULL REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 10. INVENTORY MOVEMENTS
+-- 10. INVENTORY MOVEMENTS (Stock card audit trail)
 CREATE TABLE IF NOT EXISTS inventory_movements (
   id SERIAL PRIMARY KEY,
   shop_id INTEGER DEFAULT 1 REFERENCES shops(id) ON DELETE CASCADE,
@@ -174,23 +179,23 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
   product_id INTEGER NOT NULL REFERENCES products(id),
   quantity INTEGER NOT NULL,
   movement_type VARCHAR(50) NOT NULL CHECK(movement_type IN ('Stock Received', 'Sale', 'Adjustment', 'Damage', 'Return', 'Transfer In', 'Transfer Out')),
-  reference VARCHAR(100),
+  reference VARCHAR(255),
   performed_by INTEGER NOT NULL REFERENCES users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 11. AUDIT LOGS
+-- 11. AUDIT LOGS (Immutable Activity Log)
 CREATE TABLE IF NOT EXISTS audit_logs (
   id SERIAL PRIMARY KEY,
   shop_id INTEGER DEFAULT 1 REFERENCES shops(id) ON DELETE CASCADE,
-  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  user_id INTEGER REFERENCES users(id),
   action VARCHAR(100) NOT NULL,
   details TEXT,
   ip_address VARCHAR(100),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 12. STOCK TRANSFERS (Inter-warehouse movements)
+-- 12. STOCK TRANSFERS BETWEEN DEPOTS
 CREATE TABLE IF NOT EXISTS stock_transfers (
   id SERIAL PRIMARY KEY,
   shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
@@ -212,8 +217,7 @@ CREATE TABLE IF NOT EXISTS login_throttle (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 14. EXPRESS SESSION PERSISTENCE (For Netlify Serverless Lambdas)
--- NOTE: WITH (OIDS) was removed in PostgreSQL 12+ and causes errors on Supabase.
+-- 14. EXPRESS SESSION PERSISTENCE (For Vercel Serverless Functions)
 CREATE TABLE IF NOT EXISTS "session" (
   "sid" varchar NOT NULL COLLATE "default",
   "sess" json NOT NULL,
@@ -229,86 +233,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);
 
 -- ============================================================================
--- INITIAL SEED DATA
--- Default password for all seed accounts is: password123
+-- INITIAL PLATFORM SUPERADMIN (Only if users table is empty)
 -- ============================================================================
-
--- Seed Default Active Shops
-INSERT INTO shops (id, name, code, owner_name, phone, email, location, tin_number, status, subscription_plan)
-VALUES 
-  (1, 'Quincaille Kigali Central Depot', 'central', 'Jean-Luc Hakizimana', '+250 788 100 001', 'manager@quincaille.rw', 'Gikondo Industrial Zone, Kigali', '100234567', 'active', 'Enterprise Multi-Store'),
-  (2, 'Kwizera & Sons Hardware Ltd', 'kwizera', 'Kwizera Eric', '+250 788 555 123', 'kwizera@hardware.rw', 'Nyabugogo Hardware Center, Kigali', '109876543', 'active', 'Standard Depot (RWF 45,000/mo)')
+INSERT INTO shops (id, name, code, owner_name, phone, email, location, status)
+VALUES (1, 'VectOS Main Store', 'main', 'Administrator', '+250 788 000 000', 'rwemera30@gmail.com', 'Kigali, Rwanda', 'active')
 ON CONFLICT (id) DO NOTHING;
 
--- Reset Shop sequence
 SELECT setval('shops_id_seq', (SELECT COALESCE(MAX(id), 1) FROM shops));
 
--- Seed Warehouses / Stocks
-INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
-VALUES
-  (1, 1, 'Main Gikondo Central Warehouse', 'WH-GIK-01', 'Gikondo Industrial Zone', 'Jean-Luc Hakizimana', 1, 'active'),
-  (2, 1, 'Gisozi Hardware Depot (Branch 2)', 'WH-GSZ-02', 'Gisozi Hardware Market', 'Emmanuel Bizimana', 0, 'active'),
-  (3, 2, 'Nyabugogo Central Depot', 'WH-NYA-01', 'Nyabugogo Hardware Center', 'Kwizera Eric', 1, 'active')
+INSERT INTO stocks (id, shop_id, name, code, location, is_main, status)
+VALUES (1, 1, 'Main Warehouse', 'WH-01', 'Kigali Central', 1, 'active')
 ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('stocks_id_seq', (SELECT COALESCE(MAX(id), 1) FROM stocks));
 
--- Seed SuperAdmin & Staff ($2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6 -> password123)
+-- Single platform admin user ($2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6 -> password123)
+-- Linked to rwemera30@gmail.com. Users can also register their own store directly via the UI Sign-up tab.
 INSERT INTO users (
   id, shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status,
   can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
   can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
-  can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings
+  can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions
 )
-VALUES 
-  (1, 1, 1, 'VectOS Super Admin', 'admin@vectos.co.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-  (2, 1, 1, 'Jean-Luc Hakizimana', 'manager@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'manager', 'Store Owner / Manager', '+250 788 100 001', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1),
-  (3, 1, 1, 'Marie-Claire Umutoni', 'sales@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'salesperson', 'Sales & Counter Cashier', '+250 788 100 002', 1, 'active', 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0),
-  (4, 1, 1, 'Patrick Nshimiyimana', 'accountant@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'accountant', 'Finance & Head Cashier', '+250 788 100 003', 1, 'active', 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0),
-  (5, 1, 1, 'Emmanuel Bizimana', 'storekeeper@quincaille.rw', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'storekeeper', 'Warehouse Storekeeper', '+250 788 100 004', 1, 'active', 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0)
-ON CONFLICT (id) DO UPDATE SET 
-  password = EXCLUDED.password,
-  is_active = 1,
-  activation_status = 'active';
+VALUES (
+  1, 1, 1, 'Rwemera Platform Administrator', 'rwemera30@gmail.com', '$2b$10$BQyIVHjk9BpFCUZV/HGFZuAjzLBgLfFnBpOVrtDBWL.28fqW1jMJ6', 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active',
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+)
+ON CONFLICT (id) DO NOTHING;
 
 SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users));
-
--- Seed Hardware Products
-INSERT INTO products (id, shop_id, stock_id, name, sku, category, unit, buying_price, quantity, low_stock_threshold, description)
-VALUES
-  (1, 1, 1, 'CIMERWA Cement 32.5R (50kg)', 'CEM-325R', 'Cement', 'Bag', 10500, 250, 50, 'High quality Rwandan hydraulic cement for masonry'),
-  (2, 1, 1, 'CIMERWA Cement 42.5N Premium (50kg)', 'CEM-425N', 'Cement', 'Bag', 12200, 180, 40, 'High strength cement for structural slabs'),
-  (3, 1, 1, 'Deformed Iron Bars 12mm x 12m', 'IB-12MM', 'Steel & Rebar', 'Bar', 11000, 320, 50, 'Fe500 grade steel reinforcement bar'),
-  (4, 1, 1, 'Deformed Iron Bars 16mm x 12m', 'IB-16MM', 'Steel & Rebar', 'Bar', 18500, 150, 30, 'Heavy duty steel reinforcement bar'),
-  (5, 1, 1, 'Roofing Sheets Gauge 28 Blue (3m)', 'RS-G28-BL', 'Roofing', 'Sheet', 14500, 120, 25, 'Pre-painted corrugated galvanised iron sheet'),
-  (6, 1, 1, 'Roofing Sheets Gauge 30 Maroon (3m)', 'RS-G30-MR', 'Roofing', 'Sheet', 11800, 80, 20, 'Versatile color-coated corrugated sheet'),
-  (7, 1, 1, 'PVC Pressure Pipe 110mm PN10 (6m)', 'PVC-110MM', 'Plumbing', 'Pipe', 16000, 60, 15, 'High density underground drainage pipe'),
-  (8, 1, 1, 'Amandla Weather Guard Paint White (20L)', 'PNT-WG-20L', 'Paint', 'Bucket', 48000, 25, 8, 'Exterior washable weatherguard acrylic paint'),
-  (9, 1, 1, 'Roofing Nails Rubber Washer (1kg)', 'NL-RF-1KG', 'Hardware & Fasteners', 'Kg', 2200, 150, 30, 'Galvanised umbrella head roofing nails'),
-  (10, 1, 1, 'Lake Sand Washing Clean (10 Tonne Truck)', 'SND-LAKE-10T', 'Aggregates', 'Truck', 140000, 12, 3, 'Washed plaster sand from Lake Kivu'),
-  (11, 1, 1, 'Gravel Aggregates 14/20mm (10 Tonne Truck)', 'GRV-20MM-10T', 'Aggregates', 'Truck', 165000, 8, 2, 'Machine crushed hard blue stone aggregates'),
-  (12, 1, 1, 'Binding Wire 1.6mm Annealed (25kg Roll)', 'BW-16MM-25KG', 'Hardware & Fasteners', 'Roll', 32000, 20, 5, 'Soft annealed iron wire for rebar tying')
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('products_id_seq', (SELECT COALESCE(MAX(id), 1) FROM products));
-
--- Seed Customers
-INSERT INTO customers (id, shop_id, name, phone, email, address, credit_balance)
-VALUES
-  (1, 1, 'Kigali Heights Construction Ltd', '+250 788 333 111', 'contracts@kigaliheights.rw', 'Kacyiru, Kigali', 150000.0),
-  (2, 1, 'Inyange Commercial Contractors', '+250 788 444 222', 'inyangebuilder@gmail.com', 'Gikondo Industrial Zone', 0.0),
-  (3, 1, 'Eric Mugisha (Individual Builder)', '+250 789 555 333', 'eric.mugisha@gmail.com', 'Nyamirambo, Kigali', 45000.0),
-  (4, 1, 'Vision City Villa Developers', '+250 788 666 444', 'procurement@visioncity.rw', 'Gacuriro, Kigali', 0.0)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('customers_id_seq', (SELECT COALESCE(MAX(id), 1) FROM customers));
-
--- Seed Partner Suppliers
-INSERT INTO partner_shops (id, shop_id, name, contact_person, phone, address, current_balance)
-VALUES
-  (1, 1, 'Bimaco Hardware Nyabugogo', 'Alain Bimenyimana', '+250 788 777 888', 'Nyabugogo Bus Park Area', 0.0),
-  (2, 1, 'Rwanda Building Supplies Gisozi', 'Chantal Uwase', '+250 788 999 000', 'Gisozi Hardware Market', 120000.0),
-  (3, 1, 'Muhima Construction Depot', 'Damascene Ndayisaba', '+250 788 222 333', 'Muhima Main Road', 0.0)
-ON CONFLICT (id) DO NOTHING;
-
-SELECT setval('partner_shops_id_seq', (SELECT COALESCE(MAX(id), 1) FROM partner_shops));

@@ -2,18 +2,16 @@ import React, { useState } from 'react';
 import { User, Shop } from '../types';
 import { 
   Building2, 
-  Store, 
-  UserCheck, 
-  LogOut, 
   ChevronDown, 
-  Shield, 
-  Database,
-  RefreshCw,
-  Sparkles,
-  ShoppingBag,
+  Database, 
+  KeyRound, 
+  LogOut, 
+  Moon, 
+  ShoppingBag, 
+  Store, 
   Sun,
-  Moon,
-  KeyRound
+  ShieldCheck,
+  User as UserIcon
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -25,7 +23,6 @@ interface HeaderProps {
   isDarkMode: boolean;
   onToggleTheme: () => void;
   onLogout: () => void;
-  onDemoSwitch: (role: string) => void;
   onSwitchShop: (shopId: number) => void;
   onOpenPos: () => void;
   onOpenChangePassword?: () => void;
@@ -40,21 +37,11 @@ export const Header: React.FC<HeaderProps> = ({
   isDarkMode,
   onToggleTheme,
   onLogout,
-  onDemoSwitch,
   onSwitchShop,
   onOpenPos,
   onOpenChangePassword
 }) => {
-  const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showShopMenu, setShowShopMenu] = useState(false);
-
-  const demoRoles = [
-    { role: 'manager', label: 'Store Owner / Manager', email: 'manager@quincaille.rw', badge: 'Full Store Access' },
-    { role: 'salesperson', label: 'Sales & Counter Cashier', email: 'sales@quincaille.rw', badge: 'POS & Orders' },
-    { role: 'accountant', label: 'Finance & Head Cashier', email: 'accountant@quincaille.rw', badge: 'Payments & Reports' },
-    { role: 'storekeeper', label: 'Warehouse Storekeeper', email: 'storekeeper@quincaille.rw', badge: 'Inventory & Dispatch' },
-    { role: 'superadmin', label: 'Platform SuperAdmin', email: 'admin@vectos.co.rw', badge: 'Multi-Tenant Portal' },
-  ];
 
   return (
     <header className="sticky top-0 z-40 bg-[#0F131A]/95 backdrop-blur border-b border-slate-800/80 px-4 lg:px-6 py-3">
@@ -69,10 +56,10 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex items-center gap-2">
                 <span className="font-bold text-lg text-white tracking-wide">VectOS</span>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  Kigali ERP
+                  Rwanda ERP
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium">Hardware & Electronics OS</p>
+              <p className="text-xs text-slate-400 font-medium">Hardware & Electronics Depot OS</p>
             </div>
           </div>
 
@@ -128,12 +115,12 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right: POS Quick Button, Demo Role Switcher, User Profile */}
+        {/* Right: POS Quick Button, User Role Badge, User Profile */}
         <div className="flex items-center gap-3">
           {/* Quick POS Launch Button */}
           <button
             onClick={onOpenPos}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
           >
             <ShoppingBag className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Open POS Counter</span>
@@ -143,69 +130,35 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Theme Toggle Button */}
           <button
             onClick={onToggleTheme}
-            className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition"
+            className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition cursor-pointer"
             title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
           </button>
 
           {/* Database Mode Badge */}
-          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400">
+          <div 
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400"
+            title={dbPersistent ? 'Connected to persistent PostgreSQL database' : 'Running in local storage mode'}
+          >
             <Database className={`w-3 h-3 ${dbPersistent ? 'text-emerald-400' : 'text-amber-400'}`} />
-            <span>{dbPersistent ? 'PostgreSQL' : 'Local DB (sql.js)'}</span>
+            <span>{dbPersistent ? 'PostgreSQL Persistent' : 'Local DB'}</span>
           </div>
 
-          {/* Demo Role Switcher Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowRoleMenu(!showRoleMenu)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold transition"
-              title="Test the system as different roles"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-              <span className="hidden sm:inline">Role: {user?.job_title || user?.role || 'Guest'}</span>
-              <span className="sm:hidden capitalize">{user?.role || 'Role'}</span>
-              <ChevronDown className="w-3 h-3" />
-            </button>
-
-            {showRoleMenu && (
-              <div className="absolute right-0 mt-2 w-72 rounded-xl bg-[#161B22] border border-slate-700 shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95">
-                <div className="px-3 py-2 border-b border-slate-800">
-                  <p className="text-xs font-bold text-slate-200">1-Click Role Switcher</p>
-                  <p className="text-[11px] text-slate-400">Instant test login across all Rwandan shop roles</p>
-                </div>
-                <div className="py-1">
-                  {demoRoles.map((dr) => (
-                    <button
-                      key={dr.role}
-                      onClick={() => {
-                        onDemoSwitch(dr.role);
-                        setShowRoleMenu(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-800/80 transition flex items-center justify-between ${
-                        user?.role === dr.role ? 'bg-amber-500/15 text-amber-300 font-semibold' : 'text-slate-300'
-                      }`}
-                    >
-                      <div>
-                        <p className="font-medium">{dr.label}</p>
-                        <p className="text-[10px] text-slate-400">{dr.email}</p>
-                      </div>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                        {dr.badge}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Current User Role Badge */}
+          {user && (
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-200">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              <span>{user.job_title || (user.role === 'superadmin' ? 'Super Administrator' : user.role === 'manager' ? 'Store Owner' : user.role)}</span>
+            </div>
+          )}
 
           {/* User Profile / Logout */}
           {user && (
             <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
               <div 
                 className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-400"
-                title={`${user.name} (${user.job_title || user.role})`}
+                title={`${user.name} (${user.email})`}
               >
                 {user.name.slice(0, 2).toUpperCase()}
               </div>
@@ -213,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({
               {onOpenChangePassword && (
                 <button
                   onClick={onOpenChangePassword}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
                   title="Change Password"
                 >
                   <KeyRound className="w-4 h-4" />
@@ -222,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 onClick={onLogout}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                 title="Sign Out"
               >
                 <LogOut className="w-4 h-4" />

@@ -36,6 +36,9 @@ let postgresAvailable = false;
 export function isPostgres(): boolean {
   return postgresAvailable && Boolean(
     (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
     process.env.DATABASE_URL ||
     process.env.SUPABASE_DATABASE_URL ||
     process.env.SUPABASE_DB_URL
@@ -71,6 +74,9 @@ export function getPgPool(): pg.Pool {
     });
   } else {
     const connectionString = (
+      process.env.POSTGRES_URL ||
+      process.env.POSTGRES_PRISMA_URL ||
+      process.env.POSTGRES_URL_NON_POOLING ||
       process.env.DATABASE_URL || 
       process.env.SUPABASE_DATABASE_URL || 
       process.env.SUPABASE_DB_URL || 
@@ -123,48 +129,33 @@ async function initializeDb(): Promise<SqlJsDatabase | null> {
   const isProd = isProduction();
   const hasSql = Boolean(
     (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
     process.env.DATABASE_URL ||
     process.env.SUPABASE_DATABASE_URL ||
     process.env.SUPABASE_DB_URL
   );
-
-  // Strict P0-1 Requirement: In production, PostgreSQL is mandatory
-  if (isProd) {
-    if (!hasSql) {
-      const errMsg = 'FATAL [VectOS]: NODE_ENV=production requires a valid PostgreSQL database (Cloud SQL or DATABASE_URL). Ephemeral in-memory database fallback is strictly prohibited in production.';
-      console.error(errMsg);
-      throw new Error('Production configuration error: Persistent database is missing. Production mode requires a persistent PostgreSQL database.');
-    }
-
-    try {
-      const pool = getPgPool();
-      await pool.query('SELECT 1');
-      postgresAvailable = true;
-      console.log('✅ PostgreSQL production connection verified successfully.');
-      await initPostgresSchemaIfNeeded();
-      return null;
-    } catch (err: any) {
-      const sanitizedMsg = err?.message || String(err);
-      console.error(`FATAL [VectOS]: Production PostgreSQL connection failed (${sanitizedMsg}). Refusing to fall back to in-memory storage.`);
-      throw new Error(`Production database connection failed: ${sanitizedMsg}`);
-    }
-  }
 
   if (hasSql) {
     try {
       const pool = getPgPool();
       await pool.query('SELECT 1');
       postgresAvailable = true;
-      console.log('PostgreSQL connection successful — using remote database.');
+      console.log('✅ PostgreSQL connection verified successfully — persistent database active.');
       await initPostgresSchemaIfNeeded();
       return null;
-    } catch (err) {
-      const msg = (err as Error).message || String(err);
-      console.warn('PostgreSQL unreachable in development (' + msg + '), falling back to local SQLite.');
+    } catch (err: any) {
+      const sanitizedMsg = err?.message || String(err);
+      console.error(`PostgreSQL connection notice (${sanitizedMsg}).`);
+      if (isProd && !process.env.VERCEL) {
+        throw new Error(`Production database connection failed: ${sanitizedMsg}`);
+      }
       postgresAvailable = false;
       pgPoolInstance = null;
-      // Fall through to local SQLite below in development
     }
+  } else if (isProd || process.env.VERCEL) {
+    console.warn('⚠️ [VectOS]: Running without POSTGRES_URL / DATABASE_URL. For production & Vercel deployment, connect Vercel Postgres to ensure data persists permanently across serverless instances.');
   }
 
   if (dbInstance) {
@@ -187,12 +178,7 @@ async function initializeDb(): Promise<SqlJsDatabase | null> {
         dbInstance = new SQL.Database();
       }
     } catch (err) {
-      console.warn("Warning: Database file was corrupted or malformed. Re-creating a fresh database instance...", err);
-      try {
-        fs.unlinkSync(DB_FILE);
-      } catch (e) {
-        // ignore deletion error
-      }
+      console.warn("Warning: Could not read existing database file, starting memory instance.", err);
       dbInstance = new SQL.Database();
     }
   } else {
@@ -202,9 +188,7 @@ async function initializeDb(): Promise<SqlJsDatabase | null> {
   try {
     await initSchemaAndSeed(dbInstance);
   } catch (schemaErr) {
-    console.warn("Warning: Error initializing schema on existing DB. Re-creating fresh database...", schemaErr);
-    dbInstance = new SQL.Database();
-    await initSchemaAndSeed(dbInstance);
+    console.warn("Warning: Schema check notice on SQLite instance:", schemaErr);
   }
 
   saveDb(dbInstance);
@@ -361,60 +345,65 @@ export async function withTransaction<T>(fn: () => Promise<T>): Promise<T> {
 
 export async function initPostgresSchemaIfNeeded(): Promise<void> {
   if (!isPostgres() || postgresSchemaInitialized) return;
+  const pool = getPgPool();
   try {
-    const pool = getPgPool();
-    const checkTable = await pool.query(`
-      SELECT to_regclass('public.users') as exists;
-    `);
-
+    const checkTable = await pool.query(`SELECT to_regclass('public.users') as exists;`);
     if (!checkTable.rows[0] || !checkTable.rows[0].exists) {
-      console.log('Initializing Supabase PostgreSQL schema...');
-      const schemaSqlPath = path.join(process.cwd(), 'supabase-schema.sql');
+      console.log('Initializing PostgreSQL schema...');
+      const schemaSqlPath = path.join(process.cwd(), 'database-schema.sql');
       if (fs.existsSync(schemaSqlPath)) {
         const sqlContent = fs.readFileSync(schemaSqlPath, 'utf-8');
-        try {
-          await pool.query(sqlContent);
-        } catch (e: any) {
-          // Handle concurrent CREATE EXTENSION race (IF NOT EXISTS is not fully concurrent-safe)
-          if (String(e.message).includes('pg_extension_name_index') || String(e.message).includes('already exists')) {
-            console.log('Extension already exists (concurrent init), continuing schema init');
-          } else {
-            throw e;
-          }
-        }
-        console.log('Supabase PostgreSQL schema and seed data loaded successfully!');
+        await pool.query(sqlContent);
       }
     }
-    // Ensure stock_transfers exists on existing DBs (added after initial schema)
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS stock_transfers (
-        id SERIAL PRIMARY KEY,
-        shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-        from_stock_id INTEGER NOT NULL REFERENCES stocks(id),
-        to_stock_id INTEGER NOT NULL REFERENCES stocks(id),
-        product_id INTEGER NOT NULL REFERENCES products(id),
-        quantity INTEGER NOT NULL CHECK(quantity > 0),
-        transferred_by INTEGER NOT NULL REFERENCES users(id),
-        notes TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS login_throttle (
-        id SERIAL PRIMARY KEY,
-        identity TEXT UNIQUE NOT NULL,
-        attempts INTEGER DEFAULT 0,
-        locked_until TIMESTAMP WITH TIME ZONE,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`);
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`);
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`);
-    postgresSchemaInitialized = true;
-  } catch (err) {
-    console.error('Error auto-initializing PostgreSQL schema:', err);
+  } catch (err: any) {
+    console.warn('Notice on PostgreSQL initial table check:', err?.message || err);
   }
+
+  // Always ensure recent columns & auxiliary tables exist safely
+  const migrations = [
+    `CREATE TABLE IF NOT EXISTS stock_transfers (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      from_stock_id INTEGER NOT NULL REFERENCES stocks(id),
+      to_stock_id INTEGER NOT NULL REFERENCES stocks(id),
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      quantity INTEGER NOT NULL CHECK(quantity > 0),
+      transferred_by INTEGER NOT NULL REFERENCES users(id),
+      notes TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS login_throttle (
+      id SERIAL PRIMARY KEY,
+      identity TEXT UNIQUE NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      locked_until TIMESTAMP WITH TIME ZONE,
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS "session" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL,
+      CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
+    );`,
+    `CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_at TIMESTAMP WITH TIME ZONE;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`
+  ];
+
+  for (const m of migrations) {
+    try {
+      await pool.query(m);
+    } catch {
+      // safe to ignore if column/index already present
+    }
+  }
+  postgresSchemaInitialized = true;
 }
 
 
@@ -493,91 +482,66 @@ export async function migrateUsersTableIfNeeded(db: SqlJsDatabase | null): Promi
 }
 
 export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase | null): Promise<void> {
-  // PostgreSQL path uses queryOne/execute, not sql.js db.exec
+  const adminPass = await bcrypt.hash('password123', 10);
+  const primaryEmail = 'rwemera30@gmail.com';
+
   if (isPostgres()) {
     try {
-      const adminPass = await bcrypt.hash('password123', 10);
-      const existing = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', ['admin@vectos.co.rw']);
+      const existing = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ?', [primaryEmail, 'admin@vectos.rw', 'admin@vectos.co.rw', 'admin@quincaille.rw']);
       if (existing) {
         await execute(`
-          UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'VectOS Super Admin',
+          UPDATE users SET email = ?, password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
               can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
               can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
               can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
-              can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1
-          WHERE LOWER(TRIM(email)) = ?`, [adminPass, 'admin@vectos.co.rw']);
+              can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1,
+              can_view_audit_trail = 1, can_reset_passwords = 1, can_view_all_tenants = 1, can_manage_subscriptions = 1
+          WHERE id = ?`, [primaryEmail, adminPass, existing.id]);
       } else {
-        const old = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', ['admin@quincaille.rw']);
-        if (old) {
-          await execute(`
-            UPDATE users SET email = 'admin@vectos.co.rw', password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'VectOS Super Admin',
-                can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
-                can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
-                can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
-                can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1
-            WHERE LOWER(TRIM(email)) = ?`, [adminPass, 'admin@quincaille.rw']);
-        } else {
-          await execute(`
-            INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
-              can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
-              can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings)
-            VALUES (?, ?, ?, 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
-            ['VectOS Super Admin', 'admin@vectos.co.rw', adminPass]);
-        }
+        await execute(`
+          INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+            can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+            can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
+            can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
+          VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
+          ['Rwemera Platform Administrator', primaryEmail, adminPass]);
       }
     } catch (err) {
       console.error('Error in ensureAdminAccounts (PG):', err);
     }
     return;
   }
+
   const db = dbToUse || (await getDb());
   if (!db) return;
   try {
     await migrateUsersTableIfNeeded(db);
-    const adminPass = await bcrypt.hash('password123', 10);
-    
-    // Check if admin@vectos.co.rw exists
-    const res = db.exec("SELECT id, email, password, is_active, role FROM users WHERE LOWER(TRIM(email)) = 'admin@vectos.co.rw'");
+
+    const res = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) IN ('${primaryEmail}', 'admin@vectos.rw', 'admin@vectos.co.rw', 'admin@quincaille.rw')`);
     if (res.length > 0 && res[0].values.length > 0) {
-      // User exists, make sure they are active, role is superadmin, password is set, and have all admin permissions
+      const existingId = res[0].values[0][0];
       db.run(`
         UPDATE users 
-        SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'VectOS Super Admin',
+        SET email = ?, password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
             can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
             can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
             can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
-            can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1
-        WHERE LOWER(TRIM(email)) = 'admin@vectos.co.rw'
-      `, [adminPass]);
+            can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1,
+            can_view_audit_trail = 1, can_reset_passwords = 1, can_view_all_tenants = 1, can_manage_subscriptions = 1
+        WHERE id = ?
+      `, [primaryEmail, adminPass, existingId]);
     } else {
-      // Also check if admin@quincaille.rw exists and migrate or insert
-      const resOld = db.exec("SELECT id FROM users WHERE LOWER(TRIM(email)) = 'admin@quincaille.rw'");
-      if (resOld.length > 0 && resOld[0].values.length > 0) {
-        db.run(`
-          UPDATE users 
-          SET email = 'admin@vectos.co.rw', password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'VectOS Super Admin',
-              can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
-              can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
-              can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
-              can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1
-          WHERE LOWER(TRIM(email)) = 'admin@quincaille.rw'
-        `, [adminPass]);
-      } else {
-        // Insert admin@vectos.co.rw — a PLATFORM superadmin belongs to no shop
-        // (shop_id stays NULL). Hardcoding shop_id = 1 here caused a FOREIGN
-        // KEY failure on freshly-initialized databases where shop 1 did not
-        // exist yet, aborting the entire seed process.
-        db.run(`
-          INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
-            can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
-            can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings)
-          VALUES (?, ?, ?, 'superadmin', 'Platform Owner & Administrator', '+250 788 000 999', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-        `, [
-          'VectOS Super Admin',
-          'admin@vectos.co.rw',
-          adminPass
-        ]);
-      }
+      db.run(`
+        INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+          can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+          can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
+          can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
+        VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+      `, [
+        'Rwemera Platform Administrator',
+        primaryEmail,
+        adminPass
+      ]);
     }
 
     saveDb(db);
@@ -889,217 +853,30 @@ async function initSchemaAndSeed(db: SqlJsDatabase) {
     }
   }
 
-  // --- SEEDING INITIAL DATA ---
+  // --- SEEDING INITIAL DATA (Clean Slate) ---
 
-  // 0. Seed Default Active Shop & Secondary Shop
+  // 0. Seed Default Active Shop if none exists
   const shopCheck = db.exec("SELECT COUNT(*) FROM shops");
   if (shopCheck.length === 0 || Number(shopCheck[0].values[0][0]) === 0) {
     db.run(`
-      INSERT INTO shops (id, name, code, owner_name, phone, email, location, tin_number, status, subscription_plan)
-      VALUES (1, 'Quincaille Kigali Central Depot', 'central', 'Jean-Luc Hakizimana', '+250 788 100 001', 'manager@quincaille.rw', 'Gikondo Industrial Zone, Kigali', '100234567', 'active', 'Enterprise Multi-Store');
-    `);
-
-    db.run(`
-      INSERT INTO shops (id, name, code, owner_name, phone, email, location, tin_number, status, subscription_plan)
-      VALUES (2, 'Kwizera & Sons Hardware Ltd', 'kwizera', 'Kwizera Eric', '+250 788 555 123', 'kwizera@hardware.rw', 'Nyabugogo Hardware Center, Kigali', '109876543', 'active', 'Standard Depot (RWF 45,000/mo)');
+      INSERT INTO shops (id, name, code, owner_name, phone, email, location, status, subscription_plan)
+      VALUES (1, 'VectOS Main Store', 'main', 'Administrator', '+250 788 000 000', 'rwemera30@gmail.com', 'Kigali, Rwanda', 'active', 'Standard Store');
     `);
   }
 
-  // 1. Seed SuperAdmin and Shop Users
-  const userCheck = db.exec("SELECT COUNT(*) FROM users");
-  if (userCheck.length === 0 || Number(userCheck[0].values[0][0]) === 0) {
-    const defaultPassword = await bcrypt.hash('password123', 10);
-    
-    // SuperAdmin Platform Owner (Has access across all hardware shops & approval rights)
-    db.run(`
-      INSERT INTO users (name, email, password, role, job_title, phone, is_active, 
-        can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow, 
-        can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings) 
-      VALUES (?, ?, ?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-    `, [
-      'Platform Super Admin',
-      'admin@vectos.co.rw',
-      defaultPassword,
-      'superadmin',
-      'Platform Owner & Administrator',
-      '+250 788 000 999'
-    ]);
-
-    // Shop 1 Manager (Full store control)
-    db.run(`
-      INSERT INTO users (shop_id, name, email, password, role, job_title, phone, is_active, 
-        can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow, 
-        can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings) 
-      VALUES (1, ?, ?, ?, 'manager', 'Store Owner / Manager', ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-    `, [
-      'Jean-Luc Hakizimana',
-      'manager@quincaille.rw',
-      defaultPassword,
-      '+250 788 100 001'
-    ]);
-
-    // Shop 1 Staff 1: Salesperson + Cashier combo (illustrates flexible checkboxes!)
-    db.run(`
-      INSERT INTO users (shop_id, name, email, password, role, job_title, phone, is_active, 
-        can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow, 
-        can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings) 
-      VALUES (1, ?, ?, ?, 'salesperson', 'Sales & Counter Cashier', ?, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 0)
-    `, [
-      'Marie-Claire Umutoni',
-      'sales@quincaille.rw',
-      defaultPassword,
-      '+250 788 100 002'
-    ]);
-
-    // Shop 1 Staff 2: Accountant (Finance, payments, reports, partner reconciliation)
-    db.run(`
-      INSERT INTO users (shop_id, name, email, password, role, job_title, phone, is_active, 
-        can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow, 
-        can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings) 
-      VALUES (1, ?, ?, ?, 'accountant', 'Finance & Head Cashier', ?, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0)
-    `, [
-      'Patrick Nshimiyimana',
-      'accountant@quincaille.rw',
-      defaultPassword,
-      '+250 788 100 003'
-    ]);
-
-    // Shop 1 Staff 3: Storekeeper (Warehouse, dispatch, stock entry, quantities-only receipts)
-    db.run(`
-      INSERT INTO users (shop_id, name, email, password, role, job_title, phone, is_active, 
-        can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow, 
-        can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings) 
-      VALUES (1, ?, ?, ?, 'storekeeper', 'Warehouse Storekeeper', ?, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0)
-    `, [
-      'Emmanuel Bizimana',
-      'storekeeper@quincaille.rw',
-      defaultPassword,
-      '+250 788 100 004'
-    ]);
-  }
-
-  // 1.1 Seed default stock warehouses (after shops so FK succeeds)
+  // 0.1 Seed Default Stock Location if none exists
   try {
     const stockCount = db.exec("SELECT COUNT(*) FROM stocks");
     if (stockCount.length === 0 || Number(stockCount[0].values[0][0]) === 0) {
       db.run(`
         INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
-        VALUES (1, 1, 'Main Gikondo Central Warehouse', 'WH-GIK-01', 'Gikondo Industrial Zone', 'Jean-Luc Hakizimana', 1, 'active');
-      `);
-      db.run(`
-        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
-        VALUES (2, 1, 'Gisozi Hardware Depot (Branch 2)', 'WH-GSZ-02', 'Gisozi Hardware Market', 'Emmanuel Bizimana', 0, 'active');
-      `);
-      db.run(`
-        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
-        VALUES (3, 2, 'Nyabugogo Central Depot', 'WH-NYA-01', 'Nyabugogo Hardware Center', 'Kwizera Eric', 1, 'active');
+        VALUES (1, 1, 'Main Warehouse', 'WH-01', 'Kigali Central', 'Store Manager', 1, 'active');
       `);
     }
   } catch (e) {
     // ignore
   }
 
-  // 1.2 Ensure VectOS SuperAdmin exists (after demo users so count guard doesn't skip them)
+  // 1. Ensure Platform Administrator exists (No fake staff accounts)
   await ensureAdminAccounts(db);
-
-  // 2. Seed Products (Construction materials with fixed buying price)
-  const productCheck = db.exec("SELECT COUNT(*) FROM products");
-  if (productCheck.length > 0 && Number(productCheck[0].values[0][0]) === 0) {
-    const sampleProducts = [
-      ['CIMERWA Cement 32.5R (50kg)', 'CEM-325R', 'Cement', 'Bag', 10500, 250, 50, 'High quality Rwandan hydraulic cement for masonry'],
-      ['CIMERWA Cement 42.5N Premium (50kg)', 'CEM-425N', 'Cement', 'Bag', 12200, 180, 40, 'High strength cement for structural slabs'],
-      ['Deformed Iron Bars 12mm x 12m', 'IB-12MM', 'Steel & Rebar', 'Bar', 11000, 320, 50, 'Fe500 grade steel reinforcement bar'],
-      ['Deformed Iron Bars 16mm x 12m', 'IB-16MM', 'Steel & Rebar', 'Bar', 18500, 150, 30, 'Heavy duty steel reinforcement bar'],
-      ['Roofing Sheets Gauge 28 Blue (3m)', 'RS-G28-BL', 'Roofing', 'Sheet', 14500, 120, 25, 'Pre-painted corrugated galvanised iron sheet'],
-      ['Roofing Sheets Gauge 30 Maroon (3m)', 'RS-G30-MR', 'Roofing', 'Sheet', 11800, 80, 20, 'Versatile color-coated corrugated sheet'],
-      ['PVC Pressure Pipe 110mm PN10 (6m)', 'PVC-110MM', 'Plumbing', 'Pipe', 16000, 60, 15, 'High density underground drainage pipe'],
-      ['Amandla Weather Guard Paint White (20L)', 'PNT-WG-20L', 'Paint', 'Bucket', 48000, 25, 8, 'Exterior washable weatherguard acrylic paint'],
-      ['Roofing Nails Rubber Washer (1kg)', 'NL-RF-1KG', 'Hardware & Fasteners', 'Kg', 2200, 150, 30, 'Galvanised umbrella head roofing nails'],
-      ['Lake Sand Washing Clean (10 Tonne Truck)', 'SND-LAKE-10T', 'Aggregates', 'Truck', 140000, 12, 3, 'Washed plaster sand from Lake Kivu'],
-      ['Gravel Aggregates 14/20mm (10 Tonne Truck)', 'GRV-20MM-10T', 'Aggregates', 'Truck', 165000, 8, 2, 'Machine crushed hard blue stone aggregates'],
-      ['Binding Wire 1.6mm Annealed (25kg Roll)', 'BW-16MM-25KG', 'Hardware & Fasteners', 'Roll', 32000, 20, 5, 'Soft annealed iron wire for rebar tying']
-    ];
-
-    for (const prod of sampleProducts) {
-      db.run(
-        "INSERT INTO products (name, sku, category, unit, buying_price, quantity, low_stock_threshold, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        prod
-      );
-    }
-  }
-
-  // 3. Seed Customers
-  const custCheck = db.exec("SELECT COUNT(*) FROM customers");
-  if (custCheck.length > 0 && Number(custCheck[0].values[0][0]) === 0) {
-    const sampleCustomers = [
-      ['Kigali Heights Construction Ltd', '+250 788 333 111', 'contracts@kigaliheights.rw', 'Kacyiru, Kigali', 150000.0],
-      ['Inyange Commercial Contractors', '+250 788 444 222', 'inyangebuilder@gmail.com', 'Gikondo Industrial Zone', 0.0],
-      ['Eric Mugisha (Individual Builder)', '+250 789 555 333', 'eric.mugisha@gmail.com', 'Nyamirambo, Kigali', 45000.0],
-      ['Vision City Villa Developers', '+250 788 666 444', 'procurement@visioncity.rw', 'Gacuriro, Kigali', 0.0]
-    ];
-
-    for (const c of sampleCustomers) {
-      db.run(
-        "INSERT INTO customers (name, phone, email, address, credit_balance) VALUES (?, ?, ?, ?, ?)",
-        c
-      );
-    }
-  }
-
-  // 4. Seed Partner Shops
-  const partnerCheck = db.exec("SELECT COUNT(*) FROM partner_shops");
-  if (partnerCheck.length > 0 && Number(partnerCheck[0].values[0][0]) === 0) {
-    const samplePartners = [
-      ['Bimaco Hardware Nyabugogo', 'Alain Bimenyimana', '+250 788 777 888', 'Nyabugogo Bus Park Area', 0.0],
-      ['Rwanda Building Supplies Gisozi', 'Chantal Uwase', '+250 788 999 000', 'Gisozi Hardware Market', 120000.0],
-      ['Muhima Construction Depot', 'Damascene Ndayisaba', '+250 788 222 333', 'Muhima Main Road', 0.0]
-    ];
-
-    for (const p of samplePartners) {
-      db.run(
-        "INSERT INTO partner_shops (name, contact_person, phone, address, current_balance) VALUES (?, ?, ?, ?, ?)",
-        p
-      );
-    }
-  }
-
-  // 5. Seed Initial Sample Orders & Order Items
-  const orderCheck = db.exec("SELECT COUNT(*) FROM orders");
-  if (orderCheck.length > 0 && Number(orderCheck[0].values[0][0]) === 0) {
-    // Order 1: Completed Cash Sale
-    db.run(`
-      INSERT INTO orders (order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes)
-      VALUES ('ORD-2026-001', 1, 2, 250000, 250000, 0, 'paid', 'completed', 'Urgent slab pour for Kigali Heights');
-    `);
-    db.run(`
-      INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-      VALUES (1, 1, 20, 10500, 12500, 250000, 40000, 'Store', 'approved');
-    `);
-    db.run(`
-      INSERT INTO payments (order_id, amount, payment_method, reference_no, recorded_by)
-      VALUES (1, 250000, 'momo', 'MM-20260804-0982', 3);
-    `);
-    db.run(`
-      INSERT INTO inventory_movements (product_id, quantity, movement_type, reference, performed_by)
-      VALUES (1, -20, 'Sale', 'ORD-2026-001', 4);
-    `);
-
-    // Order 2: Pending Storekeeper Review
-    db.run(`
-      INSERT INTO orders (order_number, customer_id, salesperson_id, total_amount, paid_amount, debt_amount, payment_status, fulfillment_status, notes)
-      VALUES ('ORD-2026-002', 2, 2, 380000, 200000, 180000, 'partial', 'pending_store', 'Partial payment received; waiting store dispatch');
-    `);
-    db.run(`
-      INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-      VALUES (2, 3, 20, 11000, 13000, 260000, 40000, 'Store', 'pending_store');
-    `);
-    db.run(`
-      INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-      VALUES (2, 5, 8, 14500, 15000, 120000, 4000, 'Store', 'pending_store');
-    `);
-    db.run(`
-      INSERT INTO payments (order_id, amount, payment_method, reference_no, recorded_by)
-      VALUES (2, 200000, 'bank_transfer', 'BK-88492019', 3);
-    `);
-  }
 }

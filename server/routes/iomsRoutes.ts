@@ -91,7 +91,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
   try {
     // If admin is logging in, ensure account is active and present
-    if (email === 'admin@vectos.co.rw' || email === 'admin@quincaille.rw') {
+    if (email === 'rwemera30@gmail.com' || email === 'admin@vectos.rw' || email === 'admin@vectos.co.rw' || email === 'admin@quincaille.rw') {
       const { ensureAdminAccounts } = await import('../database/db');
       await ensureAdminAccounts();
     }
@@ -1377,9 +1377,9 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
     let attempts = 0;
     while (attempts < 3) {
       attempts++;
-      const maxRes = await queryOne<{ max_num: number }>('SELECT COALESCE(MAX(CAST(SUBSTR(order_number, 10) AS INTEGER)), 0) as max_num FROM orders');
-      const maxNum = maxRes ? Number(maxRes.max_num) : 0;
-      orderNum = `ORD-${new Date().getFullYear()}-${String(maxNum + 1 + (attempts - 1)).padStart(4, '0')}`;
+      const countRes = await queryOne<{ c: number }>('SELECT COUNT(*) as c FROM orders WHERE shop_id = ?', [shopId]);
+      const nextSeq = (countRes ? Number(countRes.c) : 0) + attempts;
+      orderNum = `ORD-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}-${String(nextSeq).padStart(3, '0')}`;
       try {
         await withTransaction(async () => {
           // Resolve deferred ad-hoc products and partner balances atomically with order

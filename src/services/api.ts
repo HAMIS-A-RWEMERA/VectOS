@@ -50,10 +50,21 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Auth
-  getMe: () => request<{ user: User | null; shop: Shop | null; availableShops: Shop[]; isSuperAdmin: boolean; dbPersistent: boolean }>('/api/auth/me'),
+  getMe: () => request<{ user: User | null; shop: Shop | null; availableShops: Shop[]; isSuperAdmin: boolean; dbPersistent: boolean; isServerless?: boolean }>('/api/auth/me'),
   login: (email: string, password: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password })
+  }),
+  register: (data: {
+    storeName: string;
+    ownerName: string;
+    email: string;
+    password: string;
+    phone?: string;
+    location?: string;
+  }) => request<{ success: boolean; message: string; user: User; shop: Shop }>('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(data)
   }),
   changePassword: (currentPassword: string, newPassword: string) => request<{ success: boolean; message: string }>('/api/auth/change-password', {
     method: 'POST',

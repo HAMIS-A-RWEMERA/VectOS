@@ -1,30 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { app } from '../server';
-import { getCsrf, login } from './helpers';
+import { getCsrf, login, createTestShop, addProduct } from './helpers';
 import { queryOne } from '../server/database/db';
 
-// Reproduces the exact flows reported broken by the user, using the SEEDED
-// demo manager (manager@quincaille.rw) against a freshly-seeded database.
-describe('Demo manager regression check', () => {
+describe('Store manager workflow check', () => {
   it('stock adjust + customer register + multi-item order all succeed', async () => {
-    const { agent, token } = await login('manager@quincaille.rw', 'password123');
+    const { managerEmail, managerPassword } = await createTestShop('Kigali Depot');
+    const { agent, token } = await login(managerEmail, managerPassword);
+
+    // Add 2 test products
+    const p1 = await addProduct(agent, token, { name: 'Cement 32.5R', buying_price: '10000', initial_quantity: '50' });
+    const p2 = await addProduct(agent, token, { name: 'Iron Bars 12mm', buying_price: '11000', initial_quantity: '40' });
 
     // 1. Products page renders management controls
     const prodPage = await agent.get('/products');
     expect(prodPage.status).toBe(200);
-    const hasAdjust = prodPage.text.includes('adjust-stock');
-    console.log('products page mentions adjust-stock:', hasAdjust);
 
     // 2. Stock adjustment POST
     const adj = await agent.post('/products/adjust-stock').type('form').send({
-      product_id: '1',
+      product_id: String(p1),
       adjustment_type: 'restock',
       quantity: '10',
       notes: 'diag test',
       _csrf: token
     });
-    console.log('adjust-stock status:', adj.status);
 
     // 3. Customer registration POST
     const cust = await agent.post('/customers/add').type('form').send({
@@ -35,9 +35,8 @@ describe('Demo manager regression check', () => {
       notes: '',
       _csrf: token
     });
-    console.log('customers/add status:', cust.status);
     const custRow = await queryOne("SELECT id FROM customers WHERE name = 'Diag Client'");
-    console.log('customer row created:', Boolean(custRow));
+    expect(custRow).toBeTruthy();
 
     // 4. Order with TWO catalog items at once
     const ref = 'diag-two-items-' + Date.now();
@@ -46,21 +45,14 @@ describe('Demo manager regression check', () => {
       new_customer_name: 'Multi Item Client',
       new_customer_phone: '0781112233',
       items: JSON.stringify([
-        { product_id: 1, quantity: 2, selling_price: 12000 },
-        { product_id: 2, quantity: 1, selling_price: 9000 }
+        { product_id: p1, quantity: 2, selling_price: 12000 },
+        { product_id: p2, quantity: 1, selling_price: 13000 }
       ]),
       client_ref: ref,
       _csrf: token
     });
-    console.log('two-item order status:', ord.status);
     const saved = await queryOne<{ id: number }>('SELECT id FROM orders WHERE client_ref = ?', [ref]);
-    console.log('two-item order stored:', Boolean(saved));
-    if (saved) {
-      const cnt = await queryOne<{ c: number }>(
-        'SELECT COUNT(*) AS c FROM order_items WHERE order_id = ?', [saved.id]
-      );
-      console.log('order_items rows:', Number(cnt?.c));
-    }
+    expect(saved).toBeTruthy();
 
     // Hard assertions
     expect(adj.status).toBe(302);
@@ -70,8 +62,9 @@ describe('Demo manager regression check', () => {
   });
 
   it('manager can register new staff accounts', async () => {
-    const { agent, token } = await login('manager@quincaille.rw', 'password123');
-    const email = `newstaff-${Date.now()}@quincaille.rw`;
+    const { managerEmail, managerPassword } = await createTestShop('Staff Test Depot');
+    const { agent, token } = await login(managerEmail, managerPassword);
+    const email = `newstaff-${Date.now()}@testcompany.rw`;
     const res = await agent.post('/users/add').type('form').send({
       name: 'New Staff Member',
       email,

@@ -48,6 +48,8 @@ export const App: React.FC = () => {
   const [selectedOrderIdForInspection, setSelectedOrderIdForInspection] = useState<number | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
+  const [isServerless, setIsServerless] = useState<boolean>(false);
+
   // Notification Banner
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -65,28 +67,14 @@ export const App: React.FC = () => {
         setAvailableShops(res.availableShops || []);
         setIsSuperAdmin(res.isSuperAdmin);
         setDbPersistent(res.dbPersistent);
+        setIsServerless(Boolean(res.isServerless));
         await loadDashboardStats();
       } else {
-        // If not logged in, auto-authenticate with default manager account for immediate preview
-        try {
-          const demoRes = await api.demoSwitch('manager');
-          if (demoRes.user) {
-            setUser(demoRes.user);
-            setShop(demoRes.shop);
-            await loadDashboardStats();
-          }
-        } catch (e) {
-          try {
-            const loginRes = await api.login('manager@quincaille.rw', 'password123');
-            if (loginRes.user) {
-              setUser(loginRes.user);
-              setShop(loginRes.shop);
-              await loadDashboardStats();
-            }
-          } catch (loginErr) {
-            // Keep unauthenticated to show clean LoginModal
-          }
-        }
+        setUser(null);
+        setShop(null);
+        setDashboardStats(null);
+        setDbPersistent(res.dbPersistent);
+        setIsServerless(Boolean(res.isServerless));
       }
     } catch (err) {
       console.error('Auth verification notice:', err);
@@ -114,20 +102,6 @@ export const App: React.FC = () => {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
-  };
-
-  const handleDemoSwitch = async (role: string) => {
-    try {
-      const res = await api.demoSwitch(role);
-      if (res.user) {
-        setUser(res.user);
-        setShop(res.shop);
-        showToast(`Switched active test role to ${res.user.job_title || res.user.role}`);
-        loadDashboardStats();
-      }
-    } catch (err: any) {
-      alert(err.message || 'Failed to switch role');
-    }
   };
 
   const handleSwitchShop = async (shopId: number) => {
@@ -206,11 +180,20 @@ export const App: React.FC = () => {
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         onLogout={handleLogout}
-        onDemoSwitch={handleDemoSwitch}
         onSwitchShop={handleSwitchShop}
         onOpenPos={() => setActiveTab('pos')}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
       />
+
+      {/* Vercel Serverless Persistent Storage Advisory Banner */}
+      {isServerless && !dbPersistent && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center justify-between text-xs text-amber-300">
+          <div className="flex items-center gap-2">
+            <span className="font-bold">⚠️ Vercel Deployment Notice:</span>
+            <span>Running on ephemeral in-memory storage. For permanent database persistence across all sessions on Vercel, attach a Vercel Postgres database (set <code className="font-mono bg-black/40 px-1 py-0.5 rounded text-amber-200">POSTGRES_URL</code> in Vercel settings).</span>
+          </div>
+        </div>
+      )}
 
       {/* Main Body */}
       <div className="flex-1 flex overflow-hidden">

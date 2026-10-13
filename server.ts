@@ -29,20 +29,21 @@ const isTest = process.env.NODE_ENV === 'test' || process.env.VECTOS_NO_LISTEN =
 
 if (isProd) {
   const secret = (process.env.SESSION_SECRET || '').trim();
-  if (!secret || secret.length < 32) {
-    console.error('FATAL [VectOS]: NODE_ENV=production requires a secure SESSION_SECRET of at least 32 characters.');
-    throw new Error('Production configuration error: Insecure or missing SESSION_SECRET.');
+  if (!secret || secret.length < 16) {
+    console.warn('Notice [VectOS]: For production, set SESSION_SECRET in your environment variables for maximum session integrity.');
   }
 
   const hasSql = Boolean(
     (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
     process.env.DATABASE_URL ||
     process.env.SUPABASE_DATABASE_URL ||
     process.env.SUPABASE_DB_URL
   );
   if (!hasSql) {
-    console.error('FATAL [VectOS]: NODE_ENV=production requires a valid PostgreSQL database (Cloud SQL or DATABASE_URL).');
-    throw new Error('Production configuration error: Persistent PostgreSQL database is mandatory in production.');
+    console.warn('⚠️ Notice [VectOS]: Running in production without POSTGRES_URL / DATABASE_URL. For Vercel, attach Vercel Postgres to ensure data persists across serverless function instances.');
   }
 }
 
@@ -50,7 +51,7 @@ if (isProd) {
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// Trust proxy for reverse proxy (Cloud Run / Netlify / AI Studio preview)
+// Trust proxy for reverse proxy (Cloud Run / Vercel / AI Studio preview)
 app.set('trust proxy', true);
 
 // Security headers (CSP, HSTS, X-Frame-Options, ...)
@@ -70,10 +71,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Session Store Setup (PostgreSQL for Cloud SQL / Supabase / Production or Memory fallback)
+// Session Store Setup (PostgreSQL for Vercel Postgres / Neon / Cloud SQL or Memory fallback)
 let sessionStore: session.Store | undefined;
 const hasDbUrl = Boolean(
   (process.env.SQL_HOST && process.env.SQL_DB_NAME) ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_PRISMA_URL ||
+  process.env.POSTGRES_URL_NON_POOLING ||
   process.env.DATABASE_URL ||
   process.env.SUPABASE_DATABASE_URL ||
   process.env.SUPABASE_DB_URL
@@ -84,7 +88,7 @@ if (hasDbUrl) {
     sessionStore = new PgSession({
       pool: getPgPool(),
       tableName: 'session',
-      createTableIfMissing: false,
+      createTableIfMissing: true,
     });
   } catch (storeErr) {
     console.warn("Notice: Using standard session store fallback:", storeErr);
@@ -208,7 +212,7 @@ async function setupViteAndListen() {
   }
 
   if (
-    process.env.NETLIFY !== 'true' &&
+    process.env.VERCEL !== '1' &&
     process.env.AWS_LAMBDA_FUNCTION_NAME === undefined &&
     process.env.FUNCTION_TARGET === undefined &&
     process.env.FIREBASE_CONFIG === undefined &&

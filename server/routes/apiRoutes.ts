@@ -72,8 +72,16 @@ async function logApiAudit(req: Request, action: string, details: string, explic
 
 // Get Current User / Session State
 router.get('/auth/me', async (req: Request, res: Response) => {
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
   if (!req.session?.user) {
-    return res.json({ user: null, shop: null, availableShops: [], isSuperAdmin: false, dbPersistent: isPostgres() });
+    return res.json({
+      user: null,
+      shop: null,
+      availableShops: [],
+      isSuperAdmin: false,
+      dbPersistent: isPostgres(),
+      isServerless
+    });
   }
 
   const user = req.session.user;
@@ -95,8 +103,124 @@ router.get('/auth/me', async (req: Request, res: Response) => {
     shop,
     availableShops,
     isSuperAdmin: user.role === 'superadmin',
-    dbPersistent: isPostgres()
+    dbPersistent: isPostgres(),
+    isServerless
   });
+});
+
+// Register New Store Depot & Store Owner User (Self-Service Onboarding)
+router.post('/auth/register', async (req: Request, res: Response) => {
+  const { storeName, ownerName, email, password, phone, location } = req.body;
+  if (!storeName || !ownerName || !email || !password) {
+    return res.status(400).json({ error: 'Store Name, Owner Name, Email, and Password are required.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  if (password.trim().length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+  }
+
+  try {
+    // Check if user email already exists
+    const existingUser = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [cleanEmail]);
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with this email already exists. Please sign in instead.' });
+    }
+
+    // Generate unique shop code from store name
+    const baseCode = storeName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'store';
+    let code = baseCode;
+    let codeSuffix = 1;
+    while (await queryOne('SELECT id FROM shops WHERE code = ?', [code])) {
+      code = `${baseCode}${codeSuffix++}`;
+    }
+
+    const hashedPassword = await bcrypt.hash(password.trim(), 10);
+    const storeLocation = location?.trim() || 'Kigali, Rwanda';
+    const storePhone = phone?.trim() || '+250 788 000 000';
+
+    const result = await withTransaction(async () => {
+      // 1. Create the store tenant record
+      const shopRes = await execute(
+        `INSERT INTO shops (name, code, owner_name, phone, email, location, status, business_type, subscription_plan)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', 'Hardware & Electronics', 'Standard Depot')`,
+        [storeName.trim(), code, ownerName.trim(), storePhone, cleanEmail, storeLocation]
+      );
+      const newShopId = shopRes.lastInsertId;
+
+      // 2. Create the default primary stock warehouse for this store
+      const stockRes = await execute(
+        `INSERT INTO stocks (shop_id, name, code, location, manager_name, is_main, status)
+         VALUES (?, ?, 'WH-01', ?, ?, 1, 'active')`,
+        [newShopId, `${storeName.trim()} Main Warehouse`, storeLocation, ownerName.trim()]
+      );
+      const newStockId = stockRes.lastInsertId;
+
+      // 3. Create the store owner administrator user
+      const userRes = await execute(
+        `INSERT INTO users (
+          shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status,
+          can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
+          can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
+          can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
+          can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
+          force_password_change
+        ) VALUES (?, ?, ?, ?, ?, 'manager', 'Store Owner & Manager', ?, 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0)`,
+        [newShopId, newStockId, ownerName.trim(), cleanEmail, hashedPassword, storePhone]
+      );
+      const newUserId = userRes.lastInsertId;
+
+      return { shopId: newShopId, stockId: newStockId, userId: newUserId, code };
+    });
+
+    const shop = await queryOne('SELECT * FROM shops WHERE id = ?', [result.shopId]);
+    const user = await queryOne('SELECT * FROM users WHERE id = ?', [result.userId]);
+
+    req.session.user = {
+      id: user.id,
+      shop_id: user.shop_id,
+      stock_id: user.stock_id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      job_title: user.job_title,
+      phone: user.phone,
+      twofa_enabled: false,
+      can_create_orders: true,
+      can_process_payments: true,
+      can_release_stock: true,
+      can_manage_stock: true,
+      can_import_export_stock: true,
+      can_partner_borrow: true,
+      can_view_reports: true,
+      can_view_buying_prices: true,
+      can_give_discounts: true,
+      can_manage_users: true,
+      can_print_full_receipt: true,
+      can_print_delivery_note: true,
+      can_manage_customers: true,
+      can_manage_partners: true,
+      can_void_orders: true,
+      can_edit_company_settings: true,
+      can_view_audit_trail: true,
+      can_reset_passwords: true,
+      can_view_all_tenants: false,
+      can_manage_subscriptions: false,
+      force_password_change: 0
+    };
+
+    await logApiAudit(req, 'STORE_REGISTERED', `Store ${storeName} registered by owner ${ownerName} (${cleanEmail})`, result.shopId);
+
+    res.json({
+      success: true,
+      message: 'Store registered successfully!',
+      user: req.session.user,
+      shop
+    });
+  } catch (err: any) {
+    console.error('Registration error:', err);
+    res.status(500).json({ error: err.message || 'Failed to complete store registration.' });
+  }
 });
 
 // Login with Rate Limiting & Throttling
@@ -117,7 +241,7 @@ router.post('/auth/login', async (req: Request, res: Response) => {
   }
 
   try {
-    if (cleanEmail === 'admin@vectos.co.rw' || cleanEmail === 'admin@quincaille.rw') {
+    if (cleanEmail === 'rwemera30@gmail.com' || cleanEmail === 'admin@vectos.rw' || cleanEmail === 'admin@vectos.co.rw' || cleanEmail === 'admin@quincaille.rw') {
       const { ensureAdminAccounts } = await import('../database/db');
       await ensureAdminAccounts();
     }
@@ -246,95 +370,9 @@ router.post('/auth/change-password', requireAuth, async (req: Request, res: Resp
   }
 });
 
-// Quick Demo Role Switcher (STRICTLY DISABLED IN PRODUCTION)
+// Quick Demo Role Switcher (Disabled)
 router.post('/auth/demo-switch', async (req: Request, res: Response) => {
-  if (isProduction()) {
-    return res.status(403).json({ error: 'Demo role switcher is strictly prohibited in production mode.' });
-  }
-
-  const { role, email } = req.body;
-
-  let targetEmail = email;
-  if (!targetEmail) {
-    switch (role) {
-      case 'superadmin':
-        targetEmail = 'admin@vectos.co.rw';
-        break;
-      case 'manager':
-        targetEmail = 'manager@quincaille.rw';
-        break;
-      case 'salesperson':
-      case 'cashier':
-        targetEmail = 'sales@quincaille.rw';
-        break;
-      case 'accountant':
-        targetEmail = 'accountant@quincaille.rw';
-        break;
-      case 'storekeeper':
-        targetEmail = 'storekeeper@quincaille.rw';
-        break;
-      default:
-        targetEmail = 'manager@quincaille.rw';
-    }
-  }
-
-  const user = await queryOne(
-    `SELECT u.*, s.name as shop_name, s.status as shop_status 
-     FROM users u 
-     LEFT JOIN shops s ON u.shop_id = s.id 
-     WHERE LOWER(TRIM(u.email)) = ?`,
-    [targetEmail.toLowerCase()]
-  );
-
-  if (!user) {
-    return res.status(404).json({ error: `User with email ${targetEmail} not found.` });
-  }
-
-  req.session.user = {
-    id: user.id,
-    shop_id: user.shop_id,
-    stock_id: user.stock_id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    job_title: user.job_title,
-    phone: user.phone,
-    twofa_enabled: Boolean(user.twofa_enabled),
-    can_create_orders: Boolean(user.can_create_orders),
-    can_process_payments: Boolean(user.can_process_payments),
-    can_release_stock: Boolean(user.can_release_stock),
-    can_manage_stock: Boolean(user.can_manage_stock),
-    can_import_export_stock: Boolean(user.can_import_export_stock),
-    can_partner_borrow: Boolean(user.can_partner_borrow),
-    can_view_reports: Boolean(user.can_view_reports),
-    can_view_buying_prices: Boolean(user.can_view_buying_prices),
-    can_give_discounts: Boolean(user.can_give_discounts),
-    can_manage_users: Boolean(user.can_manage_users),
-    can_print_full_receipt: Boolean(user.can_print_full_receipt),
-    can_print_delivery_note: Boolean(user.can_print_delivery_note),
-    can_manage_customers: Boolean(user.can_manage_customers),
-    can_manage_partners: Boolean(user.can_manage_partners),
-    can_void_orders: Boolean(user.can_void_orders),
-    can_edit_company_settings: Boolean(user.can_edit_company_settings),
-    can_view_audit_trail: Boolean(user.can_view_audit_trail),
-    can_reset_passwords: Boolean(user.can_reset_passwords),
-    can_view_all_tenants: Boolean(user.can_view_all_tenants),
-    can_manage_subscriptions: Boolean(user.can_manage_subscriptions),
-    force_password_change: Number(user.force_password_change || 0)
-  };
-
-  let shop = null;
-  if (user.shop_id) {
-    shop = await queryOne('SELECT * FROM shops WHERE id = ?', [user.shop_id]);
-  } else if (user.role === 'superadmin') {
-    shop = await queryOne('SELECT * FROM shops WHERE id = 1');
-  }
-
-  res.json({
-    success: true,
-    user: req.session.user,
-    shop
-  });
+  return res.status(403).json({ error: 'Demo accounts are disabled. Please sign in or register your store.' });
 });
 
 // Logout

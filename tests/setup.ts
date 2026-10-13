@@ -5,8 +5,13 @@
 // test DB (e.g., vectos_test) will run the same suite against PostgreSQL.
 if (!process.env.VECTOS_USE_PG) {
   process.env.DATABASE_URL = '';
+  process.env.POSTGRES_URL = '';
+  process.env.POSTGRES_PRISMA_URL = '';
+  process.env.POSTGRES_URL_NON_POOLING = '';
   process.env.SUPABASE_DATABASE_URL = '';
   process.env.SUPABASE_DB_URL = '';
+  process.env.SQL_HOST = '';
+  process.env.SQL_DB_NAME = '';
 } else if (!process.env.DATABASE_URL) {
   console.warn('VECTOS_USE_PG=1 requires DATABASE_URL to be set to a dedicated test database (e.g., vectos_test)');
 }
