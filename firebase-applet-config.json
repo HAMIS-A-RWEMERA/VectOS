@@ -1,11 +1,8 @@
 {
-  "projectId": "enhanced-bindery-3dtd0",
-  "appId": "1:433394586532:web:8f39025b1420ffaecee731",
-  "apiKey": "AIzaSyBabTTkAfy4iwSWcbKhyb54_FejNupWf4E",
-  "authDomain": "enhanced-bindery-3dtd0.firebaseapp.com",
-  "storageBucket": "enhanced-bindery-3dtd0.firebasestorage.app",
-  "messagingSenderId": "433394586532",
-  "measurementId": "",
-  "oAuthClientId": "433394586532-bc8r281jok9pliea53qpp02ha56nei6l.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "projectId": "gen-lang-client-0003292634",
+  "appId": "1:1082360688402:web:0a2cd8b461b38db59ecdcb",
+  "apiKey": "AIzaSyCI75MD_RhsHEi65x3gbOzeCrlsqnOFgME",
+  "authDomain": "gen-lang-client-0003292634.firebaseapp.com",
+  "storageBucket": "gen-lang-client-0003292634.firebasestorage.app",
+  "messagingSenderId": "1082360688402"
 }
