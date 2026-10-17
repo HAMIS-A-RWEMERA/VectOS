@@ -31,12 +31,15 @@ __export(db_exports, {
   saveDb: () => saveDb,
   withTransaction: () => withTransaction
 });
-import initSqlJs from "sql.js";
+import dotenv from "dotenv";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import initSqlJs from "sql.js";
 import bcrypt from "bcryptjs";
 import pg from "pg";
+import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
 import { AsyncLocalStorage } from "node:async_hooks";
 function resolveDbFile() {
   const preferredDir = path.join(process.cwd(), "database");
@@ -60,7 +63,25 @@ function getPgPool() {
   if (pgPoolInstance) {
     return pgPoolInstance;
   }
-  if (process.env.SQL_HOST && process.env.SQL_DB_NAME) {
+  const connectionString = (process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL_NON_POOLING || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL || "").trim();
+  if (connectionString) {
+    const isLocal = connectionString.includes("localhost") || connectionString.includes("127.0.0.1");
+    if (connectionString.includes("neon.tech") || connectionString.includes("-pooler")) {
+      pgPoolInstance = new NeonPool({
+        connectionString,
+        max: 10,
+        connectionTimeoutMillis: 15e3
+      });
+    } else {
+      pgPoolInstance = new Pool({
+        connectionString,
+        ssl: isLocal ? false : { rejectUnauthorized: false },
+        max: 5,
+        idleTimeoutMillis: 3e4,
+        connectionTimeoutMillis: 1e4
+      });
+    }
+  } else if (process.env.SQL_HOST && process.env.SQL_DB_NAME) {
     const user = process.env.SQL_USER || process.env.SQL_ADMIN_USER || "postgres";
     const password = process.env.SQL_PASSWORD || process.env.SQL_ADMIN_PASSWORD || "";
     const host = process.env.SQL_HOST;
@@ -77,20 +98,12 @@ function getPgPool() {
       idleTimeoutMillis: 3e4,
       connectionTimeoutMillis: 15e3
     });
-  } else {
-    const connectionString = (process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL || "").trim();
-    const isLocal = connectionString.includes("localhost") || connectionString.includes("127.0.0.1");
-    pgPoolInstance = new Pool({
-      connectionString,
-      ssl: isLocal ? false : { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 3e4,
-      connectionTimeoutMillis: 1e4
+  }
+  if (pgPoolInstance) {
+    pgPoolInstance.on("error", (err) => {
+      console.error("Unexpected error on idle PostgreSQL client:", err);
     });
   }
-  pgPoolInstance.on("error", (err) => {
-    console.error("Unexpected error on idle PostgreSQL client:", err);
-  });
   return pgPoolInstance;
 }
 function formatPgSql(sql) {
@@ -363,7 +376,37 @@ async function initPostgresSchemaIfNeeded() {
     } catch {
     }
   }
+  try {
+    const shopCheck = await pool.query("SELECT COUNT(*) as count FROM shops");
+    if (parseInt(shopCheck.rows[0]?.count || "0", 10) === 0) {
+      console.log("Seeding initial default store and warehouse in Neon Postgres...");
+      await pool.query(`
+        INSERT INTO shops (id, name, code, owner_name, phone, email, location, status, subscription_plan)
+        VALUES (1, 'VectOS Main Store', 'main', 'Administrator', '+250 788 000 000', 'rwemera30@gmail.com', 'Kigali, Rwanda', 'active', 'Standard Store')
+        ON CONFLICT DO NOTHING;
+      `);
+      try {
+        await pool.query(`SELECT setval('shops_id_seq', (SELECT COALESCE(MAX(id), 1) FROM shops));`);
+      } catch {
+      }
+    }
+    const stockCheck = await pool.query("SELECT COUNT(*) as count FROM stocks");
+    if (parseInt(stockCheck.rows[0]?.count || "0", 10) === 0) {
+      await pool.query(`
+        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
+        VALUES (1, 1, 'Main Warehouse', 'WH-01', 'Kigali Central', 'Store Manager', 1, 'active')
+        ON CONFLICT DO NOTHING;
+      `);
+      try {
+        await pool.query(`SELECT setval('stocks_id_seq', (SELECT COALESCE(MAX(id), 1) FROM stocks));`);
+      } catch {
+      }
+    }
+  } catch (seedErr) {
+    console.warn("Notice on Postgres initial seeding:", seedErr);
+  }
   postgresSchemaInitialized = true;
+  await ensureAdminAccounts();
 }
 async function migrateUsersTableIfNeeded(db) {
   if (isPostgres() || !db) return;
@@ -837,9 +880,15 @@ async function initSchemaAndSeed(db) {
   }
   await ensureAdminAccounts(db);
 }
-var Pool, DB_FILE, warnedReadOnly, dbInstance, pgPoolInstance, postgresAvailable, dbInitPromise, postgresSchemaInitialized, pgTxStorage, sqlJsTxStorage;
+var envLocalPath, Pool, DB_FILE, warnedReadOnly, dbInstance, pgPoolInstance, postgresAvailable, dbInitPromise, postgresSchemaInitialized, pgTxStorage, sqlJsTxStorage;
 var init_db = __esm({
   "server/database/db.ts"() {
+    envLocalPath = path.resolve(process.cwd(), ".env.local");
+    if (fs.existsSync(envLocalPath)) {
+      dotenv.config({ path: envLocalPath });
+    }
+    dotenv.config();
+    neonConfig.webSocketConstructor = ws;
     ({ Pool } = pg);
     pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val) => parseFloat(val));
     pg.types.setTypeParser(pg.types.builtins.INT8, (val) => parseInt(val, 10));
@@ -897,7 +946,7 @@ import connectPgSimple from "connect-pg-simple";
 import cookieParser from "cookie-parser";
 import crypto5 from "crypto";
 import path4 from "path";
-import dotenv from "dotenv";
+import dotenv2 from "dotenv";
 
 // server/routes/apiRoutes.ts
 init_db();
@@ -3820,9 +3869,9 @@ router2.get("/products/sample-template", requireAuth, async (req, res) => {
     }
   ];
   const XLSX = await import("xlsx");
-  const ws = XLSX.utils.json_to_sheet(sampleData);
+  const ws2 = XLSX.utils.json_to_sheet(sampleData);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Products");
+  XLSX.utils.book_append_sheet(wb, ws2, "Products");
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
   res.setHeader("Content-Disposition", 'attachment; filename="Quincaille_Stock_Import_Template.xlsx"');
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -5831,7 +5880,12 @@ var billingRoutes_default = router3;
 
 // server/app.ts
 init_db();
-dotenv.config();
+import fs2 from "fs";
+var envLocalPath2 = path4.resolve(process.cwd(), ".env.local");
+if (fs2.existsSync(envLocalPath2)) {
+  dotenv2.config({ path: envLocalPath2 });
+}
+dotenv2.config();
 var app = express();
 var isProd = process.env.NODE_ENV === "production";
 var isTest = process.env.NODE_ENV === "test" || process.env.VECTOS_NO_LISTEN === "1";

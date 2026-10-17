@@ -16,6 +16,12 @@ import {
   csrfValidate
 } from './security';
 
+import fs from 'fs';
+
+const envLocalPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(envLocalPath)) {
+  dotenv.config({ path: envLocalPath });
+}
 dotenv.config();
 
 export const app = express();

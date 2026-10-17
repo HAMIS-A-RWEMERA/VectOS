@@ -1,10 +1,24 @@
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import dotenv from 'dotenv';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+
+// Load .env.local first, then .env for local and script tasks
+const envLocalPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(envLocalPath)) {
+  dotenv.config({ path: envLocalPath });
+}
+dotenv.config();
+
+import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 import bcrypt from 'bcryptjs';
 import pg from 'pg';
+import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import { AsyncLocalStorage } from 'node:async_hooks';
+
+// Support serverless connection pooling over WebSockets in Node.js / Vercel runtime
+neonConfig.webSocketConstructor = ws;
 
 const { Pool } = pg;
 
@@ -30,7 +44,7 @@ const DB_FILE = resolveDbFile();
 let warnedReadOnly = false;
 
 let dbInstance: SqlJsDatabase | null = null;
-let pgPoolInstance: pg.Pool | null = null;
+let pgPoolInstance: any = null;
 let postgresAvailable = false;
 
 export function isPostgres(): boolean {
@@ -54,7 +68,35 @@ export function getPgPool(): pg.Pool {
     return pgPoolInstance;
   }
 
-  if (process.env.SQL_HOST && process.env.SQL_DB_NAME) {
+  const connectionString = (
+    process.env.DATABASE_URL || 
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.SUPABASE_DATABASE_URL || 
+    process.env.SUPABASE_DB_URL || 
+    ''
+  ).trim();
+
+  if (connectionString) {
+    const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+
+    if (connectionString.includes('neon.tech') || connectionString.includes('-pooler')) {
+      pgPoolInstance = new NeonPool({
+        connectionString,
+        max: 10,
+        connectionTimeoutMillis: 15000,
+      });
+    } else {
+      pgPoolInstance = new Pool({
+        connectionString,
+        ssl: isLocal ? false : { rejectUnauthorized: false },
+        max: 5,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+      });
+    }
+  } else if (process.env.SQL_HOST && process.env.SQL_DB_NAME) {
     const user = process.env.SQL_USER || process.env.SQL_ADMIN_USER || 'postgres';
     const password = process.env.SQL_PASSWORD || process.env.SQL_ADMIN_PASSWORD || '';
     const host = process.env.SQL_HOST;
@@ -72,31 +114,13 @@ export function getPgPool(): pg.Pool {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 15000,
     });
-  } else {
-    const connectionString = (
-      process.env.POSTGRES_URL ||
-      process.env.POSTGRES_PRISMA_URL ||
-      process.env.POSTGRES_URL_NON_POOLING ||
-      process.env.DATABASE_URL || 
-      process.env.SUPABASE_DATABASE_URL || 
-      process.env.SUPABASE_DB_URL || 
-      ''
-    ).trim();
-
-    const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
-
-    pgPoolInstance = new Pool({
-      connectionString,
-      ssl: isLocal ? false : { rejectUnauthorized: false },
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
   }
 
-  pgPoolInstance.on('error', (err) => {
-    console.error('Unexpected error on idle PostgreSQL client:', err);
-  });
+  if (pgPoolInstance) {
+    pgPoolInstance.on('error', (err: any) => {
+      console.error('Unexpected error on idle PostgreSQL client:', err);
+    });
+  }
 
   return pgPoolInstance;
 }
@@ -418,7 +442,39 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
       // safe to ignore if column/index already present
     }
   }
+
+  // Seed Default Active Shop if none exists in Postgres
+  try {
+    const shopCheck = await pool.query('SELECT COUNT(*) as count FROM shops');
+    if (parseInt(shopCheck.rows[0]?.count || '0', 10) === 0) {
+      console.log('Seeding initial default store and warehouse in Neon Postgres...');
+      await pool.query(`
+        INSERT INTO shops (id, name, code, owner_name, phone, email, location, status, subscription_plan)
+        VALUES (1, 'VectOS Main Store', 'main', 'Administrator', '+250 788 000 000', 'rwemera30@gmail.com', 'Kigali, Rwanda', 'active', 'Standard Store')
+        ON CONFLICT DO NOTHING;
+      `);
+      try {
+        await pool.query(`SELECT setval('shops_id_seq', (SELECT COALESCE(MAX(id), 1) FROM shops));`);
+      } catch {}
+    }
+
+    const stockCheck = await pool.query('SELECT COUNT(*) as count FROM stocks');
+    if (parseInt(stockCheck.rows[0]?.count || '0', 10) === 0) {
+      await pool.query(`
+        INSERT INTO stocks (id, shop_id, name, code, location, manager_name, is_main, status)
+        VALUES (1, 1, 'Main Warehouse', 'WH-01', 'Kigali Central', 'Store Manager', 1, 'active')
+        ON CONFLICT DO NOTHING;
+      `);
+      try {
+        await pool.query(`SELECT setval('stocks_id_seq', (SELECT COALESCE(MAX(id), 1) FROM stocks));`);
+      } catch {}
+    }
+  } catch (seedErr) {
+    console.warn('Notice on Postgres initial seeding:', seedErr);
+  }
+
   postgresSchemaInitialized = true;
+  await ensureAdminAccounts();
 }
 
 

@@ -17,3 +17,4 @@ functions/views/
 functions/public/
 functions/dist/
 functions/supabase-schema.sql
+.neon
