@@ -564,19 +564,22 @@ export async function migrateUsersTableIfNeeded(db: SqlJsDatabase | null): Promi
 export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase | null): Promise<void> {
   const adminPass = await bcrypt.hash('password123', 10);
   const primaryEmail = 'rwemera30@gmail.com';
+  const aliasAdminEmail = 'admin@vectos.co.rw';
+  const salesEmail = 'sales@quincaille.rw';
 
   if (isPostgres()) {
     try {
-      const existing = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ?', [primaryEmail, 'admin@vectos.rw', 'admin@vectos.co.rw', 'admin@quincaille.rw']);
-      if (existing) {
+      // 1. Ensure rwemera30@gmail.com
+      const existingPrimary = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [primaryEmail]);
+      if (existingPrimary) {
         await execute(`
-          UPDATE users SET email = ?, password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
+          UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
               can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
               can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
               can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
               can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1,
               can_view_audit_trail = 1, can_reset_passwords = 1, can_view_all_tenants = 1, can_manage_subscriptions = 1
-          WHERE id = ?`, [primaryEmail, adminPass, existing.id]);
+          WHERE id = ?`, [adminPass, existingPrimary.id]);
       } else {
         await execute(`
           INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
@@ -585,6 +588,31 @@ export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase | null): Promi
             can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
           VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
           ['Rwemera Platform Administrator', primaryEmail, adminPass]);
+      }
+
+      // 2. Ensure admin@vectos.co.rw
+      const existingAlias = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [aliasAdminEmail]);
+      if (existingAlias) {
+        await execute(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin' WHERE id = ?`, [adminPass, existingAlias.id]);
+      } else {
+        await execute(`
+          INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+            can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+            can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
+            can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
+          VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
+          ['VectOS Administrator', aliasAdminEmail, adminPass]);
+      }
+
+      // 3. Ensure sales@quincaille.rw
+      const existingSales = await queryOne('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [salesEmail]);
+      if (existingSales) {
+        await execute(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active' WHERE id = ?`, [adminPass, existingSales.id]);
+      } else {
+        await execute(`
+          INSERT INTO users (shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status, can_create_orders, can_print_full_receipt)
+          VALUES (1, 1, 'Sales Agent', ?, ?, 'salesperson', 'Sales Staff', '+250 788 111 222', 1, 'active', 1, 1)`,
+          [salesEmail, adminPass]);
       }
     } catch (err) {
       console.error('Error in ensureAdminAccounts (PG):', err);
@@ -597,19 +625,19 @@ export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase | null): Promi
   try {
     await migrateUsersTableIfNeeded(db);
 
-    const res = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) IN ('${primaryEmail}', 'admin@vectos.rw', 'admin@vectos.co.rw', 'admin@quincaille.rw')`);
-    if (res.length > 0 && res[0].values.length > 0) {
-      const existingId = res[0].values[0][0];
+    // 1. Ensure rwemera30@gmail.com
+    const resPrimary = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) = '${primaryEmail}'`);
+    if (resPrimary.length > 0 && resPrimary[0].values.length > 0) {
       db.run(`
         UPDATE users 
-        SET email = ?, password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
+        SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
             can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
             can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
             can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
             can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1,
             can_view_audit_trail = 1, can_reset_passwords = 1, can_view_all_tenants = 1, can_manage_subscriptions = 1
         WHERE id = ?
-      `, [primaryEmail, adminPass, existingId]);
+      `, [adminPass, resPrimary[0].values[0][0]]);
     } else {
       db.run(`
         INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
@@ -617,11 +645,32 @@ export async function ensureAdminAccounts(dbToUse?: SqlJsDatabase | null): Promi
           can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
           can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
         VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-      `, [
-        'Rwemera Platform Administrator',
-        primaryEmail,
-        adminPass
-      ]);
+      `, ['Rwemera Platform Administrator', primaryEmail, adminPass]);
+    }
+
+    // 2. Ensure admin@vectos.co.rw
+    const resAlias = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) = '${aliasAdminEmail}'`);
+    if (resAlias.length > 0 && resAlias[0].values.length > 0) {
+      db.run(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin' WHERE id = ?`, [adminPass, resAlias[0].values[0][0]]);
+    } else {
+      db.run(`
+        INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+          can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+          can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
+          can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
+        VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+      `, ['VectOS Administrator', aliasAdminEmail, adminPass]);
+    }
+
+    // 3. Ensure sales@quincaille.rw
+    const resSales = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) = '${salesEmail}'`);
+    if (resSales.length > 0 && resSales[0].values.length > 0) {
+      db.run(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active' WHERE id = ?`, [adminPass, resSales[0].values[0][0]]);
+    } else {
+      db.run(`
+        INSERT INTO users (shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status, can_create_orders, can_print_full_receipt)
+        VALUES (1, 1, 'Sales Agent', ?, ?, 'salesperson', 'Sales Staff', '+250 788 111 222', 1, 'active', 1, 1)
+      `, [salesEmail, adminPass]);
     }
 
     saveDb(db);
