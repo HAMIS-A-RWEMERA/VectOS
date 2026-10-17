@@ -14,9 +14,13 @@ export const helmetMiddleware = helmet({
       scriptSrc: [
         "'self'",
         "'unsafe-inline'",
+        "'unsafe-eval'",
         'https://cdn.tailwindcss.com',
         'https://unpkg.com',
-        'https://cdn.jsdelivr.net'
+        'https://cdn.jsdelivr.net',
+        'https://apis.google.com',
+        'https://*.firebaseapp.com',
+        'https://*.googleapis.com'
       ],
       styleSrc: [
         "'self'",
@@ -26,11 +30,35 @@ export const helmetMiddleware = helmet({
       ],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'https://unpkg.com'],
-      frameAncestors: ["'self'", 'https://*.netlify.app', 'https://*.aistudio.google.com', 'https://*.google.com', 'https://*.run.app', 'https://*.googleusercontent.com'],
+      connectSrc: [
+        "'self'",
+        'https://unpkg.com',
+        'https://*.googleapis.com',
+        'https://*.firebaseio.com',
+        'wss://*.firebaseio.com',
+        'https://*.cloudfunctions.net',
+        'https://identitytoolkit.googleapis.com',
+        'https://securetoken.googleapis.com',
+        'https://firestore.googleapis.com',
+        'https://*.firebaseapp.com'
+      ],
+      frameSrc: [
+        "'self'",
+        'https://*.firebaseapp.com',
+        'https://accounts.google.com',
+        'https://*.google.com'
+      ],
+      frameAncestors: [
+        "'self'",
+        'https://*.netlify.app',
+        'https://*.aistudio.google.com',
+        'https://*.google.com',
+        'https://*.run.app',
+        'https://*.googleusercontent.com'
+      ],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
-      formAction: ["'self'"]
+      formAction: ["'self'", 'https://accounts.google.com', 'https://*.firebaseapp.com']
     }
   },
   crossOriginEmbedderPolicy: false,

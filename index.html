@@ -3,7 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VectOS — Hardware & Electronics ERP</title>
+    <title>Quincaille IOMS - Kigali Construction ERP</title>
+    <meta name="description" content="VectOS - Multi-tenant Operating System & ERP for Hardware (Quincaillerie) & Electronics/Tech retail stores in Rwanda with multi-stock tracking, granular roles, and SuperAdmin billing." />
+    <meta property="og:title" content="Quincaille IOMS - Kigali Construction ERP" />
+    <meta property="og:description" content="VectOS - Multi-tenant Operating System & ERP for Hardware (Quincaillerie) & Electronics/Tech retail stores in Rwanda with multi-stock tracking, granular roles, and SuperAdmin billing." />
+    <script>
+      // Polyfill window.fetch setter so browser extensions and automation executors can wrap fetch without throwing
+      (function() {
+        try {
+          var _orig = window.fetch;
+          var _active = _orig ? _orig.bind(window) : undefined;
+          Object.defineProperty(window, 'fetch', {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+              return _active;
+            },
+            set: function(fn) {
+              _active = fn;
+            }
+          });
+        } catch (_) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/public/icon.svg" />
     <link rel="stylesheet" href="/styles/tailwind.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com">

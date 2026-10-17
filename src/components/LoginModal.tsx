@@ -31,10 +31,25 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
 
   const formatErr = (err: any): string => {
     if (!err) return 'An error occurred during authentication.';
-    if (typeof err === 'string') return err;
-    if (typeof err.message === 'string') return err.message;
-    if (typeof err.error === 'string') return err.error;
-    if (err.error && typeof err.error.message === 'string') return err.error.message;
+    if (typeof err === 'string') {
+      if (err.trim() === '[object Object]') {
+        return 'Serverless connection error. Please verify database environment variables (POSTGRES_URL) on Vercel.';
+      }
+      return err;
+    }
+    if (typeof err.message === 'string' && err.message.trim() && err.message !== '[object Object]') {
+      return err.message;
+    }
+    if (typeof err.error === 'string' && err.error.trim()) {
+      return err.error;
+    }
+    if (err.error && typeof err.error === 'object') {
+      if (typeof err.error.message === 'string') return err.error.message;
+      if (typeof err.error.code === 'string') return `Server notice: ${err.error.code}`;
+      try {
+        return JSON.stringify(err.error);
+      } catch {}
+    }
     if (err.code) return `Auth error: ${err.code}`;
     return 'Invalid email or password or server connection issue.';
   };

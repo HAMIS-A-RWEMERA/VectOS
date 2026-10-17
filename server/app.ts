@@ -169,11 +169,22 @@ app.get('/api/health', async (req: Request, res: Response) => {
 });
 
 app.use((err: any, req: Request, res: Response, next: any) => {
-  console.log('EXPRESS UNHANDLED ERROR:', err?.message || err, err?.stack);
+  console.error('EXPRESS UNHANDLED ERROR:', err?.message || err, err?.stack);
   if (res.headersSent) {
     return next(err);
   }
-  res.status(500).render('error', { title: 'Server Error', message: err?.message || 'Internal error', path: req.path });
+  const status = typeof err?.status === 'number' ? err.status : 500;
+  const message = err?.message || 'Internal server error';
+
+  if (req.path.startsWith('/api') || req.headers.accept?.includes('application/json')) {
+    return res.status(status).json({ error: message });
+  }
+
+  try {
+    res.status(status).render('error', { title: 'Server Error', message, path: req.path });
+  } catch {
+    res.status(status).type('html').send(`<h1>Server Error</h1><p>${message}</p>`);
+  }
 });
 
 // Initialize database
