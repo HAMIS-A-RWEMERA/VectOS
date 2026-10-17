@@ -389,10 +389,19 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
     const checkTable = await pool.query(`SELECT to_regclass('public.users') as exists;`);
     if (!checkTable.rows[0] || !checkTable.rows[0].exists) {
       console.log('Initializing PostgreSQL schema...');
-      const schemaSqlPath = path.join(process.cwd(), 'database-schema.sql');
-      if (fs.existsSync(schemaSqlPath)) {
+      const candidatePaths = [
+        path.join(process.cwd(), 'database-schema.sql'),
+        path.join(__dirname, 'database-schema.sql'),
+        path.join(__dirname, '..', 'database-schema.sql'),
+        path.join(__dirname, '..', '..', 'database-schema.sql')
+      ];
+      const schemaSqlPath = candidatePaths.find(p => fs.existsSync(p));
+      if (schemaSqlPath) {
         const sqlContent = fs.readFileSync(schemaSqlPath, 'utf-8');
         await pool.query(sqlContent);
+        console.log('✅ PostgreSQL database schema applied successfully from', schemaSqlPath);
+      } else {
+        console.warn('⚠️ Notice: database-schema.sql not found in candidate paths. Please run database migrations or execute database-schema.sql in your Postgres database console.');
       }
     }
   } catch (err: any) {
