@@ -93,6 +93,9 @@ if (hasDbUrl) {
       tableName: 'session',
       createTableIfMissing: true,
     });
+    sessionStore.on('error', (storeErr) => {
+      console.warn('⚠️ PostgreSQL Session Store error (recovering):', storeErr?.message || storeErr);
+    });
   } catch (storeErr) {
     console.warn("Notice: Using standard session store fallback:", storeErr);
   }
