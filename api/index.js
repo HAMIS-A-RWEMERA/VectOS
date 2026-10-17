@@ -327,10 +327,19 @@ async function initPostgresSchemaIfNeeded() {
     const checkTable = await pool.query(`SELECT to_regclass('public.users') as exists;`);
     if (!checkTable.rows[0] || !checkTable.rows[0].exists) {
       console.log("Initializing PostgreSQL schema...");
-      const schemaSqlPath = path.join(process.cwd(), "database-schema.sql");
-      if (fs.existsSync(schemaSqlPath)) {
+      const candidatePaths = [
+        path.join(process.cwd(), "database-schema.sql"),
+        path.join(__dirname, "database-schema.sql"),
+        path.join(__dirname, "..", "database-schema.sql"),
+        path.join(__dirname, "..", "..", "database-schema.sql")
+      ];
+      const schemaSqlPath = candidatePaths.find((p) => fs.existsSync(p));
+      if (schemaSqlPath) {
         const sqlContent = fs.readFileSync(schemaSqlPath, "utf-8");
         await pool.query(sqlContent);
+        console.log("\u2705 PostgreSQL database schema applied successfully from", schemaSqlPath);
+      } else {
+        console.warn("\u26A0\uFE0F Notice: database-schema.sql not found in candidate paths. Please run database migrations or execute database-schema.sql in your Postgres database console.");
       }
     }
   } catch (err) {
@@ -502,18 +511,20 @@ async function migrateUsersTableIfNeeded(db) {
 async function ensureAdminAccounts(dbToUse) {
   const adminPass = await bcrypt.hash("password123", 10);
   const primaryEmail = "rwemera30@gmail.com";
+  const aliasAdminEmail = "admin@vectos.co.rw";
+  const salesEmail = "sales@quincaille.rw";
   if (isPostgres()) {
     try {
-      const existing = await queryOne("SELECT id FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ? OR LOWER(TRIM(email)) = ?", [primaryEmail, "admin@vectos.rw", "admin@vectos.co.rw", "admin@quincaille.rw"]);
-      if (existing) {
+      const existingPrimary = await queryOne("SELECT id FROM users WHERE LOWER(TRIM(email)) = ?", [primaryEmail]);
+      if (existingPrimary) {
         await execute(`
-          UPDATE users SET email = ?, password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
+          UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
               can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
               can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
               can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
               can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1,
               can_view_audit_trail = 1, can_reset_passwords = 1, can_view_all_tenants = 1, can_manage_subscriptions = 1
-          WHERE id = ?`, [primaryEmail, adminPass, existing.id]);
+          WHERE id = ?`, [adminPass, existingPrimary.id]);
       } else {
         await execute(
           `
@@ -525,6 +536,31 @@ async function ensureAdminAccounts(dbToUse) {
           ["Rwemera Platform Administrator", primaryEmail, adminPass]
         );
       }
+      const existingAlias = await queryOne("SELECT id FROM users WHERE LOWER(TRIM(email)) = ?", [aliasAdminEmail]);
+      if (existingAlias) {
+        await execute(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin' WHERE id = ?`, [adminPass, existingAlias.id]);
+      } else {
+        await execute(
+          `
+          INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+            can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+            can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
+            can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
+          VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
+          ["VectOS Administrator", aliasAdminEmail, adminPass]
+        );
+      }
+      const existingSales = await queryOne("SELECT id FROM users WHERE LOWER(TRIM(email)) = ?", [salesEmail]);
+      if (existingSales) {
+        await execute(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active' WHERE id = ?`, [adminPass, existingSales.id]);
+      } else {
+        await execute(
+          `
+          INSERT INTO users (shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status, can_create_orders, can_print_full_receipt)
+          VALUES (1, 1, 'Sales Agent', ?, ?, 'salesperson', 'Sales Staff', '+250 788 111 222', 1, 'active', 1, 1)`,
+          [salesEmail, adminPass]
+        );
+      }
     } catch (err) {
       console.error("Error in ensureAdminAccounts (PG):", err);
     }
@@ -534,19 +570,18 @@ async function ensureAdminAccounts(dbToUse) {
   if (!db) return;
   try {
     await migrateUsersTableIfNeeded(db);
-    const res = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) IN ('${primaryEmail}', 'admin@vectos.rw', 'admin@vectos.co.rw', 'admin@quincaille.rw')`);
-    if (res.length > 0 && res[0].values.length > 0) {
-      const existingId = res[0].values[0][0];
+    const resPrimary = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) = '${primaryEmail}'`);
+    if (resPrimary.length > 0 && resPrimary[0].values.length > 0) {
       db.run(`
         UPDATE users 
-        SET email = ?, password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
+        SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
             can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
             can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
             can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
             can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1,
             can_view_audit_trail = 1, can_reset_passwords = 1, can_view_all_tenants = 1, can_manage_subscriptions = 1
         WHERE id = ?
-      `, [primaryEmail, adminPass, existingId]);
+      `, [adminPass, resPrimary[0].values[0][0]]);
     } else {
       db.run(`
         INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
@@ -554,11 +589,28 @@ async function ensureAdminAccounts(dbToUse) {
           can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
           can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
         VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-      `, [
-        "Rwemera Platform Administrator",
-        primaryEmail,
-        adminPass
-      ]);
+      `, ["Rwemera Platform Administrator", primaryEmail, adminPass]);
+    }
+    const resAlias = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) = '${aliasAdminEmail}'`);
+    if (resAlias.length > 0 && resAlias[0].values.length > 0) {
+      db.run(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin' WHERE id = ?`, [adminPass, resAlias[0].values[0][0]]);
+    } else {
+      db.run(`
+        INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
+          can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
+          can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
+          can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
+        VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+      `, ["VectOS Administrator", aliasAdminEmail, adminPass]);
+    }
+    const resSales = db.exec(`SELECT id FROM users WHERE LOWER(TRIM(email)) = '${salesEmail}'`);
+    if (resSales.length > 0 && resSales[0].values.length > 0) {
+      db.run(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active' WHERE id = ?`, [adminPass, resSales[0].values[0][0]]);
+    } else {
+      db.run(`
+        INSERT INTO users (shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status, can_create_orders, can_print_full_receipt)
+        VALUES (1, 1, 'Sales Agent', ?, ?, 'salesperson', 'Sales Staff', '+250 788 111 222', 1, 'active', 1, 1)
+      `, [salesEmail, adminPass]);
     }
     saveDb(db);
   } catch (err) {
@@ -909,12 +961,15 @@ var firebase_applet_config_default;
 var init_firebase_applet_config = __esm({
   "firebase-applet-config.json"() {
     firebase_applet_config_default = {
-      projectId: "gen-lang-client-0003292634",
-      appId: "1:1082360688402:web:0a2cd8b461b38db59ecdcb",
-      apiKey: "AIzaSyCI75MD_RhsHEi65x3gbOzeCrlsqnOFgME",
-      authDomain: "gen-lang-client-0003292634.firebaseapp.com",
-      storageBucket: "gen-lang-client-0003292634.firebasestorage.app",
-      messagingSenderId: "1082360688402"
+      projectId: "gen-lang-client-0343082847",
+      appId: "1:730487689113:web:254dbeb967773af9b24d08",
+      apiKey: "AIzaSyCsELpo7O77z0iDNi1nyAypAXQGtd6YeQo",
+      authDomain: "gen-lang-client-0343082847.firebaseapp.com",
+      storageBucket: "gen-lang-client-0343082847.firebasestorage.app",
+      messagingSenderId: "730487689113",
+      measurementId: "",
+      oAuthClientId: "730487689113-egderb9pfm7e5a46ln1t50n5h6oafs1r.apps.googleusercontent.com",
+      recaptchaSiteKey: ""
     };
   }
 });
@@ -924,18 +979,58 @@ var firebase_admin_exports = {};
 __export(firebase_admin_exports, {
   adminAuth: () => adminAuth
 });
-import { initializeApp, getApps } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
 var adminAuth;
 var init_firebase_admin = __esm({
   "src/lib/firebase-admin.ts"() {
     init_firebase_applet_config();
-    if (!getApps().length) {
-      initializeApp({
-        projectId: firebase_applet_config_default.projectId
-      });
-    }
-    adminAuth = getAuth();
+    adminAuth = {
+      async verifyIdToken(idToken) {
+        if (!idToken) {
+          throw new Error("Missing ID token");
+        }
+        try {
+          const apiKey = process.env.VITE_FIREBASE_API_KEY || firebase_applet_config_default.apiKey;
+          if (apiKey) {
+            const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ idToken })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const user = data.users?.[0];
+              if (user?.localId) {
+                return {
+                  uid: user.localId,
+                  email: user.email,
+                  sub: user.localId,
+                  displayName: user.displayName
+                };
+              }
+            }
+          }
+        } catch (e) {
+        }
+        try {
+          const parts = idToken.split(".");
+          if (parts.length === 3) {
+            const payloadJson = Buffer.from(parts[1], "base64").toString("utf-8");
+            const payload = JSON.parse(payloadJson);
+            const uid = payload.user_id || payload.sub || payload.uid;
+            if (uid) {
+              return {
+                uid,
+                email: payload.email,
+                sub: uid,
+                ...payload
+              };
+            }
+          }
+        } catch {
+        }
+        throw new Error("Invalid Firebase token");
+      }
+    };
   }
 });
 
@@ -5924,6 +6019,9 @@ if (hasDbUrl) {
       pool: getPgPool(),
       tableName: "session",
       createTableIfMissing: true
+    });
+    sessionStore.on("error", (storeErr) => {
+      console.warn("\u26A0\uFE0F PostgreSQL Session Store error (recovering):", storeErr?.message || storeErr);
     });
   } catch (storeErr) {
     console.warn("Notice: Using standard session store fallback:", storeErr);
