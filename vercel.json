@@ -5,7 +5,7 @@
   "framework": "vite",
   "functions": {
     "api/index.js": {
-      "includeFiles": "node_modules/sql.js/dist/sql-wasm.wasm"
+      "includeFiles": "{node_modules/sql.js/dist/sql-wasm.wasm,database-schema.sql}"
     }
   },
   "rewrites": [
