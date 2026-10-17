@@ -4,13 +4,13 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "functions": {
-    "api/index.ts": {
+    "api/index.js": {
       "includeFiles": "node_modules/sql.js/dist/sql-wasm.wasm"
     }
   },
   "rewrites": [
-    { "source": "/api", "destination": "/api/index.ts" },
-    { "source": "/api/(.*)", "destination": "/api/index.ts" },
+    { "source": "/api", "destination": "/api/index.js" },
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
     { "source": "/((?!api|assets|public|styles).*)", "destination": "/index.html" }
   ]
 }
