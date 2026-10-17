@@ -162,7 +162,22 @@ async function initializeDb(): Promise<SqlJsDatabase | null> {
     return dbInstance;
   }
 
-  const SQL = await initSqlJs();
+  const SQL = await initSqlJs({
+    locateFile: (file: string) => {
+      const candidates = [
+        path.join(process.cwd(), 'api', file),
+        path.join(process.cwd(), 'public', file),
+        path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
+        path.join(__dirname, file),
+        path.join(__dirname, '..', file),
+        path.join(__dirname, '..', '..', 'node_modules', 'sql.js', 'dist', file)
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+      }
+      return file;
+    }
+  });
 
   const dir = path.dirname(DB_FILE);
   if (!fs.existsSync(dir)) {

@@ -39,7 +39,20 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     }
 
     if (!response.ok) {
-      const errMsg = data.error || data.message || `Server request failed (${response.status})`;
+      let errMsg = `Server request failed (${response.status})`;
+      if (typeof data === 'string' && data.trim()) {
+        errMsg = data;
+      } else if (data && typeof data === 'object') {
+        if (typeof data.error === 'string') {
+          errMsg = data.error;
+        } else if (data.error && typeof data.error === 'object') {
+          errMsg = data.error.message || data.error.code || (data.error.code ? `Error: ${data.error.code}` : JSON.stringify(data.error));
+        } else if (typeof data.message === 'string') {
+          errMsg = data.message;
+        } else if (typeof data.details === 'string') {
+          errMsg = data.details;
+        }
+      }
       throw new Error(errMsg);
     }
     return data;
@@ -54,6 +67,10 @@ export const api = {
   login: (email: string, password: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password })
+  }),
+  firebaseLogin: (idToken: string, email: string, displayName?: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/firebase-login', {
+    method: 'POST',
+    body: JSON.stringify({ idToken, email, displayName })
   }),
   register: (data: {
     storeName: string;
