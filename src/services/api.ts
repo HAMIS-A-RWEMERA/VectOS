@@ -214,6 +214,23 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(shopData)
   }),
+  getAdminSettings: () => request<{ autoApproveNewStores: boolean; pendingShopsCount: number; pendingUsersCount: number }>('/api/admin/settings'),
+  updateAdminSettings: (autoApproveNewStores: boolean) => request<{ success: boolean; autoApproveNewStores: boolean }>('/api/admin/settings', {
+    method: 'POST',
+    body: JSON.stringify({ autoApproveNewStores })
+  }),
+  getPendingApprovals: () => request<{ pendingShops: Shop[]; pendingUsers: User[] }>('/api/admin/pending'),
+  updateShopStatus: (id: number, status: 'active' | 'pending' | 'suspended') => request<{ success: boolean; shop: Shop }>(`/api/admin/shops/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status })
+  }),
+  updateUserStatus: (id: number, activation_status: 'active' | 'pending_approval' | 'suspended') => request<{ success: boolean; user: User }>(`/api/admin/users/${id}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ activation_status })
+  }),
+  approveAllPending: () => request<{ success: boolean; approvedShops: number; approvedUsers: number; message: string }>('/api/admin/approve-all', {
+    method: 'POST'
+  }),
 
   // Reports & Audits
   getReports: (params?: { period?: string; startDate?: string; endDate?: string }) => {

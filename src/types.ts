@@ -33,6 +33,8 @@ export interface User {
   can_reset_passwords?: boolean;
   can_view_all_tenants?: boolean;
   can_manage_subscriptions?: boolean;
+  shop_name?: string;
+  created_at?: string;
 }
 
 export interface Shop {
@@ -55,6 +57,7 @@ export interface Shop {
   stock_count?: number;
   product_count?: number;
   total_revenue?: number;
+  created_at?: string;
 }
 
 export interface Product {

@@ -120,8 +120,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         phone: regPhone.trim() || undefined,
         location: regLocation.trim() || undefined
       });
-      if (res.success) {
-        setSuccessMsg('Store registered successfully! Redirecting...');
+      if ((res as any).pendingApproval) {
+        setSuccessMsg(
+          '🎉 Store registered successfully! Your account is now queued for acceptance by Platform SuperAdmin (Big Boss - rwemera30@gmail.com). You will receive full access once approved.'
+        );
+        setRegStoreName('');
+        setRegOwnerName('');
+        setRegEmail('');
+        setRegPassword('');
+        setRegPhone('');
+      } else if (res.success && res.user && res.shop) {
+        setSuccessMsg('Store registered and activated successfully! Redirecting...');
         setTimeout(() => {
           onLoginSuccess(res.user, res.shop);
         }, 800);

@@ -12,7 +12,8 @@ import {
   BarChart3,
   Building,
   Settings,
-  AlertTriangle
+  AlertTriangle,
+  Crown
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -28,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   user,
   lowStockCount
 }) => {
-  const isSuperAdmin = user?.role === 'superadmin';
+  const isSuperAdmin = user?.role === 'superadmin' || user?.email === 'rwemera30@gmail.com';
   const isManager = user?.role === 'manager' || isSuperAdmin;
   const isAccountant = user?.role === 'accountant' || isManager;
   const isStorekeeper = user?.role === 'storekeeper' || isManager;
@@ -54,7 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'partners', label: 'Partner Borrowing', icon: Handshake, visible: canManagePartners },
     { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, visible: canViewReports },
     { id: 'users', label: 'Staff & Roles', icon: Settings, visible: canManageUsers },
-    { id: 'superadmin', label: 'SuperAdmin Stores', icon: Building, visible: isSuperAdmin },
+    { id: 'superadmin', label: 'Big Boss & Approvals', icon: Crown, visible: isSuperAdmin, highlight: true },
   ];
 
   return (
@@ -66,7 +67,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <p className="text-sm font-bold text-slate-100 truncate mt-0.5">{user?.name || 'Authorized User'}</p>
           <div className="flex items-center gap-1.5 mt-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-semibold text-amber-400 capitalize">{user?.job_title || user?.role}</span>
+            <span className="text-xs font-semibold text-amber-400 capitalize">
+              {isSuperAdmin ? '👑 Big Boss (SuperAdmin)' : (user?.job_title || user?.role)}
+            </span>
           </div>
         </div>
       </div>

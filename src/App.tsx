@@ -65,7 +65,7 @@ export const App: React.FC = () => {
         setUser(res.user);
         setShop(res.shop);
         setAvailableShops(res.availableShops || []);
-        setIsSuperAdmin(res.isSuperAdmin);
+        setIsSuperAdmin(Boolean(res.isSuperAdmin || res.user.role === 'superadmin' || res.user.email === 'rwemera30@gmail.com'));
         setDbPersistent(res.dbPersistent);
         setIsServerless(Boolean(res.isServerless));
         await loadDashboardStats();
