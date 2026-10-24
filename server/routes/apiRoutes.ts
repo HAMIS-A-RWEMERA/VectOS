@@ -10,6 +10,7 @@ import {
   requirePermission 
 } from '../auth';
 import { throttleCheck, throttleFail, throttleClear } from '../security';
+import { GoogleGenAI } from '@google/genai';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ export function getTenantShopId(req: Request): number | null {
   const user = req.session?.user;
   if (!user) return null;
 
-  if (user.role === 'superadmin') {
+  if (user.role === 'superadmin' || user.role === 'platform_ops') {
     const explicit = Number(req.query.shop_id || req.body?.shop_id);
     if (!isNaN(explicit) && explicit > 0) return explicit;
     return user.shop_id || 1;
@@ -1749,10 +1750,10 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
     return res.status(400).json({ error: 'Name, email, and initial password are required' });
   }
 
-  // Privilege escalation check: Non-superadmin cannot create superadmin accounts
+  // Privilege escalation check: Only SuperAdmin can create superadmin or platform_ops accounts
   const assignedRole = (role || 'salesperson').toLowerCase();
-  if (assignedRole === 'superadmin' && currentUser.role !== 'superadmin') {
-    return res.status(403).json({ error: 'Privilege escalation blocked: Only SuperAdmin can create superadmin accounts.' });
+  if ((assignedRole === 'superadmin' || assignedRole === 'platform_ops') && currentUser.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Privilege escalation blocked: Only the Platform SuperAdmin can create superadmin or VectOS administration accounts.' });
   }
 
   try {
@@ -1774,7 +1775,7 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         email.trim().toLowerCase(),
         hashedPassword,
         assignedRole,
-        job_title || 'Store Staff',
+        job_title || (assignedRole === 'platform_ops' ? 'Platform Operations Officer' : 'Store Staff'),
         phone || null,
         p.can_create_orders !== undefined ? (p.can_create_orders ? 1 : 0) : 1,
         p.can_process_payments ? 1 : 0,
@@ -1794,7 +1795,7 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         p.can_edit_company_settings ? 1 : 0,
         p.can_view_audit_trail ? 1 : 0,
         p.can_reset_passwords ? 1 : 0,
-        p.can_view_all_tenants ? 1 : 0,
+        p.can_view_all_tenants !== undefined ? (p.can_view_all_tenants ? 1 : 0) : (assignedRole === 'platform_ops' ? 1 : 0),
         p.can_manage_subscriptions ? 1 : 0
       ]
     );
@@ -1817,13 +1818,18 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
 
   try {
     const existing = await queryOne('SELECT * FROM users WHERE id = ?', [targetUserId]);
-    if (!existing || (currentUser.role !== 'superadmin' && existing.shop_id !== shopId)) {
+    if (!existing || (currentUser.role !== 'superadmin' && currentUser.role !== 'platform_ops' && existing.shop_id !== shopId)) {
       return res.status(404).json({ error: 'User account not found in this store' });
     }
 
+    // Do not allow non-superadmins to modify or demote the platform SuperAdmin account
+    if (existing.role === 'superadmin' && currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Cannot modify the platform SuperAdmin account.' });
+    }
+
     // Privilege escalation check
-    if (role === 'superadmin' && currentUser.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Privilege escalation blocked: Only SuperAdmin can assign superadmin role.' });
+    if ((role === 'superadmin' || role === 'platform_ops') && currentUser.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Privilege escalation blocked: Only SuperAdmin can assign administration roles.' });
     }
 
     const updates: string[] = [];
@@ -2385,6 +2391,97 @@ router.post('/backup/restore', requireAuth, requireTenant, requireManager, async
   } catch (err: any) {
     console.error('Backup restore error:', err);
     res.status(400).json({ error: 'Restoration failed: ' + err.message });
+  }
+});
+
+// ============================================================================
+// 12. VECTOS AI HELP ASSISTANT (STRICTLY SCOPED TO VECTOS RETAIL ERP)
+// ============================================================================
+
+router.post('/ai/help', async (req: Request, res: Response) => {
+  const { question, history } = req.body;
+  if (!question || typeof question !== 'string') {
+    return res.status(400).json({ error: 'Question is required' });
+  }
+
+  const cleanQuestion = question.trim().slice(0, 500);
+
+  try {
+    const ai = new GoogleGenAI();
+    const systemInstruction = `You are the VectOS AI Assistant, a rapid in-app expert strictly for VectOS (the Retail Operating System & ERP for Hardware and Electronics Depots in Kigali, Rwanda).
+
+CRITICAL SPEED & CONCISENESS RULES:
+- Respond VERY QUICKLY: provide concise, direct, and actionable answers (2 to 4 bullet points max).
+- Never write long rambling essays or unnecessary fluff. Answer immediately.
+
+MULTILINGUAL FLUENCY (KINYARWANDA & ENGLISH):
+- You fluently understand and answer in KINYARWANDA, ENGLISH, and FRENCH.
+- If the user greets or asks in Kinyarwanda (e.g. "Muraho", "Gucuruza bikorwa bite?", "Nafungura nte iduka?", "Ububiko", "Amadeni", "Inshingano"), answer fluently and naturally in Kinyarwanda!
+- If the user asks in English, answer in English.
+- If in French, answer in French.
+
+VectOS Core Domain Knowledge:
+1. Inshingano 8 z'abakozi (8 User Roles):
+   - SuperAdmin ("Big Boss" - rwemera30@gmail.com): Umuyobozi mukuru wemeza amaduka mashya yiyandikishije (approves new stores), akanagenzura gahunda ya seriveri.
+   - Platform Operations (platform_ops): Abakozi ba VectOS bashinzwe ubufasha bw'abakiriya (customer relations), kwinjiza amaduka (onboarding), no kwamamaza (marketing).
+   - Nyiriduka / Store Owner (manager): Afite ububasha busesuye ku bicuruzwa, abakozi, ibiciro biranguza n'ibiciriritse, n'amadeni.
+   - Umubitsi / Accountant (accountant): Reconciles cash, MTN MoMo, Airtel Money, konti za banki, na raporo z'inyungu.
+   - Ushinzwe Ububiko / Storekeeper (storekeeper): Gucunga ububiko bw'ibikoresho (warehouses), kwimura ibicuruzwa hagati y'amaduka (stock transfers).
+   - Umugurisha / Salesperson (salesperson): Gucururiza ku kounteri (POS), kureba ibiri mu bubiko.
+   - Umucungamari / Cashier (cashier): Kwakira ubwishyu no gusohora inyemezabuguzi (thermal receipt / A4 EBM invoice).
+   - Umukozi / Employee (employee): Gufata komande z'ibanze.
+
+2. POS Counter Sales & MoMo (Gucuruza):
+   - Shakisha ibikoresho ukoresheje barcode scanner cyangwa izina.
+   - Ubwishyu: Amafaranga y'inoti (Cash), MTN Mobile Money (MoMo), Airtel Money, Bank Transfer, cyangwa Amadeni (Customer Debt).
+   - Inyemezabuguzi: A4 official receipt cyangwa 80mm thermal slip ifite TIN na barcode.
+
+3. Ububiko n'Ibyimurwa (Warehouses & Stock Transfers):
+   - Gucunga ububiko burenze bumwe (Main Depot, Branch).
+   - Kwimura ibicuruzwa hagati y'ububiko (Warehouse Transfers) bibaruwe neza.
+
+4. Kuguriza / Gutira hagati y'Abacuruzi (Partner Borrowing):
+   - Gutira ibikoresho by'ubwubatsi mu yindi depot mugenzi wawe mugihe ubishizemo, no kubisubiza.
+
+5. Kwiyandikisha k'Ubucuruzi (Store Registration & Approval):
+   - Kwiyandikisha ku rubuga rw'ibanze.
+   - Iduka ritangira riri muri "Pending" kugeza igihe Big Boss (SuperAdmin - rwemera30@gmail.com) akandiye "Accept & Activate".
+
+6. WhatsApp Customer Support (Ubufasha kuri WhatsApp):
+   - Nimero ya WhatsApp: +250 781 549 993 (Direct Chat).
+
+STRICT SCOPE BOUNDARY:
+- ONLY answer questions about VectOS ERP, depot inventory, POS sales, customer credit, partner borrowing, roles, and hardware depot management.
+- For unrelated questions, politely decline in the user's language: "Mumbabarire, nshinzwe gusa gufasha ku bijyanye na VectOS ERP n'imicungire y'amaduka mu Rwanda. Ni iki nabafasha ku iduka ryanyu uyu munsi? / I am strictly specialized in VectOS Retail ERP and depot operations. How can I help with your store today?"`;
+
+    const chatContents: any[] = [];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-6)) {
+        if (h && (h.role === 'user' || h.role === 'model')) {
+          chatContents.push({ role: h.role, parts: [{ text: String(h.text || '') }] });
+        }
+      }
+    }
+    chatContents.push({ role: 'user', parts: [{ text: cleanQuestion }] });
+
+    const aiRes = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: chatContents,
+      config: {
+        systemInstruction,
+        temperature: 0.2,
+        maxOutputTokens: 380,
+      }
+    });
+
+    const reply = aiRes.text || 'Muraho! Niteguye kubafasha ku bijyanye na VectOS. How can I assist you with the system today?';
+    res.json({ success: true, reply });
+  } catch (err: any) {
+    console.error('VectOS AI Help Assistant fallback:', err?.message || err);
+    res.json({
+      success: true,
+      reply: `VectOS AI Assistant is ready! Muraho, niteguye kubafasha ku bijyanye na VectOS. For immediate human support, contact VectOS Customer Support directly on WhatsApp at +250 781 549 993.`
+    });
   }
 });
 

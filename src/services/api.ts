@@ -248,5 +248,11 @@ export const api = {
     if (params?.limit) q.append('limit', String(params.limit));
     if (params?.shop_id) q.append('shop_id', String(params.shop_id));
     return request<{ success: boolean; logs: any[]; availableActions: string[] }>(`/api/reports/audit?${q.toString()}`);
-  }
+  },
+
+  // VectOS AI Help Assistant
+  askAiHelp: (question: string, history?: { role: string; text: string }[]) => request<{ success: boolean; reply: string }>('/api/ai/help', {
+    method: 'POST',
+    body: JSON.stringify({ question, history })
+  })
 };

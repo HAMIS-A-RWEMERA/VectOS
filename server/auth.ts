@@ -33,7 +33,7 @@ declare module 'express-session' {
       shop_status?: 'pending' | 'active' | 'suspended';
       name: string;
       email: string;
-      role: 'superadmin' | 'manager' | 'employee' | 'salesperson' | 'accountant' | 'storekeeper';
+      role: 'superadmin' | 'platform_ops' | 'manager' | 'employee' | 'salesperson' | 'accountant' | 'storekeeper' | 'cashier';
       twofa_enabled?: number | boolean;
       twofa_verified?: boolean;
       job_title?: string;
@@ -95,8 +95,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   const sessionUser = req.session.user;
 
-  // SuperAdmin has platform bypass
-  if (sessionUser.role === 'superadmin') {
+  // SuperAdmin and Platform Operations Staff have platform bypass
+  if (sessionUser.role === 'superadmin' || sessionUser.role === 'platform_ops') {
     return next();
   }
 
@@ -212,7 +212,7 @@ export function requireManager(req: Request, res: Response, next: NextFunction) 
   if (!req.session || !req.session.user) {
     return handleAuthFailure(req, res, 401, 'Authentication Required', 'Please log in to continue.', '/login');
   }
-  if (req.session.user.role === 'manager' || req.session.user.role === 'superadmin' || req.session.user.can_manage_users) {
+  if (req.session.user.role === 'manager' || req.session.user.role === 'superadmin' || req.session.user.role === 'platform_ops' || req.session.user.can_manage_users) {
     return next();
   }
   return handleAuthFailure(

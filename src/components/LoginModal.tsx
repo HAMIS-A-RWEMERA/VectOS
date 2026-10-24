@@ -1,20 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { User, Shop } from '../types';
-import { Lock, Mail, Store, User as UserIcon, Phone, MapPin, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { auth, googleAuthProvider } from '../lib/firebase';
-import { signInWithPopup } from 'firebase/auth';
+import { 
+  Lock, 
+  Mail, 
+  Store, 
+  User as UserIcon, 
+  Phone, 
+  MapPin, 
+  ArrowRight, 
+  AlertCircle, 
+  CheckCircle2,
+  MessageCircle,
+  Download,
+  Smartphone,
+  Sparkles
+} from 'lucide-react';
 
 interface LoginModalProps {
   onLoginSuccess: (user: User, shop: Shop) => void;
+  onOpenAiHelp?: () => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAiHelp }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
 
-  // Sign In state (Pre-linked to rwemera30@gmail.com)
-  const [email, setEmail] = useState('rwemera30@gmail.com');
-  const [password, setPassword] = useState('password123');
+  // Clean login state without any hardcoded credentials
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   // Register Store state
   const [regStoreName, setRegStoreName] = useState('');
@@ -27,16 +40,47 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // PWA Install state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', () => {
+      setInstalled(true);
+      setIsInstallable(false);
+    });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) {
+      alert('To install on your mobile device:\n\n• On iPhone/iPad (Safari): Tap the Share button (square with arrow) and select "Add to Home Screen".\n• On Android (Chrome): Tap the three dots menu and select "Install app" or "Add to Home Screen".');
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+      setInstalled(true);
+    }
+    setDeferredPrompt(null);
+  };
 
   const formatErr = (err: any): string => {
     if (!err) return 'An error occurred during authentication.';
-    if (typeof err === 'string') {
-      if (err.trim() === '[object Object]') {
-        return 'Serverless connection error. Please verify database environment variables (POSTGRES_URL) on Vercel.';
-      }
-      return err;
-    }
+    if (typeof err === 'string') return err;
     if (typeof err.message === 'string' && err.message.trim() && err.message !== '[object Object]') {
       return err.message;
     }
@@ -45,17 +89,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
     }
     if (err.error && typeof err.error === 'object') {
       if (typeof err.error.message === 'string') return err.error.message;
-      if (typeof err.error.code === 'string') return `Server notice: ${err.error.code}`;
       try {
         return JSON.stringify(err.error);
       } catch {}
     }
-    if (err.code) return `Auth error: ${err.code}`;
-    return 'Invalid email or password or server connection issue.';
+    return 'Invalid email or password or connection issue.';
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password) {
+      setError('Email and password are required.');
+      return;
+    }
     try {
       setLoading(true);
       setError('');
@@ -68,37 +114,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       setError(formatErr(err));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    try {
-      setGoogleLoading(true);
-      setError('');
-      setSuccessMsg('');
-      const result = await signInWithPopup(auth, googleAuthProvider);
-      const user = result.user;
-      const idToken = await user.getIdToken();
-      const res = await api.firebaseLogin(idToken, user.email || '', user.displayName || '');
-      if (res.success) {
-        onLoginSuccess(res.user, res.shop);
-      }
-    } catch (err: any) {
-      console.error('Google sign in error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        return;
-      }
-      if (err.code === 'auth/unauthorized-domain') {
-        setError(`Firebase Auth domain not authorized: Please open Firebase Console > Authentication > Settings > Authorized Domains, and add "${window.location.hostname}".`);
-        return;
-      }
-      if (err.code === 'auth/operation-not-allowed') {
-        setError('Firebase Auth: Google provider is not yet enabled. Open Firebase Console > Authentication > Sign-in method, and enable Google.');
-        return;
-      }
-      setError(formatErr(err));
-    } finally {
-      setGoogleLoading(false);
     }
   };
 
@@ -120,9 +135,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         phone: regPhone.trim() || undefined,
         location: regLocation.trim() || undefined
       });
+
       if ((res as any).pendingApproval) {
         setSuccessMsg(
-          '🎉 Store registered successfully! Your account is now queued for acceptance by Platform SuperAdmin (Big Boss - rwemera30@gmail.com). You will receive full access once approved.'
+          '🎉 Store registered successfully! Your account is queued for review by Platform SuperAdmin (Big Boss - rwemera30@gmail.com). You will receive full access once approved.'
         );
         setRegStoreName('');
         setRegOwnerName('');
@@ -143,8 +159,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-3xl bg-[#141923] border border-slate-700 shadow-2xl p-6 sm:p-8 space-y-6 animate-in fade-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+      <div className="w-full max-w-md my-auto rounded-3xl bg-[#141923] border border-slate-700 shadow-2xl p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95">
         {/* Header */}
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 mx-auto flex items-center justify-center shadow-xl shadow-amber-500/20 text-slate-950 font-black text-2xl">
@@ -159,7 +175,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           <button
             type="button"
             onClick={() => { setActiveTab('login'); setError(''); setSuccessMsg(''); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
               activeTab === 'login'
                 ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/10'
                 : 'text-slate-400 hover:text-white'
@@ -170,7 +186,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           <button
             type="button"
             onClick={() => { setActiveTab('register'); setError(''); setSuccessMsg(''); }}
-            className={`flex-1 py-2 text-xs font-bold rounded-lg transition ${
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition cursor-pointer ${
               activeTab === 'register'
                 ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/10'
                 : 'text-slate-400 hover:text-white'
@@ -204,10 +220,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                 <input
                   type="email"
                   required
-                  placeholder="e.g. owner@yourstore.rw"
+                  autoComplete="username"
+                  placeholder="name@company.rw"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                 />
               </div>
             </div>
@@ -219,64 +236,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                 <input
                   type="password"
                   required
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={loading || googleLoading}
-              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 mt-3 cursor-pointer disabled:opacity-50"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 mt-4 cursor-pointer disabled:opacity-50"
             >
               <span>{loading ? 'Authenticating...' : 'Sign In to Store'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-
-            {/* Firebase Google Auth Alternative */}
-            <div className="relative my-3 flex items-center justify-center">
-              <div className="border-t border-slate-800 w-full"></div>
-              <span className="bg-[#141923] px-3 text-[10px] uppercase font-bold tracking-wider text-slate-500 shrink-0">
-                or sign in with
-              </span>
-              <div className="border-t border-slate-800 w-full"></div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleGoogleSignIn}
-              disabled={loading || googleLoading}
-              className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-white font-semibold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-              <span>{googleLoading ? 'Connecting to Google...' : 'Continue with Google (Firebase)'}</span>
-            </button>
-
-            <div className="pt-2 text-center">
-              <p className="text-[11px] text-slate-500">
-                Primary Super Admin: <span className="text-amber-400 font-mono">rwemera30@gmail.com</span> / <span className="text-amber-400 font-mono">password123</span>
-              </p>
-            </div>
           </form>
         )}
 
@@ -380,12 +356,72 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 mt-3 cursor-pointer"
             >
-              <span>{loading ? 'Creating Store & Account...' : 'Complete Registration & Launch Store'}</span>
+              <span>{loading ? 'Submitting Registration...' : 'Complete Registration & Submit'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         )}
+
+        {/* Split Assistance: WhatsApp Customer Care (Half) & VectOS AI Assistant (Half) */}
+        <div className="pt-2 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* WhatsApp Support Link */}
+          <a
+            href="https://wa.me/250781549993?text=Muraho%20VectOS%20Support%2C%20I%20need%20assistance%20with%20my%20store."
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between p-2.5 rounded-2xl bg-[#0F291E]/70 hover:bg-[#0F291E] border border-emerald-500/35 text-emerald-300 transition group cursor-pointer"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition shrink-0">
+                <MessageCircle className="w-4 h-4 fill-emerald-400 text-emerald-400" />
+              </div>
+              <div className="text-left min-w-0">
+                <p className="text-xs font-bold text-emerald-200 truncate">WhatsApp</p>
+                <p className="text-[10px] font-mono text-emerald-400 truncate">+250 781 549 993</p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-400 group-hover:translate-x-0.5 transition shrink-0">
+              Chat &rarr;
+            </span>
+          </a>
+
+          {/* VectOS AI Assistant (Kinyarwanda & English) */}
+          <button
+            type="button"
+            onClick={onOpenAiHelp}
+            className="flex items-center justify-between p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/20 to-amber-600/25 hover:from-amber-500/25 hover:to-amber-600/35 border border-amber-500/40 text-amber-200 transition group cursor-pointer text-left"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 group-hover:scale-105 transition shrink-0">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="text-left min-w-0">
+                <div className="flex items-center gap-1">
+                  <p className="text-xs font-bold text-amber-200 truncate">VectOS AI</p>
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/25 text-amber-300 font-bold uppercase">Quick</span>
+                </div>
+                <p className="text-[10px] text-amber-300/90 truncate">Kinyarwanda & English</p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-amber-400 group-hover:translate-x-0.5 transition shrink-0">
+              Baza &rarr;
+            </span>
+          </button>
+        </div>
+
+        {/* PWA / Download & Add to Home Screen Option */}
+        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 pt-1">
+          <button
+            type="button"
+            onClick={handleInstallClick}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+          >
+            <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+            <span>{installed ? '✓ App Installed' : 'Install / Add to Home Screen'}</span>
+          </button>
+        </div>
       </div>
     </div>
   );
 };
+export default LoginModal;

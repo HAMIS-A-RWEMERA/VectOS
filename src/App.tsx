@@ -16,6 +16,8 @@ import { ReportsView } from './components/ReportsView';
 import { ReceiptModal } from './components/ReceiptModal';
 import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { AiHelpModal } from './components/AiHelpModal';
+import { Sparkles } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -47,6 +49,7 @@ export const App: React.FC = () => {
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const [selectedOrderIdForInspection, setSelectedOrderIdForInspection] = useState<number | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isAiHelpOpen, setIsAiHelpOpen] = useState(false);
 
   const [isServerless, setIsServerless] = useState<boolean>(false);
 
@@ -156,13 +159,20 @@ export const App: React.FC = () => {
 
   if (!user) {
     return (
-      <div className={`min-h-screen ${isDarkMode ? 'bg-[#090d16] text-slate-100' : 'bg-slate-50 text-slate-900'} flex items-center justify-center font-sans`}>
+      <div className={`min-h-screen ${isDarkMode ? 'bg-[#090d16] text-slate-100' : 'bg-slate-50 text-slate-900'} flex items-center justify-center font-sans relative`}>
         <LoginModal
           onLoginSuccess={(u, s) => {
             setUser(u);
             setShop(s);
             loadDashboardStats();
           }}
+          onOpenAiHelp={() => setIsAiHelpOpen(true)}
+        />
+
+        {/* AI Assistant available for visitors & prospective merchants on the welcome page */}
+        <AiHelpModal
+          isOpen={isAiHelpOpen}
+          onClose={() => setIsAiHelpOpen(false)}
         />
       </div>
     );
@@ -183,6 +193,7 @@ export const App: React.FC = () => {
         onSwitchShop={handleSwitchShop}
         onOpenPos={() => setActiveTab('pos')}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+        onOpenAiHelp={() => setIsAiHelpOpen(true)}
       />
 
       {/* Vercel Serverless Persistent Storage Advisory Banner */}
@@ -269,10 +280,27 @@ export const App: React.FC = () => {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl bg-amber-500 text-slate-950 font-bold text-xs shadow-2xl shadow-amber-500/30 flex items-center gap-2 animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-20 right-6 z-50 px-4 py-3 rounded-2xl bg-amber-500 text-slate-950 font-bold text-xs shadow-2xl shadow-amber-500/30 flex items-center gap-2 animate-in slide-in-from-bottom-5">
           <span>{toastMessage}</span>
         </div>
       )}
+
+      {/* Floating Quick Action for AI Guide */}
+      <button
+        type="button"
+        onClick={() => setIsAiHelpOpen(true)}
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-xl shadow-amber-500/25 transition-all duration-200 hover:scale-105 active:scale-95 group border border-amber-400/40"
+        title="Ask VectOS AI Assistant"
+      >
+        <Sparkles className="w-4 h-4 transition-transform group-hover:rotate-12" />
+        <span className="tracking-tight">AI Help</span>
+      </button>
+
+      {/* VectOS Scoped AI Assistant Modal */}
+      <AiHelpModal
+        isOpen={isAiHelpOpen}
+        onClose={() => setIsAiHelpOpen(false)}
+      />
 
       {/* Printable Receipt Modal */}
       {receiptOrder && (

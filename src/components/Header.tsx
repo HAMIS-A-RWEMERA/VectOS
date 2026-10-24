@@ -11,7 +11,11 @@ import {
   Store, 
   Sun,
   ShieldCheck,
-  User as UserIcon
+  User as UserIcon,
+  MessageCircle,
+  Sparkles,
+  Smartphone,
+  Crown
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -26,6 +30,7 @@ interface HeaderProps {
   onSwitchShop: (shopId: number) => void;
   onOpenPos: () => void;
   onOpenChangePassword?: () => void;
+  onOpenAiHelp?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -39,7 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onSwitchShop,
   onOpenPos,
-  onOpenChangePassword
+  onOpenChangePassword,
+  onOpenAiHelp
 }) => {
   const [showShopMenu, setShowShopMenu] = useState(false);
 
@@ -115,41 +121,70 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right: POS Quick Button, User Role Badge, User Profile */}
-        <div className="flex items-center gap-3">
+        {/* Right: AI Assistant, WhatsApp Support, POS Quick Button, User Role, Profile */}
+        <div className="flex items-center gap-2.5">
+          {/* VectOS AI Help Guide Button */}
+          {onOpenAiHelp && (
+            <button
+              onClick={onOpenAiHelp}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-600/25 hover:from-amber-500/25 hover:to-amber-600/40 border border-amber-500/40 text-amber-300 text-xs font-bold transition shadow-sm cursor-pointer"
+              title="Open VectOS AI Assistant"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">AI Help Guide</span>
+            </button>
+          )}
+
+          {/* WhatsApp Direct Support Button */}
+          <a
+            href="https://wa.me/250781549993?text=Muraho%20VectOS%20Customer%20Support%2C%20I%20need%20assistance"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0F291E]/70 hover:bg-[#0F291E] border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition"
+            title="Chat with Customer Support on WhatsApp (+250 781 549 993)"
+          >
+            <MessageCircle className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
+            <span>WhatsApp Support</span>
+          </a>
+
           {/* Quick POS Launch Button */}
           <button
             onClick={onOpenPos}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
           >
             <ShoppingBag className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Open POS Counter</span>
+            <span className="hidden sm:inline">POS Counter</span>
             <span className="sm:hidden">POS</span>
           </button>
 
           {/* Theme Toggle Button */}
           <button
             onClick={onToggleTheme}
-            className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition cursor-pointer"
+            className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition cursor-pointer"
             title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
           </button>
 
-          {/* Database Mode Badge */}
-          <div 
-            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400"
-            title={dbPersistent ? 'Connected to persistent PostgreSQL database' : 'Running in local storage mode'}
-          >
-            <Database className={`w-3 h-3 ${dbPersistent ? 'text-emerald-400' : 'text-amber-400'}`} />
-            <span>{dbPersistent ? 'PostgreSQL Persistent' : 'Local DB'}</span>
-          </div>
-
           {/* Current User Role Badge */}
           {user && (
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-200">
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span>{user.job_title || (user.role === 'superadmin' ? 'Super Administrator' : user.role === 'manager' ? 'Store Owner' : user.role)}</span>
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-200">
+              {user.role === 'superadmin' ? (
+                <>
+                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-amber-400">Big Boss</span>
+                </>
+              ) : user.role === 'platform_ops' ? (
+                <>
+                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="text-indigo-300">VectOS Staff</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{user.job_title || (user.role === 'manager' ? 'Store Owner' : user.role)}</span>
+                </>
+              )}
             </div>
           )}
 

@@ -1,4 +1,4 @@
-export type UserRole = 'superadmin' | 'manager' | 'accountant' | 'storekeeper' | 'salesperson' | 'cashier' | 'employee';
+export type UserRole = 'superadmin' | 'platform_ops' | 'manager' | 'accountant' | 'storekeeper' | 'salesperson' | 'cashier' | 'employee';
 
 export interface User {
   id: number;

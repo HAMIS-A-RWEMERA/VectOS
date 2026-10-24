@@ -208,6 +208,32 @@ const ROLE_PRESETS = [
       can_view_audit_trail: false,
       can_reset_passwords: false
     }
+  },
+  {
+    title: 'VectOS Admin Staff',
+    role: 'platform_ops',
+    job_title: 'Platform Operations & Customer Relations Officer',
+    desc: 'VectOS administration staff: multi-store support, customer relations, merchant onboarding, marketing',
+    permissions: {
+      can_create_orders: true,
+      can_process_payments: true,
+      can_release_stock: true,
+      can_manage_stock: true,
+      can_import_export_stock: true,
+      can_partner_borrow: true,
+      can_view_reports: true,
+      can_view_buying_prices: true,
+      can_give_discounts: true,
+      can_manage_users: true,
+      can_print_full_receipt: true,
+      can_print_delivery_note: true,
+      can_manage_customers: true,
+      can_manage_partners: true,
+      can_void_orders: true,
+      can_edit_company_settings: false,
+      can_view_audit_trail: true,
+      can_reset_passwords: true
+    }
   }
 ];
 
@@ -743,12 +769,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
-                    <option value="salesperson">Salesperson / Cashier</option>
+                    <option value="salesperson">Salesperson / Counter Clerk</option>
                     <option value="storekeeper">Warehouse Storekeeper</option>
                     <option value="accountant">Finance Accountant</option>
-                    <option value="manager">Store Manager</option>
-                    <option value="employee">PR & Communications Officer</option>
-                    {isSuperAdmin && <option value="superadmin">Platform SuperAdmin</option>}
+                    <option value="manager">Store Manager / Owner</option>
+                    <option value="employee">Store Employee</option>
+                    {isSuperAdmin && <option value="platform_ops">VectOS Platform Operations & Relations</option>}
+                    {isSuperAdmin && <option value="superadmin">Platform SuperAdmin (Big Boss)</option>}
                   </select>
                 </div>
 
