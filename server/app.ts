@@ -92,6 +92,7 @@ if (hasDbUrl) {
       pool: getPgPool(),
       tableName: 'session',
       createTableIfMissing: true,
+      pruneSessionInterval: false, // Prevents background intervals from keeping serverless lambdas open
     });
     sessionStore.on('error', (storeErr) => {
       console.warn('⚠️ PostgreSQL Session Store error (recovering):', storeErr?.message || storeErr);
@@ -103,8 +104,19 @@ if (hasDbUrl) {
 
 let sessionSecret = process.env.SESSION_SECRET;
 if (!sessionSecret) {
-  sessionSecret = isTest ? 'test-fallback-secret-at-least-32-chars-long' : crypto.randomBytes(32).toString('hex');
+  const dbUrl = (process.env.DATABASE_URL || process.env.POSTGRES_URL || '').trim();
+  if (dbUrl) {
+    // Derive a consistent deterministic secret from database URL so all serverless instances
+    // share the exact same key without invalidating cookies across cold starts
+    sessionSecret = crypto.createHash('sha256').update(dbUrl + '_vectos_persistent_session_salt').digest('hex');
+  } else {
+    sessionSecret = isTest ? 'test-fallback-secret-at-least-32-chars-long' : 'vectos-production-session-fallback-secret-32ch';
+  }
 }
+
+// In production / Vercel (same-origin), SameSite 'lax' ensures browsers accept cookies without third-party blocking.
+// In iframe development environments (AI Studio), 'none' is required for cross-origin preview frames.
+const cookieSameSite = (process.env.VERCEL === '1' || process.env.NODE_ENV === 'production') ? 'lax' : (isTest ? 'lax' : 'none');
 
 app.use(
   session({
@@ -115,7 +127,7 @@ app.use(
     proxy: true,
     cookie: {
       secure: !isTest,
-      sameSite: (isTest ? 'lax' : 'none') as 'lax' | 'none',
+      sameSite: cookieSameSite as 'lax' | 'none',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }

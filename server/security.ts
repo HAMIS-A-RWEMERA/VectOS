@@ -84,9 +84,10 @@ export function csrfEnsure(req: Request, res: Response, next: NextFunction): voi
   if (!token || !/^[a-f0-9]{64}$/.test(token)) {
     token = issueToken();
     const isTest = process.env.NODE_ENV === 'test' || process.env.VECTOS_NO_LISTEN === '1';
+    const csrfSameSite = (process.env.VERCEL === '1' || process.env.NODE_ENV === 'production') ? 'lax' : (isTest ? 'lax' : 'none');
     res.cookie(CSRF_COOKIE, token, {
       httpOnly: false,
-      sameSite: (isTest ? 'lax' : 'none') as 'lax' | 'none',
+      sameSite: csrfSameSite as 'lax' | 'none',
       secure: !isTest,
       path: '/'
     });

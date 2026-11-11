@@ -72,6 +72,23 @@ async function logApiAudit(req: Request, action: string, details: string, explic
   }
 }
 
+/**
+ * Explicitly awaits session persistence to the PostgreSQL/session store.
+ * Critical on Vercel Serverless Functions where execution freezes immediately upon res.json().
+ */
+async function saveSession(req: Request): Promise<void> {
+  if (!req.session) return;
+  return new Promise<void>((resolve, reject) => {
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session persistence save error:', err);
+        return reject(err);
+      }
+      resolve();
+    });
+  });
+}
+
 // ============================================================================
 // 1. AUTHENTICATION & SESSION MANAGEMENT
 // ============================================================================
@@ -248,6 +265,8 @@ router.post('/auth/register', async (req: Request, res: Response) => {
 
     await logApiAudit(req, 'STORE_REGISTERED', `Store ${storeName} registered and activated by owner ${ownerName} (${cleanEmail})`, result.shopId);
 
+    await saveSession(req);
+
     res.json({
       success: true,
       pendingApproval: false,
@@ -384,6 +403,8 @@ router.post('/auth/login', async (req: Request, res: Response) => {
     }
 
     await logApiAudit(req, 'USER_LOGIN', `User ${user.name} (${user.email}) logged in.`, user.shop_id || 1);
+
+    await saveSession(req);
 
     res.json({
       success: true,
@@ -527,6 +548,8 @@ router.post('/auth/firebase-login', async (req: Request, res: Response) => {
 
     await logApiAudit(req, 'USER_FIREBASE_LOGIN', `User ${user.name} (${user.email}) logged in via Firebase.`, user.shop_id || 1);
 
+    await saveSession(req);
+
     res.json({
       success: true,
       user: req.session.user,
@@ -605,6 +628,7 @@ router.post('/shops/switch', requireAuth, async (req: Request, res: Response) =>
   }
 
   req.session.user.shop_id = shop.id;
+  await saveSession(req);
   res.json({ success: true, shop });
 });
 
