@@ -897,6 +897,9 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
     const errors: string[] = [];
 
     await withTransaction(async () => {
+      // Keep track of all SKUs assigned or encountered during this batch to prevent Postgres idx_products_shop_sku collision
+      const usedSkusInBatch = new Set<string>();
+
       for (let i = 0; i < rawProducts.length; i++) {
         const item = rawProducts[i];
         if (!item.name || typeof item.name !== 'string' || !item.name.trim()) {
@@ -905,62 +908,111 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         }
 
         const name = item.name.trim();
-        const sku = (item.sku && String(item.sku).trim()) || `SKU-${Date.now().toString().slice(-5)}${i.toString().padStart(3, '0')}`;
+        let rawSku = item.sku ? String(item.sku).trim() : '';
         const barcode = item.barcode ? String(item.barcode).trim() : null;
-        const category = (item.category && String(item.category).trim()) || 'General Hardware';
-        const unit = (item.unit && String(item.unit).trim()) || 'Pcs';
+        let category = (item.category && String(item.category).trim()) || 'General Hardware';
+        if (/^(n\/?a|none|-|null)$/i.test(category)) {
+          category = 'General Hardware';
+        }
+        let unit = (item.unit && String(item.unit).trim()) || 'Pcs';
+        if (unit === '1' || /^(n\/?a|none|-|null)$/i.test(unit)) {
+          unit = 'Pcs';
+        }
         const buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
         const rawSelling = item.selling_price !== undefined ? item.selling_price : item.price;
-        const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) >= 0
+        const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) > 0
           ? Number(rawSelling)
           : (buying_price > 0 ? Math.round(buying_price * 1.25) : 0);
         const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Number(item.quantity) : 0;
         const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Number(item.low_stock_threshold)) : 10;
         const description = item.description ? String(item.description).trim() : null;
 
-        // Check if SKU exists for this shop
-        const existing = await queryOne('SELECT id, quantity FROM products WHERE shop_id = ? AND sku = ?', [shopId, sku]);
-        if (existing) {
+        // 1. Check if product with the SAME NAME already exists for this shop (case-insensitive)
+        const existingByName = await queryOne(
+          'SELECT id, name, sku, quantity, buying_price FROM products WHERE shop_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1',
+          [shopId, name]
+        );
+
+        if (existingByName) {
+          // Replenish / update existing product without changing its name
           if (hasSellingPrice) {
             await execute(
-              `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
-              [name, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description, existing.id, shopId]
+              `UPDATE products SET category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [category, unit, buying_price, selling_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
             );
           } else {
             await execute(
-              `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
-              [name, category, unit, buying_price, quantity, low_stock_threshold, description, existing.id, shopId]
+              `UPDATE products SET category = ?, unit = ?, buying_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [category, unit, buying_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
             );
+          }
+          if (existingByName.sku) {
+            usedSkusInBatch.add(String(existingByName.sku).toLowerCase());
           }
           if (quantity > 0) {
             await execute(
               `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
                VALUES (?, ?, ?, ?, 'Stock Received', 'Bulk Import Replenishment', ?)`,
-              [shopId, finalStockId, existing.id, quantity, req.session?.user?.id || 1]
+              [shopId, finalStockId, existingByName.id, quantity, req.session?.user?.id || 1]
             );
           }
           updatedCount++;
-        } else {
-          const resInsert = hasSellingPrice
-            ? await execute(
-                `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description]
-              )
-            : await execute(
-                `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description]
-              );
-          if (quantity > 0) {
-            await execute(
-              `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
-               VALUES (?, ?, ?, ?, 'Stock Received', 'Initial Bulk Import', ?)`,
-              [shopId, finalStockId, resInsert.lastInsertId, quantity, req.session?.user?.id || 1]
-            );
-          }
-          insertedCount++;
+          continue;
         }
+
+        // 2. This is a NEW PRODUCT. We must assign a guaranteed unique SKU within this shop.
+        const isPlaceholder = !rawSku || /^(1+|0+|n\/?a|none|-|null|tbd|sample|test)$/i.test(rawSku);
+        let baseSku = rawSku;
+        if (isPlaceholder) {
+          const cleanBase = rawSku && /^[A-Za-z0-9_-]+$/.test(rawSku) ? rawSku : 'SKU';
+          baseSku = `${cleanBase}-${String(i + 1).padStart(2, '0')}`;
+        }
+
+        let candidateSku = baseSku;
+        let suffix = 1;
+        while (true) {
+          const isUsedInBatch = usedSkusInBatch.has(candidateSku.toLowerCase());
+          let isUsedInDb = false;
+          if (!isUsedInBatch) {
+            const existingDb = await queryOne(
+              'SELECT id FROM products WHERE shop_id = ? AND LOWER(sku) = LOWER(?) LIMIT 1',
+              [shopId, candidateSku]
+            );
+            isUsedInDb = Boolean(existingDb);
+          }
+          if (!isUsedInBatch && !isUsedInDb) {
+            break; // Unique SKU found
+          }
+          candidateSku = `${baseSku}-${suffix}`;
+          suffix++;
+          if (suffix > 500) {
+            candidateSku = `SKU-${Date.now().toString().slice(-4)}${i.toString().padStart(3, '0')}`;
+            break;
+          }
+        }
+        usedSkusInBatch.add(candidateSku.toLowerCase());
+
+        // 3. Insert new product
+        const resInsert = hasSellingPrice
+          ? await execute(
+              `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [shopId, finalStockId, name, candidateSku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description]
+            )
+          : await execute(
+              `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [shopId, finalStockId, name, candidateSku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description]
+            );
+
+        if (quantity > 0) {
+          await execute(
+            `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+             VALUES (?, ?, ?, ?, 'Stock Received', 'Initial Bulk Import', ?)`,
+            [shopId, finalStockId, resInsert.lastInsertId, quantity, req.session?.user?.id || 1]
+          );
+        }
+        insertedCount++;
       }
     });
 

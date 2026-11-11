@@ -50,6 +50,7 @@ export const App: React.FC = () => {
   const [selectedOrderIdForInspection, setSelectedOrderIdForInspection] = useState<number | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isAiHelpOpen, setIsAiHelpOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [isServerless, setIsServerless] = useState<boolean>(false);
 
@@ -131,8 +132,13 @@ export const App: React.FC = () => {
   };
 
   const handleOrderCompleted = (order: Order) => {
-    showToast(`Order #${order.order_number} processed successfully!`);
-    setReceiptOrder(order);
+    const canPrint = isSuperAdmin || user?.role === 'manager' || user?.role === 'accountant' || user?.role === 'cashier' || Boolean(user?.can_print_full_receipt);
+    if (canPrint) {
+      showToast(`Order #${order.order_number} processed! Opening receipt...`);
+      setReceiptOrder(order);
+    } else {
+      showToast(`Order #${order.order_number} created successfully! Sent to Storekeeper for stock release.`);
+    }
     loadDashboardStats();
   };
 
@@ -194,6 +200,7 @@ export const App: React.FC = () => {
         onOpenPos={() => setActiveTab('pos')}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
         onOpenAiHelp={() => setIsAiHelpOpen(true)}
+        onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
       />
 
       {/* Vercel Serverless Persistent Storage Advisory Banner */}
@@ -211,13 +218,19 @@ export const App: React.FC = () => {
         {/* Navigation Sidebar */}
         <Sidebar
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={(tab) => {
+            setActiveTab(tab);
+            setIsMobileMenuOpen(false);
+          }}
           user={user}
           lowStockCount={dashboardStats?.lowStockCount || 0}
+          isMobileOpen={isMobileMenuOpen}
+          onCloseMobile={() => setIsMobileMenuOpen(false)}
+          onOpenMobile={() => setIsMobileMenuOpen(true)}
         />
 
         {/* Content View Area */}
-        <main className={`flex-1 overflow-y-auto min-h-0 ${isDarkMode ? 'bg-[#090d16]' : 'bg-slate-50'}`}>
+        <main className={`flex-1 overflow-y-auto min-h-0 pb-20 lg:pb-0 ${isDarkMode ? 'bg-[#090d16]' : 'bg-slate-50'}`}>
           {activeTab === 'dashboard' && (
             <DashboardView
               stats={dashboardStats}
@@ -280,7 +293,7 @@ export const App: React.FC = () => {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-20 right-6 z-50 px-4 py-3 rounded-2xl bg-amber-500 text-slate-950 font-bold text-xs shadow-2xl shadow-amber-500/30 flex items-center gap-2 animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-20 lg:bottom-20 right-4 lg:right-6 z-50 px-4 py-3 rounded-2xl bg-amber-500 text-slate-950 font-bold text-xs shadow-2xl shadow-amber-500/30 flex items-center gap-2 animate-in slide-in-from-bottom-5">
           <span>{toastMessage}</span>
         </div>
       )}
@@ -289,11 +302,11 @@ export const App: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsAiHelpOpen(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-xl shadow-amber-500/25 transition-all duration-200 hover:scale-105 active:scale-95 group border border-amber-400/40"
+        className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-30 flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-xl shadow-amber-500/25 transition-all duration-200 hover:scale-105 active:scale-95 group border border-amber-400/40"
         title="Ask VectOS AI Assistant"
       >
         <Sparkles className="w-4 h-4 transition-transform group-hover:rotate-12" />
-        <span className="tracking-tight">AI Help</span>
+        <span className="tracking-tight hidden xs:inline">AI Help</span>
       </button>
 
       {/* VectOS Scoped AI Assistant Modal */}
@@ -308,6 +321,7 @@ export const App: React.FC = () => {
           order={receiptOrder}
           shop={shop}
           onClose={() => setReceiptOrder(null)}
+          currentUser={user}
         />
       )}
 

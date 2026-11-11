@@ -54,8 +54,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canProcessPayments = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || user?.can_process_payments;
-  const canReleaseStock = user?.role === 'storekeeper' || user?.role === 'manager' || user?.role === 'superadmin' || user?.can_release_stock;
+  const canProcessPayments = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_process_payments);
+  const canReleaseStock = user?.role === 'storekeeper' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_release_stock);
+  const canPrintReceipt = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'cashier' || Boolean(user?.can_print_full_receipt);
 
   useEffect(() => {
     if (user) {
@@ -327,13 +328,19 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       >
                         Inspect
                       </button>
-                      <button
-                        onClick={() => onPrintReceipt(ord)}
-                        className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-                        title="Print Official Receipt / Delivery Note"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                      </button>
+                      {canPrintReceipt ? (
+                        <button
+                          onClick={() => onPrintReceipt(ord)}
+                          className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+                          title="Print Thermal POS Receipt (58mm/80mm)"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic px-1">
+                          No print
+                        </span>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -355,7 +362,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       {/* Order Detail Drawer Modal */}
       {isDetailOpen && selectedOrder && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-end">
-          <div className="w-full max-w-2xl bg-[#141923] border-l border-slate-700 h-full p-6 overflow-y-auto space-y-6 animate-in slide-in-from-right duration-200">
+          <div className="w-full max-w-2xl bg-[#141923] border-l border-slate-700 h-full p-4 sm:p-6 overflow-y-auto space-y-5 animate-in slide-in-from-right duration-200">
             {/* Drawer Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
@@ -375,13 +382,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <FileText className="w-3.5 h-3.5 text-rose-400" />
                   <span>Invoice PDF</span>
                 </button>
-                <button
-                  onClick={() => onPrintReceipt(selectedOrder)}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-                  title="Print Thermal POS Receipt"
-                >
-                  <Printer className="w-4 h-4" />
-                </button>
+                {canPrintReceipt && (
+                  <button
+                    onClick={() => onPrintReceipt(selectedOrder)}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+                    title="Print Thermal POS Receipt (58mm/80mm)"
+                  >
+                    <Printer className="w-4 h-4" />
+                  </button>
+                )}
                 <button
                   onClick={() => setIsDetailOpen(false)}
                   className="w-8 h-8 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition hover:bg-slate-700"
@@ -413,6 +422,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </button>
                 )}
 
+                {selectedOrder.fulfillment_status === 'pending_store' && !canReleaseStock && (
+                  <div className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Awaiting Storekeeper stock verification. Sales staff cannot release physical warehouse stock.</span>
+                  </div>
+                )}
+
                 {selectedOrder.fulfillment_status === 'approved' && canReleaseStock && (
                   <button
                     onClick={() => handleUpdateStatus('dispatched')}
@@ -424,7 +440,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </button>
                 )}
 
-                {selectedOrder.fulfillment_status === 'dispatched' && (
+                {selectedOrder.fulfillment_status === 'dispatched' && canReleaseStock && (
                   <button
                     onClick={() => handleUpdateStatus('completed')}
                     disabled={isSubmitting}
@@ -435,13 +451,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </button>
                 )}
 
-                <button
-                  onClick={() => onPrintReceipt(selectedOrder)}
-                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 flex items-center gap-1.5"
-                >
-                  <Printer className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Print Receipt / Waybill</span>
-                </button>
+                {canPrintReceipt && (
+                  <button
+                    onClick={() => onPrintReceipt(selectedOrder)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 flex items-center gap-1.5"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Print 58/80mm Thermal Receipt</span>
+                  </button>
+                )}
               </div>
             </div>
 

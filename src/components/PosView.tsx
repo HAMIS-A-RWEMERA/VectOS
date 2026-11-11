@@ -55,6 +55,13 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const [errorMsg, setErrorMsg] = useState('');
   const [lastCreatedOrder, setLastCreatedOrder] = useState<any | null>(null);
 
+  const canPrintReceipt = !user || 
+    user.role === 'superadmin' || 
+    user.role === 'manager' || 
+    user.role === 'accountant' || 
+    user.role === 'cashier' || 
+    Boolean(user.can_print_full_receipt);
+
   // Load products, categories, customers, stocks
   useEffect(() => {
     if (user) {
@@ -94,6 +101,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     });
   }, [products, searchQuery, selectedCategory]);
 
+  // Mobile View Tab State: 'catalog' | 'cart'
+  const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
+
+  const getCatalogPrice = (product: Product): number => {
+    return (product.selling_price && Number(product.selling_price) > 0)
+      ? Number(product.selling_price)
+      : (product.buying_price > 0 ? Math.round(product.buying_price * 1.25) : 1000);
+  };
+
   // Cart operations
   const addToCart = (product: Product) => {
     if (product.quantity <= 0) return;
@@ -110,17 +126,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       return [...prev, {
         product,
         quantity: 1,
-        selling_price: (product.selling_price && Number(product.selling_price) > 0) 
-          ? Number(product.selling_price) 
-          : (product.buying_price > 0 ? Math.round(product.buying_price * 1.25) : 1000),
+        selling_price: getCatalogPrice(product),
         fulfillment_source: 'main_store'
       }];
     });
   };
 
   const updateQuantity = (productId: number, delta: number) => {
-    setCart((prev) =>
-      prev
+    setCart((prev) => {
+      const updated = prev
         .map((item) => {
           if (item.product.id === productId) {
             const newQty = item.quantity + delta;
@@ -130,20 +144,56 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           }
           return item;
         })
-        .filter(Boolean) as CartItem[]
-    );
+        .filter(Boolean) as CartItem[];
+      
+      // If checkout is open, keep paidAmount in sync with new total
+      if (isCheckoutOpen) {
+        const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
+        setPaidAmount(String(newTotal));
+      }
+      return updated;
+    });
   };
 
   const updateItemPrice = (productId: number, price: number) => {
-    setCart((prev) =>
-      prev.map((item) =>
-        item.product.id === productId ? { ...item, selling_price: Math.max(0, price) } : item
-      )
-    );
+    const validPrice = Math.max(0, isNaN(price) ? 0 : price);
+    setCart((prev) => {
+      const updated = prev.map((item) =>
+        item.product.id === productId ? { ...item, selling_price: validPrice } : item
+      );
+      if (isCheckoutOpen) {
+        const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
+        setPaidAmount(String(newTotal));
+      }
+      return updated;
+    });
+  };
+
+  const resetItemPrice = (productId: number) => {
+    setCart((prev) => {
+      const updated = prev.map((item) => {
+        if (item.product.id === productId) {
+          return { ...item, selling_price: getCatalogPrice(item.product) };
+        }
+        return item;
+      });
+      if (isCheckoutOpen) {
+        const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
+        setPaidAmount(String(newTotal));
+      }
+      return updated;
+    });
   };
 
   const removeFromCart = (productId: number) => {
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
+    setCart((prev) => {
+      const updated = prev.filter((item) => item.product.id !== productId);
+      if (isCheckoutOpen) {
+        const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
+        setPaidAmount(String(newTotal));
+      }
+      return updated;
+    });
   };
 
   const clearCart = () => {
@@ -218,32 +268,68 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const formatRwf = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
   return (
-    <div className="h-[calc(100vh-61px)] flex flex-col lg:flex-row overflow-hidden bg-[#0A0D12]">
+    <div className="min-h-[calc(100vh-61px)] flex flex-col lg:flex-row overflow-hidden bg-[#0A0D12] pb-16 lg:pb-0">
+      {/* Mobile Screen Tab Toggle: Switch between Catalog and Cart */}
+      <div className="lg:hidden flex items-center p-2.5 bg-[#0F131A] border-b border-slate-800 gap-2 shrink-0 sticky top-0 z-20">
+        <button
+          type="button"
+          onClick={() => setMobileTab('catalog')}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+            mobileTab === 'catalog'
+              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+              : 'bg-slate-900 text-slate-300 border border-slate-800'
+          }`}
+        >
+          <ShoppingBag className="w-3.5 h-3.5" />
+          <span>Catalog ({filteredProducts.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileTab('cart')}
+          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 relative ${
+            mobileTab === 'cart'
+              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+              : 'bg-slate-900 text-slate-300 border border-slate-800'
+          }`}
+        >
+          <CreditCard className="w-3.5 h-3.5" />
+          <span>Cart ({cart.reduce((a, b) => a + b.quantity, 0)})</span>
+          {cart.length > 0 && (
+            <span className={`ml-1 text-[11px] font-mono font-black ${mobileTab === 'cart' ? 'text-slate-950' : 'text-amber-400'}`}>
+              • {formatRwf(cartSubtotal)}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Left: Product Catalog & Fast Live Search */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden border-r border-slate-800/80">
+      <div className={`flex-1 flex flex-col h-full overflow-hidden border-r border-slate-800/80 ${
+        mobileTab === 'catalog' ? 'flex' : 'hidden lg:flex'
+      }`}>
         {/* Top Control Bar: Search & Category Chips */}
-        <div className="p-4 bg-[#0F131A] border-b border-slate-800/80 space-y-3 shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="p-3 sm:p-4 bg-[#0F131A] border-b border-slate-800/80 space-y-2.5 sm:space-y-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search hardware by name, SKU, or scan barcode..."
+                placeholder="Search by name, SKU, or barcode..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition"
+                className="w-full pl-10 pr-12 py-2 sm:py-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition"
               />
               {searchQuery && (
                 <button
+                  type="button"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 hover:text-white"
                 >
                   Clear
                 </button>
               )}
             </div>
 
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-amber-400">
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-amber-400 shrink-0">
               <Barcode className="w-4 h-4" />
               <span>Scanner Ready</span>
             </div>
@@ -254,8 +340,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             {categories.map((cat) => (
               <button
                 key={cat}
+                type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition ${
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition text-xs ${
                   selectedCategory === cat
                     ? 'bg-amber-500 text-slate-950 font-bold shadow-sm shadow-amber-500/20'
                     : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
@@ -267,31 +354,32 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           </div>
         </div>
 
-        {/* Product Cards Grid */}
-        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
+        {/* Product Cards Grid (Touch optimized for mobile screens) */}
+        <div className="flex-1 overflow-y-auto p-2.5 sm:p-4 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3 content-start">
           {filteredProducts.map((p) => {
             const inCart = cart.find(c => c.product.id === p.id);
             const isOutOfStock = p.quantity <= 0;
             const isLowStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
+            const catalogPrice = getCatalogPrice(p);
 
             return (
               <div
                 key={p.id}
                 onClick={() => !isOutOfStock && addToCart(p)}
-                className={`group relative p-3.5 rounded-2xl border transition-all select-none flex flex-col justify-between ${
+                className={`group relative p-3 sm:p-3.5 rounded-2xl border transition-all select-none flex flex-col justify-between active:scale-[0.98] ${
                   isOutOfStock
                     ? 'bg-slate-900/40 border-slate-800/40 opacity-50 cursor-not-allowed'
                     : inCart
-                    ? 'bg-amber-500/10 border-amber-500/50 cursor-pointer shadow-lg shadow-amber-500/10'
+                    ? 'bg-amber-500/10 border-amber-500/60 cursor-pointer shadow-lg shadow-amber-500/10'
                     : 'bg-[#121620] hover:bg-[#161C28] border-slate-800/90 hover:border-slate-700 cursor-pointer'
                 }`}
               >
                 <div>
                   <div className="flex items-start justify-between gap-1">
-                    <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 truncate">
+                    <span className="text-[9px] sm:text-[10px] uppercase font-mono tracking-wider text-slate-400 truncate">
                       {p.category}
                     </span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                    <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded font-bold shrink-0 ${
                       isOutOfStock
                         ? 'bg-rose-500/20 text-rose-300'
                         : isLowStock
@@ -302,19 +390,25 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     </span>
                   </div>
 
-                  <h3 className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-amber-300 transition line-clamp-2 mt-1.5">
+                  <h3 className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-amber-300 transition line-clamp-2 mt-1 sm:mt-1.5">
                     {p.name}
                   </h3>
-                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">SKU: {p.sku}</p>
+                  <p className="text-[10px] sm:text-[11px] text-slate-400 font-mono mt-0.5 truncate">
+                    SKU: {p.sku}
+                  </p>
                 </div>
 
-                <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between">
+                <div className="mt-2.5 sm:mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between">
                   <span className="text-xs sm:text-sm font-bold text-amber-400 font-mono">
-                    {formatRwf((p.selling_price && Number(p.selling_price) > 0) ? Number(p.selling_price) : (p.buying_price > 0 ? p.buying_price * 1.25 : 1000))}
+                    {formatRwf(catalogPrice)}
                   </span>
-                  {inCart && (
-                    <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shadow">
+                  {inCart ? (
+                    <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shadow">
                       {inCart.quantity}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] sm:text-xs text-slate-400 group-hover:text-amber-300 flex items-center gap-0.5">
+                      <Plus className="w-3 h-3" /> Add
                     </span>
                   )}
                 </div>
@@ -330,29 +424,61 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             </div>
           )}
         </div>
+
+        {/* Mobile floating bar when items are in cart to jump to Cart */}
+        {cart.length > 0 && (
+          <div className="lg:hidden sticky bottom-0 left-0 right-0 p-3 bg-[#0F131A]/95 backdrop-blur border-t border-slate-800 z-30 flex items-center justify-between gap-3 shadow-2xl">
+            <div>
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Active Cart</span>
+              <p className="text-sm font-black text-amber-400 font-mono">
+                {formatRwf(cartSubtotal)} <span className="text-xs font-normal text-slate-300">({cart.reduce((a, b) => a + b.quantity, 0)} items)</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileTab('cart')}
+              className="py-2.5 px-4 rounded-xl bg-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center gap-1.5 active:scale-95 transition"
+            >
+              <span>Negotiate & Pay</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Right: Active POS Cart & Immediate Checkout Terminal */}
-      <div className="w-full lg:w-96 bg-[#0D1017] flex flex-col h-full overflow-hidden shrink-0 border-t lg:border-t-0 border-slate-800">
+      {/* Right: Active POS Cart & Immediate Checkout Terminal with Price Negotiation */}
+      <div className={`w-full lg:w-96 bg-[#0D1017] flex flex-col h-full overflow-hidden shrink-0 border-t lg:border-t-0 border-slate-800 ${
+        mobileTab === 'cart' ? 'flex' : 'hidden lg:flex'
+      }`}>
         {/* Cart Header */}
-        <div className="p-4 bg-[#111622] border-b border-slate-800/80 flex items-center justify-between shrink-0">
+        <div className="p-3 sm:p-4 bg-[#111622] border-b border-slate-800/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <ShoppingBag className="w-4 h-4 text-amber-400" />
             <h2 className="text-sm font-bold text-white">Current Cart ({cart.length})</h2>
           </div>
-          {cart.length > 0 && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={clearCart}
-              className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition flex items-center gap-1"
+              type="button"
+              onClick={() => setMobileTab('catalog')}
+              className="lg:hidden text-[11px] font-semibold text-amber-400 hover:underline flex items-center gap-1"
             >
-              <RotateCcw className="w-3 h-3" /> Clear
+              + Add Items
             </button>
-          )}
+            {cart.length > 0 && (
+              <button
+                type="button"
+                onClick={clearCart}
+                className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition flex items-center gap-1"
+              >
+                <RotateCcw className="w-3 h-3" /> Clear
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Customer Assignment Field */}
         <div className="p-3 bg-[#0F131A] border-b border-slate-800/80 space-y-2 shrink-0">
-          <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+          <label className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
             Customer / Client
           </label>
           <div className="flex gap-2">
@@ -393,75 +519,162 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           )}
         </div>
 
-        {/* Cart Item Stream */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {cart.map((item) => (
-            <div
-              key={item.product.id}
-              className="p-2.5 rounded-xl bg-[#131822] border border-slate-800/90 flex flex-col gap-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="truncate">
-                  <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
-                  <p className="text-[10px] text-slate-400 font-mono">
-                    SKU: {item.product.sku} • Stock: {item.product.quantity}
-                  </p>
-                </div>
-                <button
-                  onClick={() => removeFromCart(item.product.id)}
-                  className="text-slate-400 hover:text-rose-400 p-1 transition"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
+        {/* Cart Item Stream with Per-Item Price Bargaining / Negotiation */}
+        <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2.5">
+          {cart.map((item) => {
+            const catalogPrice = getCatalogPrice(item.product);
+            const isNegotiated = item.selling_price !== catalogPrice;
+            const isBelowCost = item.product.buying_price > 0 && item.selling_price < item.product.buying_price;
+            const diffPrice = item.selling_price - catalogPrice;
 
-              {/* Quantity Stepper and Price Editor */}
-              <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
-                <div className="flex items-center gap-1.5">
+            return (
+              <div
+                key={item.product.id}
+                className={`p-2.5 sm:p-3 rounded-xl border flex flex-col gap-2 transition ${
+                  isNegotiated
+                    ? 'bg-[#151c28] border-amber-500/40 shadow-sm'
+                    : 'bg-[#131822] border-slate-800/90'
+                }`}
+              >
+                {/* Product Name & Remove button */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5">
+                      <span>SKU: {item.product.sku}</span>
+                      <span>•</span>
+                      <span>Stock: {item.product.quantity} {item.product.unit || 'pcs'}</span>
+                    </div>
+                  </div>
                   <button
-                    onClick={() => updateQuantity(item.product.id, -1)}
-                    className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
+                    type="button"
+                    onClick={() => removeFromCart(item.product.id)}
+                    className="text-slate-400 hover:text-rose-400 p-1 transition shrink-0"
+                    title="Remove item"
                   >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                  <span className="w-8 text-center text-xs font-bold text-white font-mono">
-                    {item.quantity}
-                  </span>
-                  <button
-                    onClick={() => updateQuantity(item.product.id, 1)}
-                    disabled={item.quantity >= item.product.quantity}
-                    className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-200 flex items-center justify-center transition"
-                  >
-                    <Plus className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                <div className="text-right">
-                  <span className="text-xs font-bold text-amber-400 font-mono">
-                    {formatRwf(item.selling_price * item.quantity)}
-                  </span>
-                  <p className="text-[10px] text-slate-400 font-mono">
-                    @{formatRwf(item.selling_price)}
-                  </p>
+                {/* Per-Item Price Bargaining / Negotiation Editor */}
+                <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                      <span>Negotiated Unit Price:</span>
+                    </span>
+                    {isNegotiated && (
+                      <button
+                        type="button"
+                        onClick={() => resetItemPrice(item.product.id)}
+                        className="text-[10px] text-slate-400 hover:text-amber-400 flex items-center gap-1 underline transition"
+                        title="Reset to standard catalog price"
+                      >
+                        <RotateCcw className="w-2.5 h-2.5" /> Reset
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1 flex items-center bg-slate-900 rounded-lg border border-slate-700 focus-within:border-amber-500 transition px-2 py-1">
+                      <span className="text-[11px] font-mono font-bold text-amber-400 mr-1.5 shrink-0">RWF</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="100"
+                        value={item.selling_price}
+                        onChange={(e) => updateItemPrice(item.product.id, Number(e.target.value))}
+                        className="w-full bg-transparent text-xs font-mono font-bold text-white focus:outline-none"
+                        title="Edit agreed bargaining price per unit"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-400 shrink-0 font-mono">
+                      /{item.product.unit || 'pcs'}
+                    </span>
+                  </div>
+
+                  {/* Negotiation status indicator */}
+                  <div className="flex items-center justify-between text-[10px]">
+                    {isNegotiated ? (
+                      <span className={`font-mono font-semibold ${diffPrice < 0 ? 'text-amber-300' : 'text-emerald-400'}`}>
+                        {diffPrice < 0 ? `Discounted -${formatRwf(Math.abs(diffPrice))}` : `Premium +${formatRwf(diffPrice)}`}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 font-mono">Catalog price</span>
+                    )}
+
+                    {catalogPrice > 0 && isNegotiated && (
+                      <span className="text-slate-400 line-through font-mono">
+                        Orig: {formatRwf(catalogPrice)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Below Cost Warning */}
+                  {isBelowCost && (
+                    <div className="text-[10px] font-semibold text-rose-300 bg-rose-950/40 border border-rose-500/30 px-2 py-0.5 rounded flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
+                      <span>Below cost (Cost: {formatRwf(item.product.buying_price)})</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quantity Stepper and Line Total */}
+                <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.product.id, -1)}
+                      className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition active:scale-95"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="w-8 text-center text-xs font-bold text-white font-mono">
+                      {item.quantity}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => updateQuantity(item.product.id, 1)}
+                      disabled={item.quantity >= item.product.quantity}
+                      className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-200 flex items-center justify-center transition active:scale-95"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-xs sm:text-sm font-bold text-amber-400 font-mono">
+                      {formatRwf(item.selling_price * item.quantity)}
+                    </span>
+                    <p className="text-[10px] text-slate-400 font-mono">
+                      {item.quantity} × {formatRwf(item.selling_price)}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {cart.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-12">
               <ShoppingBag className="w-10 h-10 text-slate-400 mb-2" />
               <p className="font-semibold text-slate-300">Your Cart is Empty</p>
               <p className="text-[11px] text-slate-400 mt-1 text-center px-4">
-                Click any product on the left catalog or scan a barcode to add it to the register.
+                Tap any product on the catalog or scan a barcode to add it to this sales register.
               </p>
+              <button
+                type="button"
+                onClick={() => setMobileTab('catalog')}
+                className="lg:hidden mt-3 px-4 py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold"
+              >
+                Browse Catalog
+              </button>
             </div>
           )}
         </div>
 
         {/* Cart Checkout Footer */}
-        <div className="p-4 bg-[#111622] border-t border-slate-800/90 space-y-3 shrink-0">
-          <div className="space-y-1.5 text-xs">
+        <div className="p-3 sm:p-4 bg-[#111622] border-t border-slate-800/90 space-y-3 shrink-0">
+          <div className="space-y-1 text-xs">
             <div className="flex justify-between text-slate-400">
               <span>Items Count</span>
               <span className="font-mono">{cart.reduce((a, b) => a + b.quantity, 0)} units</span>
@@ -477,9 +690,10 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           </div>
 
           <button
+            type="button"
             onClick={openCheckout}
             disabled={cart.length === 0}
-            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 transition flex items-center justify-center gap-2"
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 transition flex items-center justify-center gap-2 active:scale-95"
           >
             <span>Proceed to Payment</span>
             <ArrowRight className="w-4 h-4" />
@@ -487,36 +701,86 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         </div>
       </div>
 
-      {/* Payment & Checkout Modal */}
+      {/* Payment & Checkout Modal with Itemized Price Editing */}
       {isCheckoutOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-5 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-4 sm:p-6 space-y-4 sm:space-y-5 animate-in fade-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <h3 className="text-base font-bold text-white">Payment & Receipt Generation</h3>
-                <p className="text-xs text-slate-400">Select payment channel & confirm receipt</p>
+                <p className="text-xs text-slate-400">Review bargained prices & confirm transaction</p>
               </div>
               <button
+                type="button"
                 onClick={() => setIsCheckoutOpen(false)}
-                className="text-slate-400 hover:text-white text-sm"
+                className="text-slate-400 hover:text-white text-base p-1"
               >
                 ✕
               </button>
             </div>
 
-            {/* Total Display */}
-            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+            {/* Total Due Banner */}
+            <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-400 uppercase font-semibold">Total Due</p>
-                <p className="text-2xl font-black text-amber-400 font-mono mt-0.5">
+                <p className="text-[11px] text-slate-400 uppercase font-semibold">Total Due (Recalculated)</p>
+                <p className="text-xl sm:text-2xl font-black text-amber-400 font-mono mt-0.5">
                   {formatRwf(cartSubtotal)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-slate-400">Customer</p>
+                <p className="text-[11px] text-slate-400">Customer</p>
                 <p className="text-xs font-bold text-slate-200">
                   {selectedCustomer?.name || customCustomerName || 'Walk-in Client'}
                 </p>
+              </div>
+            </div>
+
+            {/* Itemized Line Items & Bargaining Editor inside Checkout Modal */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-amber-400 uppercase tracking-wider">
+                  Adjust Prices of Each Item (Bargaining)
+                </label>
+                <span className="text-[10px] text-slate-400">
+                  {cart.length} item{cart.length > 1 ? 's' : ''} in order
+                </span>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto space-y-2 p-2 bg-slate-950/80 rounded-xl border border-slate-800">
+                {cart.map((item) => (
+                  <div
+                    key={item.product.id}
+                    className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">
+                        Qty: {item.quantity} • Cost: {formatRwf(item.product.buying_price)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                      <div className="flex items-center gap-1 bg-slate-950 rounded-lg border border-slate-700 px-2 py-1 focus-within:border-amber-500">
+                        <span className="text-[10px] font-bold text-amber-400">RWF</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={item.selling_price}
+                          onChange={(e) => updateItemPrice(item.product.id, Number(e.target.value))}
+                          className="w-20 bg-transparent text-xs font-mono font-bold text-white focus:outline-none"
+                          title="Edit negotiated price for this product"
+                        />
+                      </div>
+
+                      <div className="text-right min-w-[70px]">
+                        <span className="text-xs font-bold text-amber-400 font-mono">
+                          {formatRwf(item.selling_price * item.quantity)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -537,7 +801,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                       key={m.id}
                       type="button"
                       onClick={() => setPaymentMethod(m.id as any)}
-                      className={`p-3 rounded-xl border text-left flex flex-col justify-between gap-2 transition ${
+                      className={`p-2.5 sm:p-3 rounded-xl border text-left flex flex-col justify-between gap-1.5 sm:gap-2 transition active:scale-95 ${
                         isSelected
                           ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
                           : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
@@ -554,7 +818,16 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             {/* Paid Amount Input (Cash or Partial) */}
             {paymentMethod !== 'debt_credit' && (
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Amount Tendered (RWF)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-300">Amount Tendered (RWF)</label>
+                  <button
+                    type="button"
+                    onClick={() => setPaidAmount(String(cartSubtotal))}
+                    className="text-[10px] text-amber-400 hover:underline font-semibold"
+                  >
+                    Pay Exact Total
+                  </button>
+                </div>
                 <input
                   type="number"
                   value={paidAmount}
@@ -564,6 +837,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 {Number(paidAmount) > cartSubtotal && (
                   <p className="text-xs text-emerald-400 font-semibold font-mono">
                     Change to Return: {formatRwf(Number(paidAmount) - cartSubtotal)}
+                  </p>
+                )}
+                {Number(paidAmount) < cartSubtotal && Number(paidAmount) > 0 && (
+                  <p className="text-xs text-amber-400 font-semibold font-mono">
+                    Remaining Debt Balance: {formatRwf(cartSubtotal - Number(paidAmount))}
                   </p>
                 )}
               </div>
@@ -590,8 +868,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               </div>
             )}
 
+            {!canPrintReceipt && (
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Order will be queued for Storekeeper dispatch and Cashier receipting.</span>
+              </div>
+            )}
+
             {/* Process Action */}
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2.5 sm:gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setIsCheckoutOpen(false)}
@@ -603,9 +888,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 type="button"
                 onClick={handleProcessOrder}
                 disabled={isSubmitting}
-                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 active:scale-95"
               >
-                {isSubmitting ? 'Processing...' : 'Complete & Generate Receipt'}
+                {isSubmitting 
+                  ? 'Processing...' 
+                  : (canPrintReceipt ? 'Complete & Print Thermal Receipt' : 'Create Invoice Order')}
               </button>
             </div>
           </div>

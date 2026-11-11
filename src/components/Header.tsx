@@ -15,7 +15,8 @@ import {
   MessageCircle,
   Sparkles,
   Smartphone,
-  Crown
+  Crown,
+  Menu
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -31,6 +32,7 @@ interface HeaderProps {
   onOpenPos: () => void;
   onOpenChangePassword?: () => void;
   onOpenAiHelp?: () => void;
+  onToggleMobileMenu?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,49 +47,63 @@ export const Header: React.FC<HeaderProps> = ({
   onSwitchShop,
   onOpenPos,
   onOpenChangePassword,
-  onOpenAiHelp
+  onOpenAiHelp,
+  onToggleMobileMenu
 }) => {
   const [showShopMenu, setShowShopMenu] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 bg-[#0F131A]/95 backdrop-blur border-b border-slate-800/80 px-4 lg:px-6 py-3">
-      <div className="flex items-center justify-between gap-4">
-        {/* Left: Brand & Active Shop */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-xl tracking-tight">
+    <header className="sticky top-0 z-40 bg-[#0F131A]/95 backdrop-blur border-b border-slate-800/80 px-3 sm:px-6 py-2.5 sm:py-3">
+      <div className="flex items-center justify-between gap-2 sm:gap-4">
+        {/* Left: Mobile Menu Toggle + Brand & Active Shop */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Mobile hamburger menu toggle */}
+          {user && (
+            <button
+              type="button"
+              onClick={onToggleMobileMenu}
+              className="lg:hidden p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 transition active:scale-95 shrink-0"
+              title="Open Navigation Menu"
+              aria-label="Open Navigation Menu"
+            >
+              <Menu className="w-5 h-5 text-amber-400" />
+            </button>
+          )}
+
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-lg sm:text-xl tracking-tight shrink-0">
               V
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-white tracking-wide">VectOS</span>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  Rwanda ERP
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="font-bold text-base sm:text-lg text-white tracking-wide">VectOS</span>
+                <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  Rwanda
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium">Hardware & Electronics Depot OS</p>
+              <p className="hidden sm:block text-xs text-slate-400 font-medium">Hardware & Electronics Depot OS</p>
             </div>
           </div>
 
-          <div className="hidden md:block h-6 w-px bg-slate-800 mx-2" />
+          <div className="hidden md:block h-6 w-px bg-slate-800 mx-1" />
 
           {/* Active Shop Selector / Indicator */}
           {shop && (
-            <div className="relative">
+            <div className="relative min-w-0">
               {isSuperAdmin && availableShops.length > 1 ? (
                 <button
                   onClick={() => setShowShopMenu(!showShopMenu)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-200 transition"
+                  className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-200 transition max-w-[120px] sm:max-w-[180px]"
                 >
-                  <Store className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="truncate max-w-[180px]">{shop.name}</span>
-                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                  <Store className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="truncate">{shop.name}</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
                 </button>
               ) : (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs font-medium text-slate-300">
-                  <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="truncate max-w-[200px]">{shop.name}</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <div className="hidden xs:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs font-medium text-slate-300 max-w-[110px] sm:max-w-[200px]">
+                  <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="truncate">{shop.name}</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                 </div>
               )}
 
@@ -122,12 +138,12 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right: AI Assistant, WhatsApp Support, POS Quick Button, User Role, Profile */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {/* VectOS AI Help Guide Button */}
           {onOpenAiHelp && (
             <button
               onClick={onOpenAiHelp}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-600/25 hover:from-amber-500/25 hover:to-amber-600/40 border border-amber-500/40 text-amber-300 text-xs font-bold transition shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-600/25 hover:from-amber-500/25 hover:to-amber-600/40 border border-amber-500/40 text-amber-300 text-xs font-bold transition shadow-sm cursor-pointer"
               title="Open VectOS AI Assistant"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
@@ -144,13 +160,13 @@ export const Header: React.FC<HeaderProps> = ({
             title="Chat with Customer Support on WhatsApp (+250 781 549 993)"
           >
             <MessageCircle className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
-            <span>WhatsApp Support</span>
+            <span>WhatsApp</span>
           </a>
 
           {/* Quick POS Launch Button */}
           <button
             onClick={onOpenPos}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
           >
             <ShoppingBag className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">POS Counter</span>
@@ -168,7 +184,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Current User Role Badge */}
           {user && (
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-200">
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-semibold text-slate-200">
               {user.role === 'superadmin' ? (
                 <>
                   <Crown className="w-3.5 h-3.5 text-amber-400" />
@@ -190,9 +206,9 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* User Profile / Logout */}
           {user && (
-            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
+            <div className="flex items-center gap-1 pl-1.5 sm:pl-2 border-l border-slate-800">
               <div 
-                className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-amber-400"
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[11px] sm:text-xs font-bold text-amber-400 shrink-0"
                 title={`${user.name} (${user.email})`}
               >
                 {user.name.slice(0, 2).toUpperCase()}
@@ -204,7 +220,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
                   title="Change Password"
                 >
-                  <KeyRound className="w-4 h-4" />
+                  <KeyRound className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </button>
               )}
 
@@ -213,7 +229,7 @@ export const Header: React.FC<HeaderProps> = ({
                 className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                 title="Sign Out"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
             </div>
           )}

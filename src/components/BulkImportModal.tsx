@@ -56,6 +56,34 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   const [resultMsg, setResultMsg] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  const splitCsvLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    const delimiter = line.includes('\t') ? '\t' : (line.includes(';') ? ';' : ',');
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (!inQuotes) {
+          inQuotes = true;
+        } else if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i++; // Skip escaped double quote
+        } else {
+          inQuotes = false;
+        }
+      } else if (char === delimiter && !inQuotes) {
+        result.push(current.trim().replace(/^["']|["']$/g, ''));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim().replace(/^["']|["']$/g, ''));
+    return result;
+  };
+
   const parseCsvData = (text: string) => {
     const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length === 0) {
@@ -79,42 +107,57 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     let descIdx = 7;
 
     if (hasHeader) {
-      const splitHeader = lines[0].split(/[,\t;]/).map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+      const splitHeader = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase());
       splitHeader.forEach((h, idx) => {
-        if (h === 'name' || h.includes('product')) nameIdx = idx;
-        else if (h.includes('sku') || h.includes('code')) skuIdx = idx;
-        else if (h.includes('cat')) catIdx = idx;
-        else if (h.includes('unit')) unitIdx = idx;
-        else if (h.includes('buy') || h.includes('cost')) buyIdx = idx;
-        else if (h.includes('sell') || h.includes('retail')) sellIdx = idx;
+        if (h.includes('name') || h.includes('product') || h.includes('item') || h.includes('article') || h.includes('designation')) nameIdx = idx;
+        else if (h.includes('sku') || h.includes('code') || h.includes('ref')) skuIdx = idx;
+        else if (h.includes('cat') || h.includes('type')) catIdx = idx;
+        else if (h.includes('unit') || h.includes('unite') || h.includes('mesure')) unitIdx = idx;
+        else if (h.includes('buy') || h.includes('cost') || h.includes('achat') || h.includes('biranguza')) buyIdx = idx;
+        else if (h.includes('sell') || h.includes('retail') || h.includes('vente') || h.includes('kugurisha')) sellIdx = idx;
         else if (h.includes('price') && buyIdx !== idx) {
           if (sellIdx === -1) sellIdx = idx;
         }
-        else if (h.includes('qty') || h.includes('stock') || h.includes('quantity')) qtyIdx = idx;
-        else if (h.includes('low') || h.includes('min') || h.includes('alert') || h.includes('threshold')) lowIdx = idx;
-        else if (h.includes('desc') || h.includes('note') || h.includes('detail')) descIdx = idx;
+        else if (h.includes('qty') || h.includes('stock') || h.includes('quantity') || h.includes('quantite') || h.includes('ingano')) qtyIdx = idx;
+        else if (h.includes('low') || h.includes('min') || h.includes('alert') || h.includes('threshold') || h.includes('seuil')) lowIdx = idx;
+        else if (h.includes('desc') || h.includes('note') || h.includes('detail') || h.includes('remarque')) descIdx = idx;
       });
     }
 
+    const seenSkus = new Map<string, string>();
+
     const parsed: StagedProduct[] = dataLines.map((line, idx) => {
-      let parts: string[] = [];
-      if (line.includes('\t')) {
-        parts = line.split('\t');
-      } else if (line.includes(';')) {
-        parts = line.split(';');
-      } else {
-        parts = line.split(',');
+      const cleanParts = splitCsvLine(line);
+      const name = cleanParts[nameIdx] || cleanParts[0] || '';
+      let rawSku = (cleanParts[skuIdx] || '').trim();
+
+      // Disambiguate placeholder or duplicate SKUs (e.g. repeated '111111', '0', 'N/A')
+      const isPlaceholder = !rawSku || /^(1+|0+|n\/?a|none|-|null|tbd|sample|test)$/i.test(rawSku);
+      let sku = rawSku;
+      if (isPlaceholder) {
+        const base = rawSku && /^[A-Za-z0-9_-]+$/.test(rawSku) ? rawSku : 'SKU';
+        sku = `${base}-${String(idx + 1).padStart(2, '0')}`;
+      } else if (seenSkus.has(rawSku.toLowerCase()) && seenSkus.get(rawSku.toLowerCase()) !== name.toLowerCase()) {
+        sku = `${rawSku}-${String(idx + 1).padStart(2, '0')}`;
+      }
+      if (sku) {
+        seenSkus.set(rawSku.toLowerCase(), name.toLowerCase());
       }
 
-      const cleanParts = parts.map(p => p.trim().replace(/^["']|["']$/g, ''));
-      const name = cleanParts[nameIdx] || cleanParts[0] || '';
-      const sku = cleanParts[skuIdx] || `SKU-${Date.now().toString().slice(-4)}${idx.toString().padStart(2, '0')}`;
-      const category = cleanParts[catIdx] || 'Hardware';
-      const unit = cleanParts[unitIdx] || 'Pcs';
+      let category = cleanParts[catIdx] || 'General Hardware';
+      if (!category || /^(n\/?a|none|-|null)$/i.test(category)) {
+        category = 'General Hardware';
+      }
+
+      let unit = cleanParts[unitIdx] || 'Pcs';
+      if (!unit || unit === '1' || /^(n\/?a|none|-|null)$/i.test(unit)) {
+        unit = 'Pcs';
+      }
+
       const buying_price = parseFloat(cleanParts[buyIdx] !== undefined ? cleanParts[buyIdx] : cleanParts[4]) || 0;
       
       let selling_price = 0;
-      if (sellIdx >= 0 && cleanParts[sellIdx] !== undefined && !isNaN(parseFloat(cleanParts[sellIdx]))) {
+      if (sellIdx >= 0 && cleanParts[sellIdx] !== undefined && !isNaN(parseFloat(cleanParts[sellIdx])) && parseFloat(cleanParts[sellIdx]) > 0) {
         selling_price = parseFloat(cleanParts[sellIdx]);
       } else {
         selling_price = buying_price > 0 ? Math.round(buying_price * 1.25) : 0;
@@ -165,15 +208,37 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      if (content) {
-        setRawText(content);
-        parseCsvData(content);
-      }
-    };
-    reader.readAsText(file);
+    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+      import('xlsx').then(XLSX => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = new Uint8Array(event.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const csvContent = XLSX.utils.sheet_to_csv(worksheet);
+            setRawText(csvContent);
+            parseCsvData(csvContent);
+          } catch (err: any) {
+            setErrorMessage('Could not parse Excel spreadsheet: ' + err.message);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }).catch(err => {
+        setErrorMessage('Failed to load Excel reader: ' + err.message);
+      });
+    } else {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        if (content) {
+          setRawText(content);
+          parseCsvData(content);
+        }
+      };
+      reader.readAsText(file);
+    }
   };
 
   const loadSampleTemplate = () => {
@@ -269,10 +334,10 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           <div className="flex items-end gap-2">
             <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 cursor-pointer transition">
               <UploadCloud className="w-4 h-4 text-amber-400" />
-              <span>Choose CSV / TSV File</span>
+              <span>Choose CSV / Excel File</span>
               <input
                 type="file"
-                accept=".csv,.txt,.tsv"
+                accept=".csv,.txt,.tsv,.xlsx,.xls"
                 onChange={handleFileUpload}
                 className="hidden"
               />
