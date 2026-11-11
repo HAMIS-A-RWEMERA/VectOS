@@ -46,6 +46,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
     category: 'Building Materials',
     unit: 'pcs',
     buying_price: 0,
+    selling_price: 0,
     quantity: 0,
     low_stock_threshold: 5,
     description: ''
@@ -57,9 +58,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canManageStock = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.can_manage_stock;
-  const canBulkImport = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.role === 'accountant' || user?.can_import_export_stock;
-  const canViewBuyingPrices = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'accountant' || user?.can_view_buying_prices;
+  const canManageStock = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.role === 'platform_ops' || user?.can_manage_stock;
+  const canBulkImport = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.role === 'accountant' || user?.role === 'platform_ops' || user?.can_import_export_stock;
+  const canViewBuyingPrices = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'accountant' || user?.role === 'platform_ops' || user?.can_view_buying_prices;
 
   useEffect(() => {
     if (user) {
@@ -116,8 +117,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
       sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
       barcode: '',
       category: categories[1] || 'Building Materials',
-      unit: 'pcs',
+      unit: 'cartons',
       buying_price: 1000,
+      selling_price: 1250,
       quantity: 10,
       low_stock_threshold: 5,
       description: ''
@@ -135,6 +137,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
       category: p.category,
       unit: p.unit,
       buying_price: p.buying_price,
+      selling_price: p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Math.round(p.buying_price * 1.25),
       quantity: p.quantity,
       low_stock_threshold: p.low_stock_threshold,
       description: p.description || ''
@@ -321,7 +324,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
               {filteredProducts.map((p) => {
                 const isOutOfStock = p.quantity <= 0;
                 const isLowStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
-                const sellingPrice = p.buying_price > 0 ? Math.round(p.buying_price * 1.25) : 1000;
+                const sellingPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : (p.buying_price > 0 ? Math.round(p.buying_price * 1.25) : 1000);
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-800/40 transition">
@@ -453,6 +456,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
+                    <option value="cartons">Cartons (ctn)</option>
                     <option value="pcs">Pieces (pcs)</option>
                     <option value="bags">Bags (50kg)</option>
                     <option value="meters">Meters (m)</option>
@@ -469,6 +473,17 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                     value={formData.buying_price}
                     onChange={(e) => setFormData({ ...formData, buying_price: Number(e.target.value) })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">Selling Price (RWF)</label>
+                  <input
+                    type="number"
+                    value={formData.selling_price || ''}
+                    placeholder="Auto: Cost + 25%"
+                    onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
                   />
                 </div>
 

@@ -110,7 +110,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       return [...prev, {
         product,
         quantity: 1,
-        selling_price: product.buying_price > 0 ? Math.round(product.buying_price * 1.25) : 1000,
+        selling_price: (product.selling_price && Number(product.selling_price) > 0) 
+          ? Number(product.selling_price) 
+          : (product.buying_price > 0 ? Math.round(product.buying_price * 1.25) : 1000),
         fulfillment_source: 'main_store'
       }];
     });
@@ -308,7 +310,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
                 <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between">
                   <span className="text-xs sm:text-sm font-bold text-amber-400 font-mono">
-                    {formatRwf(p.buying_price > 0 ? p.buying_price * 1.25 : 1000)}
+                    {formatRwf((p.selling_price && Number(p.selling_price) > 0) ? Number(p.selling_price) : (p.buying_price > 0 ? p.buying_price * 1.25 : 1000))}
                   </span>
                   {inCart && (
                     <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shadow">

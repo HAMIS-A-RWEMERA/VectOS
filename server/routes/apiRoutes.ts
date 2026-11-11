@@ -771,24 +771,56 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
     const finalSku = sku || `SKU-${Date.now().toString().slice(-6)}`;
     const finalThreshold = low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : 10;
     const finalQty = quantity !== undefined ? Math.max(0, Number(quantity)) : 0;
+    const rawSellingPrice = req.body.selling_price !== undefined ? req.body.selling_price : req.body.price;
+    const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) >= 0
+      ? Number(rawSellingPrice)
+      : (Number(buying_price) > 0 ? Math.round(Number(buying_price) * 1.25) : 0);
 
-    const result = await execute(
-      `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        shopId,
-        finalStockId,
-        name.trim(),
-        finalSku.trim(),
-        barcode ? barcode.trim() : null,
-        category ? category.trim() : 'Hardware',
-        unit ? unit.trim() : 'Pcs',
-        Number(buying_price),
-        finalQty,
-        finalThreshold,
-        description ? description.trim() : null
-      ]
-    );
+    // Check if selling_price column exists on products table
+    let hasSellingPrice = false;
+    try {
+      const pCol = await queryOne<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'selling_price'"
+      );
+      hasSellingPrice = Boolean(pCol?.column_name);
+    } catch {}
+
+    const result = hasSellingPrice
+      ? await execute(
+          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            shopId,
+            finalStockId,
+            name.trim(),
+            finalSku.trim(),
+            barcode ? barcode.trim() : null,
+            category ? category.trim() : 'Hardware',
+            unit ? unit.trim() : 'Pcs',
+            Number(buying_price),
+            finalSellingPrice,
+            finalQty,
+            finalThreshold,
+            description ? description.trim() : null
+          ]
+        )
+      : await execute(
+          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            shopId,
+            finalStockId,
+            name.trim(),
+            finalSku.trim(),
+            barcode ? barcode.trim() : null,
+            category ? category.trim() : 'Hardware',
+            unit ? unit.trim() : 'Pcs',
+            Number(buying_price),
+            finalQty,
+            finalThreshold,
+            description ? description.trim() : null
+          ]
+        );
 
     await logApiAudit(req, 'PRODUCT_CREATED', `Created product ${name} (SKU: ${finalSku}) with ${finalQty} initial units`);
 
@@ -817,6 +849,15 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
       finalStockId = mainStock?.id || 1;
     }
 
+    // Check if selling_price column exists on products table
+    let hasSellingPrice = false;
+    try {
+      const pCol = await queryOne<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'selling_price'"
+      );
+      hasSellingPrice = Boolean(pCol?.column_name);
+    } catch {}
+
     let insertedCount = 0;
     let updatedCount = 0;
     const errors: string[] = [];
@@ -835,6 +876,10 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         const category = (item.category && String(item.category).trim()) || 'General Hardware';
         const unit = (item.unit && String(item.unit).trim()) || 'Pcs';
         const buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        const rawSelling = item.selling_price !== undefined ? item.selling_price : item.price;
+        const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) >= 0
+          ? Number(rawSelling)
+          : (buying_price > 0 ? Math.round(buying_price * 1.25) : 0);
         const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Number(item.quantity) : 0;
         const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Number(item.low_stock_threshold)) : 10;
         const description = item.description ? String(item.description).trim() : null;
@@ -842,10 +887,17 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         // Check if SKU exists for this shop
         const existing = await queryOne('SELECT id, quantity FROM products WHERE shop_id = ? AND sku = ?', [shopId, sku]);
         if (existing) {
-          await execute(
-            `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
-            [name, category, unit, buying_price, quantity, low_stock_threshold, description, existing.id, shopId]
-          );
+          if (hasSellingPrice) {
+            await execute(
+              `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [name, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description, existing.id, shopId]
+            );
+          } else {
+            await execute(
+              `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [name, category, unit, buying_price, quantity, low_stock_threshold, description, existing.id, shopId]
+            );
+          }
           if (quantity > 0) {
             await execute(
               `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
@@ -855,11 +907,17 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
           }
           updatedCount++;
         } else {
-          const resInsert = await execute(
-            `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description]
-          );
+          const resInsert = hasSellingPrice
+            ? await execute(
+                `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description]
+              )
+            : await execute(
+                `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description]
+              );
           if (quantity > 0) {
             await execute(
               `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
@@ -909,24 +967,59 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
       return res.status(404).json({ error: 'Product not found in this store' });
     }
 
-    await execute(
-      `UPDATE products 
-       SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, buying_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
-       WHERE id = ? AND shop_id = ?`,
-      [
-        name || existing.name,
-        sku || existing.sku,
-        barcode !== undefined ? barcode : existing.barcode,
-        category || existing.category,
-        unit || existing.unit,
-        buying_price !== undefined ? Number(buying_price) : existing.buying_price,
-        quantity !== undefined ? Math.max(0, Number(quantity)) : existing.quantity,
-        low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
-        description !== undefined ? description : existing.description,
-        productId,
-        shopId
-      ]
-    );
+    const rawSellingPrice = req.body.selling_price !== undefined ? req.body.selling_price : req.body.price;
+    const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice))
+      ? Number(rawSellingPrice)
+      : (existing.selling_price !== undefined ? Number(existing.selling_price) : 0);
+
+    let hasSellingPrice = false;
+    try {
+      const pCol = await queryOne<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'selling_price'"
+      );
+      hasSellingPrice = Boolean(pCol?.column_name);
+    } catch {}
+
+    if (hasSellingPrice) {
+      await execute(
+        `UPDATE products 
+         SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
+         WHERE id = ? AND shop_id = ?`,
+        [
+          name || existing.name,
+          sku || existing.sku,
+          barcode !== undefined ? barcode : existing.barcode,
+          category || existing.category,
+          unit || existing.unit,
+          buying_price !== undefined ? Number(buying_price) : existing.buying_price,
+          finalSellingPrice,
+          quantity !== undefined ? Math.max(0, Number(quantity)) : existing.quantity,
+          low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
+          description !== undefined ? description : existing.description,
+          productId,
+          shopId
+        ]
+      );
+    } else {
+      await execute(
+        `UPDATE products 
+         SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, buying_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
+         WHERE id = ? AND shop_id = ?`,
+        [
+          name || existing.name,
+          sku || existing.sku,
+          barcode !== undefined ? barcode : existing.barcode,
+          category || existing.category,
+          unit || existing.unit,
+          buying_price !== undefined ? Number(buying_price) : existing.buying_price,
+          quantity !== undefined ? Math.max(0, Number(quantity)) : existing.quantity,
+          low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
+          description !== undefined ? description : existing.description,
+          productId,
+          shopId
+        ]
+      );
+    }
 
     await logApiAudit(req, 'PRODUCT_UPDATED', `Updated product #${productId} (${name || existing.name})`);
     const updated = await queryOne('SELECT * FROM products WHERE id = ? AND shop_id = ?', [productId, shopId]);

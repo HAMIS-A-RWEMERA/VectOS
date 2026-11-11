@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS products (
   category VARCHAR(100) NOT NULL,
   unit VARCHAR(50) DEFAULT 'pcs',
   buying_price NUMERIC(15,2) NOT NULL CHECK(buying_price >= 0),
+  selling_price NUMERIC(15,2) DEFAULT 0.0 CHECK(selling_price >= 0),
   quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity >= 0),
   low_stock_threshold INTEGER DEFAULT 10,
   description TEXT,

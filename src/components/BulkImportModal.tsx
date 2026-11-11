@@ -24,6 +24,7 @@ interface StagedProduct {
   category: string;
   unit: string;
   buying_price: number;
+  selling_price: number;
   quantity: number;
   low_stock_threshold: number;
   description?: string;
@@ -31,17 +32,17 @@ interface StagedProduct {
   error?: string;
 }
 
-const SAMPLE_CSV = `name,sku,category,unit,buying_price,quantity,low_stock_threshold,description
-Ciment Cimerwa 32.5R 50kg,SKU-CIM-001,Cement & Mortar,Bag,9800,200,30,Standard Portland Cement
-Amabati Rugabano 28G Blue 3m,SKU-IRN-001,Roofing & Metal,Pcs,11500,150,20,Corrugated Galvanized Iron Sheets
-Imisumari 3 Inch Nails 1kg,SKU-NAL-001,Fasteners,Kg,1800,100,15,Carbon Steel Construction Nails
-Peinture Ruliba White 20L,SKU-PNT-001,Paints & Solvents,Bucket,32000,40,8,Interior Vinyl Emulsion Paint
-Tuyau PVC Pression 1/2" 6m,SKU-PVC-001,Plumbing,Pcs,4500,80,10,High Pressure Clean Water Pipe
-Robinet Chromé Brass 1/2",SKU-ROB-001,Plumbing,Pcs,7500,50,10,Chrome Finish Water Tap
-Disque Meuleuse 115mm Metal,SKU-DSK-001,Tools & Hardware,Pcs,1200,120,25,Abrasive Cutting Disc
-Cadenas Viro 50mm Brass,SKU-PAD-001,Security & Locks,Pcs,6500,45,10,Heavy Duty Brass Padlock
-Carreaux Sol 60x60cm Grey (1.44m²),SKU-TIL-001,Tiles & Ceramics,Box,14000,75,15,Porcelain Polished Floor Tiles
-Fer à Béton 12mm High Yield,SKU-REB-001,Building Materials,Bar,13500,180,25,Reinforcement Deformed Rebar`;
+const SAMPLE_CSV = `name,sku,category,unit,buying_price,selling_price,quantity,low_stock_threshold,description
+Ciment Cimerwa 32.5R 50kg,SKU-CIM-001,Cement & Mortar,Bag,9800,12000,200,30,Standard Portland Cement
+Amabati Rugabano 28G Blue 3m,SKU-IRN-001,Roofing & Metal,Pcs,11500,14000,150,20,Corrugated Galvanized Iron Sheets
+Imisumari 3 Inch Nails 1kg,SKU-NAL-001,Fasteners,Kg,1800,2500,100,15,Carbon Steel Construction Nails
+Peinture Ruliba White 20L,SKU-PNT-001,Paints & Solvents,Bucket,32000,38000,40,8,Interior Vinyl Emulsion Paint
+Tuyau PVC Pression 1/2" 6m,SKU-PVC-001,Plumbing,Pcs,4500,5500,80,10,High Pressure Clean Water Pipe
+Robinet Chromé Brass 1/2",SKU-ROB-001,Plumbing,Pcs,7500,9500,50,10,Chrome Finish Water Tap
+Disque Meuleuse 115mm Metal,SKU-DSK-001,Tools & Hardware,Pcs,1200,1600,120,25,Abrasive Cutting Disc
+Cadenas Viro 50mm Brass,SKU-PAD-001,Security & Locks,Pcs,6500,8000,45,10,Heavy Duty Brass Padlock
+Carreaux Sol 60x60cm Grey (1.44m²),SKU-TIL-001,Tiles & Ceramics,Box,14000,17500,75,15,Porcelain Polished Floor Tiles
+Fer à Béton 12mm High Yield,SKU-REB-001,Building Materials,Bar,13500,16500,180,25,Reinforcement Deformed Rebar`;
 
 export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   stocks,
@@ -64,11 +65,38 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 
     // Check if first row is header
     const firstLine = lines[0].toLowerCase();
-    const hasHeader = firstLine.includes('name') || firstLine.includes('sku') || firstLine.includes('price');
+    const hasHeader = firstLine.includes('name') || firstLine.includes('sku') || firstLine.includes('price') || firstLine.includes('cost');
     const dataLines = hasHeader ? lines.slice(1) : lines;
 
+    let nameIdx = 0;
+    let skuIdx = 1;
+    let catIdx = 2;
+    let unitIdx = 3;
+    let buyIdx = 4;
+    let sellIdx = -1;
+    let qtyIdx = 5;
+    let lowIdx = 6;
+    let descIdx = 7;
+
+    if (hasHeader) {
+      const splitHeader = lines[0].split(/[,\t;]/).map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+      splitHeader.forEach((h, idx) => {
+        if (h === 'name' || h.includes('product')) nameIdx = idx;
+        else if (h.includes('sku') || h.includes('code')) skuIdx = idx;
+        else if (h.includes('cat')) catIdx = idx;
+        else if (h.includes('unit')) unitIdx = idx;
+        else if (h.includes('buy') || h.includes('cost')) buyIdx = idx;
+        else if (h.includes('sell') || h.includes('retail')) sellIdx = idx;
+        else if (h.includes('price') && buyIdx !== idx) {
+          if (sellIdx === -1) sellIdx = idx;
+        }
+        else if (h.includes('qty') || h.includes('stock') || h.includes('quantity')) qtyIdx = idx;
+        else if (h.includes('low') || h.includes('min') || h.includes('alert') || h.includes('threshold')) lowIdx = idx;
+        else if (h.includes('desc') || h.includes('note') || h.includes('detail')) descIdx = idx;
+      });
+    }
+
     const parsed: StagedProduct[] = dataLines.map((line, idx) => {
-      // Split by comma or tab or semicolon
       let parts: string[] = [];
       if (line.includes('\t')) {
         parts = line.split('\t');
@@ -79,14 +107,24 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       }
 
       const cleanParts = parts.map(p => p.trim().replace(/^["']|["']$/g, ''));
-      const name = cleanParts[0] || '';
-      const sku = cleanParts[1] || `SKU-${Date.now().toString().slice(-4)}${idx.toString().padStart(2, '0')}`;
-      const category = cleanParts[2] || 'Hardware';
-      const unit = cleanParts[3] || 'Pcs';
-      const buying_price = parseFloat(cleanParts[4]) || 0;
-      const quantity = parseFloat(cleanParts[5]) || 0;
-      const low_stock_threshold = parseFloat(cleanParts[6]) || 10;
-      const description = cleanParts[7] || '';
+      const name = cleanParts[nameIdx] || cleanParts[0] || '';
+      const sku = cleanParts[skuIdx] || `SKU-${Date.now().toString().slice(-4)}${idx.toString().padStart(2, '0')}`;
+      const category = cleanParts[catIdx] || 'Hardware';
+      const unit = cleanParts[unitIdx] || 'Pcs';
+      const buying_price = parseFloat(cleanParts[buyIdx] !== undefined ? cleanParts[buyIdx] : cleanParts[4]) || 0;
+      
+      let selling_price = 0;
+      if (sellIdx >= 0 && cleanParts[sellIdx] !== undefined && !isNaN(parseFloat(cleanParts[sellIdx]))) {
+        selling_price = parseFloat(cleanParts[sellIdx]);
+      } else {
+        selling_price = buying_price > 0 ? Math.round(buying_price * 1.25) : 0;
+      }
+
+      const rawQty = cleanParts[qtyIdx] !== undefined ? cleanParts[qtyIdx] : cleanParts[5];
+      const quantity = parseFloat(rawQty) || 0;
+      const rawLow = cleanParts[lowIdx] !== undefined ? cleanParts[lowIdx] : cleanParts[6];
+      const low_stock_threshold = parseFloat(rawLow) || 10;
+      const description = cleanParts[descIdx] || cleanParts[7] || '';
 
       let isValid = true;
       let error = '';
@@ -105,6 +143,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         category,
         unit,
         buying_price,
+        selling_price,
         quantity,
         low_stock_threshold,
         description,
@@ -307,6 +346,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                       <th className="p-2.5">SKU</th>
                       <th className="p-2.5">Category</th>
                       <th className="p-2.5 text-right">Cost (RWF)</th>
+                      <th className="p-2.5 text-right">Selling (RWF)</th>
                       <th className="p-2.5 text-right">Init Qty</th>
                       <th className="p-2.5 text-center">Status</th>
                     </tr>
@@ -318,6 +358,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                         <td className="p-2.5 font-mono text-[11px] text-amber-300/90">{p.sku}</td>
                         <td className="p-2.5 text-slate-400">{p.category}</td>
                         <td className="p-2.5 text-right font-mono">{p.buying_price.toLocaleString()}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-200">{p.selling_price.toLocaleString()}</td>
                         <td className="p-2.5 text-right font-mono font-bold text-amber-400">{p.quantity} {p.unit}</td>
                         <td className="p-2.5 text-center">
                           {p.isValid ? (

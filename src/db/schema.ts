@@ -88,6 +88,7 @@ export const products = pgTable('products', {
   category: text('category').notNull(),
   unit: text('unit').default('pcs'),
   buyingPrice: numeric('buying_price').notNull(),
+  sellingPrice: numeric('selling_price').default('0.0'),
   quantity: integer('quantity').default(0).notNull(),
   lowStockThreshold: integer('low_stock_threshold').default(10),
   description: text('description'),

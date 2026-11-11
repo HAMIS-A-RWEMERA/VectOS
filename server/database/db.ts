@@ -296,6 +296,7 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_view_all_tenants INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_manage_subscriptions INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS selling_price NUMERIC(15,2) DEFAULT 0.0;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_by INTEGER;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_at TIMESTAMP WITH TIME ZONE;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_by INTEGER;`,
@@ -309,7 +310,7 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
     try {
       await pool.query(m);
     } catch {
-      // safe to ignore if column/index already present
+      // safe to ignore if column/index already present or table not owned
     }
   }
 
@@ -348,7 +349,7 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
 }
 
 export async function migrateUsersTableIfNeeded(db?: any): Promise<void> {
-  // No-op for Postgres (schema handled via initPostgresSchemaIfNeeded)
+  // Handled via initPostgresSchemaIfNeeded and ensureAdminAccounts
 }
 
 export async function ensureAdminAccounts(dbToUse?: any): Promise<void> {
@@ -358,27 +359,55 @@ export async function ensureAdminAccounts(dbToUse?: any): Promise<void> {
   const salesEmail = 'sales@quincaille.rw';
 
   try {
+    // Check available columns in users table so we only query columns that exist
+    let cols = new Set<string>();
+    try {
+      const colRows = await queryAll<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'"
+      );
+      if (colRows && colRows.length > 0) {
+        cols = new Set(colRows.map(r => r.column_name.toLowerCase()));
+      }
+    } catch {
+      // Fallback if information_schema query unavailable
+    }
+
+    const permKeys = [
+      'can_create_orders', 'can_process_payments', 'can_release_stock', 'can_manage_stock',
+      'can_import_export_stock', 'can_partner_borrow', 'can_view_reports', 'can_view_buying_prices',
+      'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
+      'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
+      'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions'
+    ];
+
+    const activePerms = permKeys.filter(k => cols.size === 0 || cols.has(k));
+
     // 1. Ensure rwemera30@gmail.com (Platform Superadmin)
     const existingPrimary = await queryOne('SELECT id, password FROM users WHERE LOWER(TRIM(email)) = ?', [primaryEmail]);
     if (existingPrimary) {
-      // Preserve existing user-chosen password if present, otherwise set to adminPass
       const passToUse = existingPrimary.password ? existingPrimary.password : adminPass;
-      await execute(`
-        UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin', name = 'Rwemera Platform Administrator',
-            can_create_orders = 1, can_process_payments = 1, can_release_stock = 1, can_manage_stock = 1,
-            can_import_export_stock = 1, can_partner_borrow = 1, can_view_reports = 1, can_view_buying_prices = 1,
-            can_give_discounts = 1, can_manage_users = 1, can_print_full_receipt = 1, can_print_delivery_note = 1,
-            can_manage_customers = 1, can_manage_partners = 1, can_void_orders = 1, can_edit_company_settings = 1,
-            can_view_audit_trail = 1, can_reset_passwords = 1, can_view_all_tenants = 1, can_manage_subscriptions = 1
-        WHERE id = ?`, [passToUse, existingPrimary.id]);
+      const setClauses = [
+        'password = ?',
+        'is_active = 1',
+        "activation_status = 'active'",
+        "role = 'superadmin'",
+        "name = 'Rwemera Platform Administrator'"
+      ];
+      const params: any[] = [passToUse];
+      for (const p of activePerms) {
+        setClauses.push(`${p} = 1`);
+      }
+      params.push(existingPrimary.id);
+      await execute(`UPDATE users SET ${setClauses.join(', ')} WHERE id = ?`, params);
     } else {
-      await execute(`
-        INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
-          can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
-          can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
-          can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
-        VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
-        ['Rwemera Platform Administrator', primaryEmail, adminPass]);
+      const insertCols = ['name', 'email', 'password', 'role', 'job_title', 'phone', 'is_active', 'activation_status'];
+      const insertVals = ['Rwemera Platform Administrator', primaryEmail, adminPass, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active'];
+      for (const p of activePerms) {
+        insertCols.push(p);
+        insertVals.push(1);
+      }
+      const placeholders = insertCols.map(() => '?').join(', ');
+      await execute(`INSERT INTO users (${insertCols.join(', ')}) VALUES (${placeholders})`, insertVals);
     }
 
     // 2. Ensure admin@vectos.co.rw
@@ -386,13 +415,14 @@ export async function ensureAdminAccounts(dbToUse?: any): Promise<void> {
     if (existingAlias) {
       await execute(`UPDATE users SET password = ?, is_active = 1, activation_status = 'active', role = 'superadmin' WHERE id = ?`, [adminPass, existingAlias.id]);
     } else {
-      await execute(`
-        INSERT INTO users (name, email, password, role, job_title, phone, is_active, activation_status,
-          can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock, can_partner_borrow,
-          can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users, can_print_full_receipt, can_print_delivery_note,
-          can_manage_customers, can_manage_partners, can_void_orders, can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions)
-        VALUES (?, ?, ?, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)`,
-        ['VectOS Administrator', aliasAdminEmail, adminPass]);
+      const insertCols = ['name', 'email', 'password', 'role', 'job_title', 'phone', 'is_active', 'activation_status'];
+      const insertVals = ['VectOS Administrator', aliasAdminEmail, adminPass, 'superadmin', 'Platform Administrator', '+250 788 000 000', 1, 'active'];
+      for (const p of activePerms) {
+        insertCols.push(p);
+        insertVals.push(1);
+      }
+      const placeholders = insertCols.map(() => '?').join(', ');
+      await execute(`INSERT INTO users (${insertCols.join(', ')}) VALUES (${placeholders})`, insertVals);
     }
 
     // 3. Ensure sales@quincaille.rw

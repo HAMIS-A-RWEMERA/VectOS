@@ -70,6 +70,7 @@ export interface Product {
   category: string;
   unit: string;
   buying_price: number;
+  selling_price?: number;
   quantity: number;
   low_stock_threshold: number;
   description?: string | null;
