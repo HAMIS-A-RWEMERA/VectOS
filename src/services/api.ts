@@ -11,10 +11,34 @@ import {
   ReportSummary 
 } from '../types';
 
+function persistToken(token?: string) {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage && token) {
+      window.localStorage.setItem('vectos_auth_token', token);
+    }
+  } catch (_) {}
+}
+
+function clearToken() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem('vectos_auth_token');
+    }
+  } catch (_) {}
+}
+
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
+  let authToken: string | null = null;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      authToken = window.localStorage.getItem('vectos_auth_token');
+    }
+  } catch (_) {}
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
     ...(options.headers as Record<string, string> || {})
   };
 
@@ -63,26 +87,42 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Auth
-  getMe: () => request<{ user: User | null; shop: Shop | null; availableShops: Shop[]; isSuperAdmin: boolean; dbPersistent: boolean; isServerless?: boolean }>('/api/auth/me'),
-  login: (email: string, password: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password })
-  }),
-  firebaseLogin: (idToken: string, email: string, displayName?: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/firebase-login', {
-    method: 'POST',
-    body: JSON.stringify({ idToken, email, displayName })
-  }),
-  register: (data: {
+  getMe: async () => {
+    const res = await request<{ user: User | null; shop: Shop | null; availableShops: Shop[]; isSuperAdmin: boolean; dbPersistent: boolean; isServerless?: boolean; token?: string }>('/api/auth/me');
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
+  login: async (email: string, password: string) => {
+    const res = await request<{ success: boolean; user: User; shop: Shop; token?: string }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    });
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
+  firebaseLogin: async (idToken: string, email: string, displayName?: string) => {
+    const res = await request<{ success: boolean; user: User; shop: Shop; token?: string }>('/api/auth/firebase-login', {
+      method: 'POST',
+      body: JSON.stringify({ idToken, email, displayName })
+    });
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
+  register: async (data: {
     storeName: string;
     ownerName: string;
     email: string;
     password: string;
     phone?: string;
     location?: string;
-  }) => request<{ success: boolean; message: string; user: User; shop: Shop }>('/api/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(data)
-  }),
+  }) => {
+    const res = await request<{ success: boolean; message: string; user: User; shop: Shop; token?: string }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
   changePassword: (currentPassword: string, newPassword: string) => request<{ success: boolean; message: string }>('/api/auth/change-password', {
     method: 'POST',
     body: JSON.stringify({ currentPassword, newPassword })
@@ -91,11 +131,22 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ role, email })
   }),
-  logout: () => request<{ success: boolean }>('/api/auth/logout', { method: 'POST' }),
-  switchShop: (shop_id: number) => request<{ success: boolean; shop: Shop }>('/api/shops/switch', {
-    method: 'POST',
-    body: JSON.stringify({ shop_id })
-  }),
+  logout: async () => {
+    clearToken();
+    try {
+      return await request<{ success: boolean }>('/api/auth/logout', { method: 'POST' });
+    } catch {
+      return { success: true };
+    }
+  },
+  switchShop: async (shop_id: number) => {
+    const res = await request<{ success: boolean; shop: Shop; token?: string }>('/api/shops/switch', {
+      method: 'POST',
+      body: JSON.stringify({ shop_id })
+    });
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
 
   // Dashboard
   getDashboardStats: () => request<DashboardStats>('/api/dashboard/stats'),

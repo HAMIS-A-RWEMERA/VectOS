@@ -1,5 +1,43 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { queryOne } from './database/db';
+
+export function getSessionSecret(): string {
+  if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim().length >= 16) {
+    return process.env.SESSION_SECRET.trim();
+  }
+  const dbUrl = (process.env.DATABASE_URL || process.env.POSTGRES_URL || '').trim();
+  if (dbUrl) {
+    return crypto.createHash('sha256').update(dbUrl + '_vectos_stateless_secret_salt').digest('hex');
+  }
+  return 'vectos-production-session-fallback-secret-32ch';
+}
+
+export function createAuthToken(user: any): string {
+  const secret = getSessionSecret();
+  const head = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    ...user,
+    exp: Math.floor(Date.now() / 1000) + 7 * 24 * 3600 // 7 days
+  })).toString('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(head + '.' + payload).digest('base64url');
+  return head + '.' + payload + '.' + sig;
+}
+
+export function verifyAuthToken(token: string): any | null {
+  try {
+    const secret = getSessionSecret();
+    const parts = token.trim().split('.');
+    if (parts.length !== 3) return null;
+    const expectedSig = crypto.createHmac('sha256', secret).update(parts[0] + '.' + parts[1]).digest('base64url');
+    if (expectedSig !== parts[2]) return null;
+    const data = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+    if (data.exp && data.exp < Date.now() / 1000) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 export type UserPermission = 
   | 'can_create_orders'
@@ -89,6 +127,21 @@ export function handleAuthFailure(req: Request, res: Response, status: number, t
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // 1. Check Authorization Bearer header or x-auth-token first (immune to Brave Shields, cookie partitioning & Vercel cold starts)
+  const authHeader = req.headers['authorization'] || req.headers['x-auth-token'];
+  if (authHeader && (!req.session || !req.session.user)) {
+    const rawToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : String(authHeader).trim();
+    if (rawToken) {
+      const decodedUser = verifyAuthToken(rawToken);
+      if (decodedUser) {
+        req.session = req.session || ({} as any);
+        req.session.user = decodedUser;
+      }
+    }
+  }
+
   if (!req.session || !req.session.user) {
     return handleAuthFailure(req, res, 401, 'Authentication Required', 'Please log in to access this resource.', '/login');
   }

@@ -7,7 +7,8 @@ import {
   requireAuth, 
   requireSuperAdmin, 
   requireManager, 
-  requirePermission 
+  requirePermission,
+  createAuthToken
 } from '../auth';
 import { throttleCheck, throttleFail, throttleClear } from '../security';
 import { GoogleGenAI } from '@google/genai';
@@ -121,13 +122,15 @@ router.get('/auth/me', async (req: Request, res: Response) => {
     availableShops = await queryAll('SELECT id, name, code, location, status, subscription_plan FROM shops ORDER BY name ASC');
   }
 
+  const token = req.session?.user ? createAuthToken(req.session.user) : undefined;
   res.json({
     user,
     shop,
     availableShops,
     isSuperAdmin: user.role === 'superadmin',
     dbPersistent: isPostgres(),
-    isServerless
+    isServerless,
+    token
   });
 });
 
@@ -267,12 +270,14 @@ router.post('/auth/register', async (req: Request, res: Response) => {
 
     await saveSession(req);
 
+    const token = createAuthToken(req.session.user);
     res.json({
       success: true,
       pendingApproval: false,
       message: 'Store registered and activated successfully!',
       user: req.session.user,
-      shop
+      shop,
+      token
     });
   } catch (err: any) {
     console.error('Registration error:', err);
@@ -406,10 +411,12 @@ router.post('/auth/login', async (req: Request, res: Response) => {
 
     await saveSession(req);
 
+    const token = createAuthToken(req.session.user);
     res.json({
       success: true,
       user: req.session.user,
-      shop
+      shop,
+      token
     });
   } catch (err: any) {
     console.error('Login API error:', err);
@@ -550,10 +557,12 @@ router.post('/auth/firebase-login', async (req: Request, res: Response) => {
 
     await saveSession(req);
 
+    const token = createAuthToken(req.session.user);
     res.json({
       success: true,
       user: req.session.user,
-      shop
+      shop,
+      token
     });
   } catch (err: any) {
     console.error('Firebase login API error:', err);
@@ -629,7 +638,8 @@ router.post('/shops/switch', requireAuth, async (req: Request, res: Response) =>
 
   req.session.user.shop_id = shop.id;
   await saveSession(req);
-  res.json({ success: true, shop });
+  const token = createAuthToken(req.session.user);
+  res.json({ success: true, shop, token });
 });
 
 // ============================================================================

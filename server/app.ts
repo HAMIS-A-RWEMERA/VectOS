@@ -15,6 +15,7 @@ import {
   htmlCsrfInjector,
   csrfValidate
 } from './security';
+import { getSessionSecret, verifyAuthToken } from './auth';
 
 import fs from 'fs';
 
@@ -102,17 +103,7 @@ if (hasDbUrl) {
   }
 }
 
-let sessionSecret = process.env.SESSION_SECRET;
-if (!sessionSecret) {
-  const dbUrl = (process.env.DATABASE_URL || process.env.POSTGRES_URL || '').trim();
-  if (dbUrl) {
-    // Derive a consistent deterministic secret from database URL so all serverless instances
-    // share the exact same key without invalidating cookies across cold starts
-    sessionSecret = crypto.createHash('sha256').update(dbUrl + '_vectos_persistent_session_salt').digest('hex');
-  } else {
-    sessionSecret = isTest ? 'test-fallback-secret-at-least-32-chars-long' : 'vectos-production-session-fallback-secret-32ch';
-  }
-}
+const sessionSecret = getSessionSecret();
 
 // In production / Vercel (same-origin), SameSite 'lax' ensures browsers accept cookies without third-party blocking.
 // In iframe development environments (AI Studio), 'none' is required for cross-origin preview frames.
@@ -133,6 +124,26 @@ app.use(
     }
   }) as any
 );
+
+// Dual-Mode Auth Middleware: Extract stateless Bearer token into req.session.user
+// This guarantees immunity against browser cookie blocking (Brave Shields, Safari ITP, 3rd party partitions)
+// and survives Vercel serverless lambda restarts.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'] || req.headers['x-auth-token'];
+  if (authHeader && (!req.session || !req.session.user)) {
+    const rawToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : String(authHeader).trim();
+    if (rawToken) {
+      const decodedUser = verifyAuthToken(rawToken);
+      if (decodedUser) {
+        req.session = req.session || ({} as any);
+        req.session.user = decodedUser;
+      }
+    }
+  }
+  next();
+});
 
 // View Engine Setup (EJS backward compatibility)
 app.set('view engine', 'ejs');
