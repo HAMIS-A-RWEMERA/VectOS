@@ -52,6 +52,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
 
   const [loading, setLoading] = useState(false);
+  const [fetchingDetails, setFetchingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Initialize data whenever order changes or modal opens
@@ -62,6 +63,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
       setNotes(order.notes || '');
       setPaidAmount(Number(order.paid_amount || 0));
       setError(null);
+      setFetchingDetails(true);
 
       // Load products for the add product selector
       api.getProducts().then(res => {
@@ -110,6 +112,8 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
         }
       }).catch(err => {
         console.error('Failed to load fresh order details:', err);
+      }).finally(() => {
+        setFetchingDetails(false);
       });
     }
   }, [order?.id, isOpen]);
@@ -255,7 +259,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="w-full max-w-3xl bg-[#141923] text-slate-100 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 my-auto">
         
         {/* Header */}
@@ -399,6 +403,23 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
+                  {fetchingDetails && items.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                          <span>Loading order line items & prices...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {!fetchingDetails && items.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400">
+                        <p>No items in this order. Click "+ Add Product to Order" above to add products.</p>
+                      </td>
+                    </tr>
+                  )}
                   {items.map((it) => (
                     <tr key={it.tempId} className="hover:bg-slate-800/30 transition">
                       <td className="py-2.5 px-3">

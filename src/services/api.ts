@@ -248,6 +248,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ fulfillment_status, reason })
     }),
+  releaseOrderItems: (orderId: number, data: {
+    released_items: { order_item_id: number; product_id?: number; quantity_released: number }[];
+    update_receipt?: boolean;
+    fulfillment_status?: string;
+    notes?: string;
+  }) => request<{ success: boolean; order: Order; message: string }>(`/api/orders/${orderId}/release-items`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
 
   // Customers
   getCustomers: (search = '') => request<{ customers: Customer[] }>(`/api/customers?q=${encodeURIComponent(search)}`),

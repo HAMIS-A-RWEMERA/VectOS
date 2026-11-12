@@ -59,6 +59,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   // Edit Receipt / Order modal state
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
 
+  // Selective Stock Release Checklist (item_id -> { checked: boolean, releaseQty: number })
+  const [releaseSelection, setReleaseSelection] = useState<Record<number, { checked: boolean; releaseQty: number }>>({});
+  const [isReleasingItems, setIsReleasingItems] = useState(false);
+
   const handleOrderUpdated = (updated: Order) => {
     setOrders(prev => prev.map(o => o.id === updated.id ? { ...o, ...updated } : o));
     if (selectedOrder && selectedOrder.id === updated.id) {
@@ -69,12 +73,96 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       });
       if (updated.items && updated.items.length > 0) {
         setOrderItems(updated.items);
+        const newSel: Record<number, { checked: boolean; releaseQty: number }> = {};
+        updated.items.forEach((it: any) => {
+          newSel[it.id] = { checked: true, releaseQty: it.quantity };
+        });
+        setReleaseSelection(newSel);
       } else {
         handleViewOrder(updated.id);
       }
     }
     setEditingOrder(null);
     fetchOrders();
+  };
+
+  const handleToggleReleaseItem = (itemId: number) => {
+    setReleaseSelection(prev => {
+      const current = prev[itemId] || { checked: true, releaseQty: 1 };
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          checked: !current.checked
+        }
+      };
+    });
+  };
+
+  const handleReleaseQtyChange = (itemId: number, maxQty: number, newQty: number) => {
+    const clamped = Math.max(1, Math.min(maxQty, newQty));
+    setReleaseSelection(prev => {
+      const current = prev[itemId] || { checked: true, releaseQty: maxQty };
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          releaseQty: clamped
+        }
+      };
+    });
+  };
+
+  const handleSelectAllRelease = (checkAll: boolean) => {
+    const updated: Record<number, { checked: boolean; releaseQty: number }> = {};
+    orderItems.forEach((it: any) => {
+      updated[it.id] = { checked: checkAll, releaseQty: it.quantity };
+    });
+    setReleaseSelection(updated);
+  };
+
+  const handleExecuteSelectiveRelease = async (updateReceipt: boolean = true) => {
+    if (!selectedOrder) return;
+
+    const checkedItems = orderItems.filter(it => releaseSelection[it.id]?.checked);
+    if (checkedItems.length === 0) {
+      alert('Please check at least one product to release from stock.');
+      return;
+    }
+
+    const uncheckedCount = orderItems.length - checkedItems.length;
+    const hasPartial = checkedItems.some(it => (releaseSelection[it.id]?.releaseQty || it.quantity) < it.quantity);
+
+    if (uncheckedCount > 0 || hasPartial) {
+      const confirmMsg = `You are releasing ${checkedItems.length} of ${orderItems.length} products.\n\n` +
+        `This will release the checked items from warehouse, return unreleased items to stock, and update the customer receipt to match what was released.\n\nProceed?`;
+      if (!confirm(confirmMsg)) return;
+    }
+
+    try {
+      setIsReleasingItems(true);
+      const payloadItems = checkedItems.map(it => ({
+        order_item_id: it.id,
+        product_id: it.product_id,
+        quantity_released: releaseSelection[it.id]?.releaseQty || it.quantity
+      }));
+
+      const res = await api.releaseOrderItems(selectedOrder.id, {
+        released_items: payloadItems,
+        update_receipt: updateReceipt,
+        fulfillment_status: 'approved'
+      });
+
+      if (res && res.order) {
+        handleOrderUpdated(res.order);
+        alert(res.message || 'Stock released and receipt updated successfully!');
+      }
+    } catch (err: any) {
+      console.error('Selective release error:', err);
+      alert(err.message || 'Failed to release stock');
+    } finally {
+      setIsReleasingItems(false);
+    }
   };
 
   const canProcessPayments = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_process_payments);
@@ -146,6 +234,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       setSelectedOrder(fullOrder);
       setOrderItems(res.items || []);
       setOrderPayments(res.payments || []);
+
+      const initialSelection: Record<number, { checked: boolean; releaseQty: number }> = {};
+      (res.items || []).forEach((it: any) => {
+        initialSelection[it.id] = { checked: true, releaseQty: it.quantity };
+      });
+      setReleaseSelection(initialSelection);
+
       setIsDetailOpen(true);
     } catch (err) {
       console.error('Error loading order detail:', err);
@@ -411,15 +506,15 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setEditingOrder(selectedOrder)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs transition shadow-sm"
-                  title="Edit items, change quantities, or remove out of stock products"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-black text-xs transition shadow-md shadow-amber-500/20 active:scale-95"
+                  title="Edit items, change quantities, replace products, or modify prices"
                 >
-                  <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Edit Items</span>
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Edit Receipt & Items</span>
                 </button>
                 <button
                   onClick={() => exportSingleOrderPdf({ order: selectedOrder, items: orderItems, payments: orderPayments, shop })}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-600/20 to-rose-600/20 hover:from-red-600/30 hover:to-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs transition shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-red-600/20 to-rose-600/20 hover:from-red-600/30 hover:to-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs transition shadow-sm"
                   title="Download Official Commercial Invoice PDF"
                 >
                   <FileText className="w-3.5 h-3.5 text-rose-400" />
@@ -454,14 +549,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
               {/* Status Action Buttons */}
               <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
-                {selectedOrder.fulfillment_status === 'pending_store' && canReleaseStock && (
+                {(selectedOrder.fulfillment_status === 'pending_store' || selectedOrder.fulfillment_status === 'approved') && canReleaseStock && (
                   <button
-                    onClick={() => handleUpdateStatus('approved')}
-                    disabled={isSubmitting}
-                    className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
+                    onClick={() => handleExecuteSelectiveRelease(true)}
+                    disabled={isReleasingItems || isSubmitting}
+                    className="flex-1 py-2 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                    title="Release ticked items from warehouse and automatically adjust receipt and stock"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Approve Store Release</span>
+                    <span>
+                      {isReleasingItems ? 'Releasing Stock...' : 'Release Checked Products & Update Receipt'}
+                    </span>
                   </button>
                 )}
 
@@ -476,10 +574,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <button
                     onClick={() => handleUpdateStatus('dispatched')}
                     disabled={isSubmitting}
-                    className="flex-1 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
+                    className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
                   >
                     <Truck className="w-4 h-4" />
-                    <span>Mark as Dispatched</span>
+                    <span>Mark Dispatched</span>
                   </button>
                 )}
 
@@ -587,35 +685,198 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </div>
             </div>
 
-            {/* Order Items Table */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Ordered Hardware Items</h3>
-              <div className="rounded-xl border border-slate-800 overflow-hidden">
+            {/* Interactive Warehouse Stock Release Checklist & Order Items */}
+            <div className="space-y-3 p-4 rounded-2xl bg-slate-900/90 border border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Truck className="w-4 h-4 text-amber-400" />
+                      Warehouse Stock Release Checklist
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                      {orderItems.filter(it => releaseSelection[it.id]?.checked).length} of {orderItems.length} Checked
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Tick each product physically available in warehouse. Unchecked items will be removed and auto-adjust the receipt.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {canReleaseStock && (
+                    <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAllRelease(true)}
+                        className="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white font-semibold transition"
+                      >
+                        Check All
+                      </button>
+                      <span className="text-slate-600">|</span>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAllRelease(false)}
+                        className="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white font-semibold transition"
+                      >
+                        Uncheck All
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setEditingOrder(selectedOrder)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 transition active:scale-95"
+                    title="Edit line items, add replacement products, or adjust prices"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit Receipt</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 overflow-hidden bg-slate-950/50">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-900 text-slate-400 border-b border-slate-800">
+                  <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[10px] uppercase tracking-wider">
                     <tr>
-                      <th className="p-2.5">Item Name</th>
-                      <th className="p-2.5">Qty</th>
-                      <th className="p-2.5">Price</th>
+                      <th className="p-2.5 text-center w-12">Release</th>
+                      <th className="p-2.5">Product & SKU</th>
+                      <th className="p-2.5 text-center">Ordered</th>
+                      <th className="p-2.5 text-center">Release Qty</th>
+                      <th className="p-2.5 text-right">Price</th>
                       <th className="p-2.5 text-right">Subtotal</th>
+                      <th className="p-2.5 text-center">Release Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {orderItems.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2.5">
-                          <p className="font-bold text-slate-200">{item.product_name || `Item #${item.product_id}`}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">SKU: {item.product_sku}</p>
-                        </td>
-                        <td className="p-2.5 font-mono">{item.quantity} {item.product_unit || 'pcs'}</td>
-                        <td className="p-2.5 font-mono">{formatRwf(item.selling_price)}</td>
-                        <td className="p-2.5 font-mono font-bold text-amber-400 text-right">
-                          {formatRwf(item.subtotal)}
-                        </td>
-                      </tr>
-                    ))}
+                  <tbody className="divide-y divide-slate-800/60 font-sans">
+                    {orderItems.map((item) => {
+                      const sel = releaseSelection[item.id] || { checked: true, releaseQty: item.quantity };
+                      const isChecked = sel.checked;
+                      const releaseQty = sel.releaseQty;
+                      const isPartial = isChecked && releaseQty < item.quantity;
+                      const currentSubtotal = (Number(item.selling_price) || 0) * (isChecked ? releaseQty : 0);
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`transition ${
+                            isChecked
+                              ? 'bg-slate-900/40 hover:bg-slate-900/70'
+                              : 'bg-rose-500/5 opacity-60 hover:opacity-80'
+                          }`}
+                        >
+                          {/* Checkbox */}
+                          <td className="p-2.5 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => handleToggleReleaseItem(item.id)}
+                              className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-amber-500 cursor-pointer accent-amber-500"
+                              title={isChecked ? 'Untick if item is out of stock / not released' : 'Tick to release this item'}
+                            />
+                          </td>
+
+                          {/* Product Details */}
+                          <td className="p-2.5">
+                            <p className="font-bold text-slate-100">{item.product_name || `Item #${item.product_id}`}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">
+                              {item.product_sku ? `SKU: ${item.product_sku} • ` : ''}{item.product_unit || 'pcs'}
+                            </p>
+                          </td>
+
+                          {/* Ordered Qty */}
+                          <td className="p-2.5 text-center font-mono text-slate-300">
+                            {item.quantity} {item.product_unit || 'pcs'}
+                          </td>
+
+                          {/* Release Qty (Interactive) */}
+                          <td className="p-2.5 text-center">
+                            {canReleaseStock && isChecked ? (
+                              <div className="inline-flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={item.quantity}
+                                  value={releaseQty}
+                                  onChange={(e) => handleReleaseQtyChange(item.id, item.quantity, parseInt(e.target.value) || 1)}
+                                  className="w-14 text-center py-1 px-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono font-bold text-xs text-white focus:outline-none focus:border-amber-500"
+                                  title="Adjust quantity physically released from warehouse"
+                                />
+                                <span className="text-[10px] text-slate-400">{item.product_unit || 'pcs'}</span>
+                              </div>
+                            ) : (
+                              <span className="font-mono text-xs text-slate-400">
+                                {isChecked ? `${releaseQty} ${item.product_unit || 'pcs'}` : '—'}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Unit Price */}
+                          <td className="p-2.5 font-mono text-right text-slate-300">
+                            {formatRwf(item.selling_price)}
+                          </td>
+
+                          {/* Line Subtotal */}
+                          <td className="p-2.5 font-mono font-bold text-right text-amber-400">
+                            {formatRwf(currentSubtotal)}
+                          </td>
+
+                          {/* Status Badge */}
+                          <td className="p-2.5 text-center">
+                            {isChecked ? (
+                              isPartial ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                  Partial ({releaseQty}/{item.quantity})
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                  Full Release
+                                </span>
+                              )
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                                Excluded / Out of Stock
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Release Summary & Direct Action Banner */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white">Release Calculation:</span>
+                    <span className="font-mono font-bold text-amber-400">
+                      {orderItems.filter(it => releaseSelection[it.id]?.checked).length} of {orderItems.length} Products Checked
+                    </span>
+                    <span className="text-slate-400">
+                      ({orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + (releaseSelection[it.id]?.releaseQty || it.quantity) : acc, 0)} Units)
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Adjusted Order Subtotal: <strong className="text-emerald-400 font-mono">{formatRwf(orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + ((Number(it.selling_price) || 0) * (releaseSelection[it.id]?.releaseQty || it.quantity)) : acc, 0))}</strong>
+                  </p>
+                </div>
+
+                {canReleaseStock && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleExecuteSelectiveRelease(true)}
+                      disabled={isReleasingItems || isSubmitting}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition active:scale-95 disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{isReleasingItems ? 'Releasing Stock...' : 'Release Checked & Update Receipt'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

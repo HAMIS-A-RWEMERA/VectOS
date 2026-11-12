@@ -2096,6 +2096,201 @@ router.post('/orders/:id/status', requireAuth, requireTenant, requirePermission(
   }
 });
 
+// Selective Stock Release per Item (Storekeeper ticks released products and auto-updates receipt)
+router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePermission('can_release_stock'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const { released_items, update_receipt = true, fulfillment_status, notes } = req.body;
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || 'Storekeeper';
+
+  if (!orderId || isNaN(orderId)) {
+    return res.status(400).json({ error: 'Valid order ID is required.' });
+  }
+
+  if (!released_items || !Array.isArray(released_items)) {
+    return res.status(400).json({ error: 'released_items array is required.' });
+  }
+
+  try {
+    const updated = await withTransaction(async () => {
+      // 1. Fetch order
+      const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
+      if (!order) {
+        throw new Error('Order not found in this store.');
+      }
+
+      // 2. Fetch existing items
+      const existingItems = await queryAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
+      if (existingItems.length === 0) {
+        throw new Error('Order has no items.');
+      }
+
+      // Determine stock location
+      let stockId = order.stock_id;
+      if (!stockId) {
+        const defaultStock = await queryOne<{ id: number }>('SELECT id FROM stocks WHERE shop_id = ? ORDER BY is_main DESC, id ASC LIMIT 1', [shopId]);
+        stockId = defaultStock ? defaultStock.id : 1;
+      }
+
+      // Build released map: order_item_id -> quantity_released
+      const releaseMap = new Map<number, number>();
+      for (const r of released_items) {
+        const id = Number(r.order_item_id || r.id);
+        const qty = Math.max(0, Number(r.quantity_released !== undefined ? r.quantity_released : r.quantity));
+        if (id) releaseMap.set(id, qty);
+      }
+
+      let newTotalAmount = 0;
+      let releasedCount = 0;
+      let totalUnreleasedReturned = 0;
+
+      for (const item of existingItems) {
+        const targetQty = releaseMap.has(item.id) ? releaseMap.get(item.id)! : 0;
+        const requestedQty = Number(item.quantity);
+        const sellingPrice = Number(item.selling_price);
+        const buyingPrice = Number(item.buying_price);
+
+        if (targetQty > 0) {
+          releasedCount++;
+          const releasedQty = Math.min(requestedQty, targetQty);
+          const subtotal = sellingPrice * releasedQty;
+          const profit = (sellingPrice - buyingPrice) * releasedQty;
+          newTotalAmount += subtotal;
+
+          // If partial release, return the unreleased difference to stock
+          const diff = requestedQty - releasedQty;
+          if (diff > 0) {
+            await execute(
+              'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
+              [diff, item.product_id, shopId]
+            );
+            await execute(
+              `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+               VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
+              [shopId, stockId, item.product_id, diff, `Unreleased item return for Order #${order.order_number}`, currentUserId]
+            );
+            totalUnreleasedReturned += diff;
+          }
+
+          if (update_receipt) {
+            await execute(
+              `UPDATE order_items 
+               SET quantity = ?, subtotal = ?, profit = ?, item_status = 'approved', fulfillment_source = 'Store'
+               WHERE id = ?`,
+              [releasedQty, subtotal, profit, item.id]
+            );
+          } else {
+            await execute(
+              `UPDATE order_items SET item_status = 'approved', fulfillment_source = 'Store' WHERE id = ?`,
+              [item.id]
+            );
+          }
+        } else {
+          // Item was NOT released (unchecked by storekeeper)
+          // Return the full quantity to product inventory
+          await execute(
+            'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
+            [requestedQty, item.product_id, shopId]
+          );
+          await execute(
+            `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+             VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
+            [shopId, stockId, item.product_id, requestedQty, `Unreleased stock return for Order #${order.order_number} (Item removed)`, currentUserId]
+          );
+          totalUnreleasedReturned += requestedQty;
+
+          if (update_receipt) {
+            // Remove from order items so the receipt only shows what was physically released
+            await execute('DELETE FROM order_items WHERE id = ?', [item.id]);
+          } else {
+            await execute(
+              `UPDATE order_items SET item_status = 'rejected', rejection_reason = 'Not released / out of stock at warehouse' WHERE id = ?`,
+              [item.id]
+            );
+          }
+        }
+      }
+
+      // If at least one item released:
+      const finalStatus = fulfillment_status || (releasedCount === existingItems.length ? 'dispatched' : 'approved');
+
+      if (update_receipt && releasedCount > 0) {
+        // Recalculate financial balance
+        const oldDebt = Number(order.debt_amount || 0);
+
+        // Adjust paid amount (cannot exceed new total)
+        const newPaid = Math.min(newTotalAmount, Number(order.paid_amount || 0));
+        const newDebt = Math.max(0, newTotalAmount - newPaid);
+        const newPaymentStatus = newDebt === 0 ? 'paid' : (newPaid > 0 ? 'partial' : 'debt');
+
+        // Adjust customer debt ledger difference
+        const debtDiff = newDebt - oldDebt;
+        if (debtDiff !== 0 && order.customer_id) {
+          await execute(
+            'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND shop_id = ?',
+            [debtDiff, order.customer_id, shopId]
+          );
+        }
+
+        const noteAppend = notes 
+          ? (order.notes ? `${order.notes} | ${notes}` : notes) 
+          : (totalUnreleasedReturned > 0 ? `${order.notes || ''} [Warehouse: ${releasedCount} of ${existingItems.length} items released]`.trim() : order.notes);
+
+        await execute(
+          `UPDATE orders 
+           SET total_amount = ?, paid_amount = ?, debt_amount = ?, payment_status = ?,
+               fulfillment_status = ?, stock_released_by = ?, stock_released_at = CURRENT_TIMESTAMP, notes = ?
+           WHERE id = ? AND shop_id = ?`,
+          [newTotalAmount, newPaid, newDebt, newPaymentStatus, finalStatus, currentUserId, noteAppend, orderId, shopId]
+        );
+      } else {
+        await execute(
+          `UPDATE orders 
+           SET fulfillment_status = ?, stock_released_by = ?, stock_released_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND shop_id = ?`,
+          [finalStatus, currentUserId, orderId, shopId]
+        );
+      }
+
+      // Fetch full updated order
+      const fullOrder = await queryOne(`
+        SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+               stk.name as stock_name, sh.name as shop_name, sh.tin_number, sh.receipt_footer_text, sh.phone as shop_phone
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN users u ON o.salesperson_id = u.id
+        LEFT JOIN stocks stk ON o.stock_id = stk.id
+        LEFT JOIN shops sh ON o.shop_id = sh.id
+        WHERE o.id = ? AND o.shop_id = ?
+      `, [orderId, shopId]);
+
+      const fullItems = await queryAll(`
+        SELECT oi.*, p.name as product_name, p.sku as product_sku, p.unit as product_unit
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = ?
+      `, [orderId]);
+
+      if (fullOrder) {
+        fullOrder.items = fullItems;
+      }
+      return fullOrder;
+    });
+
+    await logApiAudit(req, 'STOCK_RELEASED', `Storekeeper ${currentUserName} released items for Order #${updated.order_number} (Status: ${updated.fulfillment_status})`);
+
+    res.json({
+      success: true,
+      order: updated,
+      message: `Stock successfully released for Order #${updated.order_number}. Receipt updated.`
+    });
+  } catch (err: any) {
+    console.error('Release items error:', err);
+    res.status(500).json({ error: 'Failed to release items: ' + (err.message || 'Unknown database error') });
+  }
+});
+
 // ============================================================================
 // 6. CUSTOMERS & CREDIT LEDGER (RECEIVABLES TRACKING)
 // ============================================================================
