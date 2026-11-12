@@ -10,8 +10,10 @@ import {
   ShieldAlert, 
   Package, 
   Truck, 
-  FileText 
+  FileText,
+  Edit3
 } from 'lucide-react';
+import { EditOrderModal } from './EditOrderModal';
 
 interface ReceiptModalProps {
   order: Order | null;
@@ -19,15 +21,25 @@ interface ReceiptModalProps {
   onClose: () => void;
   currentUser?: User | null;
   initialMode?: 'receipt' | 'delivery_notice';
+  onOrderUpdated?: (updatedOrder: Order) => void;
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({ 
-  order, 
+  order: initialOrder, 
   shop, 
   onClose,
   currentUser,
-  initialMode = 'receipt'
+  initialMode = 'receipt',
+  onOrderUpdated
 }) => {
+  const [activeOrder, setActiveOrder] = useState<Order | null>(initialOrder);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  useEffect(() => {
+    setActiveOrder(initialOrder);
+  }, [initialOrder]);
+
+  const order = activeOrder || initialOrder;
   const canPrintReceipt = !currentUser || 
     currentUser.role === 'superadmin' || 
     currentUser.role === 'manager' || 
@@ -492,6 +504,17 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               </button>
             </div>
 
+            {/* Edit Order / Receipt Button */}
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-bold transition active:scale-95"
+              title="Edit items, quantities, or replace out-of-stock items"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Edit Receipt</span>
+            </button>
+
             <button
               onClick={onClose}
               className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition active:scale-95"
@@ -812,6 +835,17 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
               <span>{copied ? 'Copied Text!' : `Copy ${docType === 'delivery_notice' ? 'Delivery Note' : 'Receipt'}`}</span>
             </button>
+
+            {/* Direct Edit Button */}
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-500/30 text-xs font-bold text-amber-400 transition active:scale-95"
+              title="Edit items, change quantities, or remove out of stock products"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit Receipt</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
@@ -850,6 +884,19 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
       </div>
+
+      {/* Edit Order Modal */}
+      {isEditModalOpen && (
+        <EditOrderModal
+          isOpen={isEditModalOpen}
+          order={order}
+          onClose={() => setIsEditModalOpen(false)}
+          onOrderUpdated={(updated) => {
+            setActiveOrder(updated);
+            if (onOrderUpdated) onOrderUpdated(updated);
+          }}
+        />
+      )}
     </div>
   );
 };

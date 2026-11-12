@@ -228,6 +228,16 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(orderData)
   }),
+  updateOrder: (id: number, orderData: {
+    customer_name?: string;
+    customer_phone?: string;
+    notes?: string;
+    paid_amount?: number;
+    items: { product_id: number; quantity: number; selling_price?: number; fulfillment_source?: string }[];
+  }) => request<{ success: boolean; order: Order; message?: string }>(`/api/orders/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(orderData)
+  }),
   recordPayment: (orderId: number, data: { amount: number; payment_method: string; reference_no?: string }) =>
     request<{ success: boolean; order: Order }>(`/api/orders/${orderId}/payments`, {
       method: 'POST',

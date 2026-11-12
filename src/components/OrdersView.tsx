@@ -18,8 +18,10 @@ import {
   Smartphone,
   Building,
   Plus,
-  Download
+  Download,
+  Edit3
 } from 'lucide-react';
+import { EditOrderModal } from './EditOrderModal';
 
 interface OrdersViewProps {
   user: User | null;
@@ -53,6 +55,22 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [payRef, setPayRef] = useState('');
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit Receipt / Order modal state
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+
+  const handleOrderUpdated = (updated: Order) => {
+    setOrders(prev => prev.map(o => o.id === updated.id ? { ...o, ...updated } : o));
+    if (selectedOrder && selectedOrder.id === updated.id) {
+      setSelectedOrder(updated);
+      if (updated.items) {
+        setOrderItems(updated.items);
+      } else {
+        handleViewOrder(updated.id);
+      }
+    }
+    setEditingOrder(null);
+  };
 
   const canProcessPayments = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_process_payments);
   const canReleaseStock = user?.role === 'storekeeper' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_release_stock);
@@ -328,6 +346,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       >
                         Inspect
                       </button>
+                      <button
+                        onClick={() => setEditingOrder(ord)}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-300 text-[11px] font-semibold border border-slate-700 transition flex items-center gap-1"
+                        title="Edit Receipt / Order items (quantities, replace out-of-stock items)"
+                      >
+                        <Edit3 className="w-3 h-3 text-amber-400" />
+                        <span>Edit</span>
+                      </button>
                       {canPrintReceipt ? (
                         <button
                           onClick={() => onPrintReceipt(ord)}
@@ -374,6 +400,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 </h2>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setEditingOrder(selectedOrder)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 font-bold text-xs transition shadow-sm"
+                  title="Edit items, change quantities, or remove out of stock products"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Edit Items</span>
+                </button>
                 <button
                   onClick={() => exportSingleOrderPdf({ order: selectedOrder, items: orderItems, payments: orderPayments, shop })}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-600/20 to-rose-600/20 hover:from-red-600/30 hover:to-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs transition shadow-sm"

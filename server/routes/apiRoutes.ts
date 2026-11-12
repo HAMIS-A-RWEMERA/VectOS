@@ -1562,6 +1562,194 @@ router.get('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
   }
 });
 
+// Update/Edit Order & Receipt (Available to ANY authenticated staff member to adjust out-of-stock items, add new items, or fix quantities)
+router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const {
+    customer_name,
+    customer_phone,
+    items,
+    paid_amount,
+    notes
+  } = req.body;
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'The order must contain at least one item.' });
+  }
+
+  const currentUserId = req.session?.user?.id || 1;
+  const userName = req.session?.user?.name || 'Staff';
+
+  try {
+    const updated = await withTransaction(async () => {
+      // 1. Fetch existing order
+      const existingOrder = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
+      if (!existingOrder) {
+        throw new Error('Order not found in this store.');
+      }
+
+      // 2. Fetch old order items
+      const oldItems = await queryAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
+
+      // 3. Revert stock deductions from old items
+      for (const oi of oldItems) {
+        await execute(
+          'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
+          [oi.quantity, oi.product_id, shopId]
+        );
+        await execute(
+          `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+           VALUES (?, 1, ?, ?, 'Adjustment', ?, ?)`,
+          [shopId, oi.product_id, oi.quantity, `Reversal for Order #${existingOrder.order_number} Edit`, currentUserId]
+        );
+      }
+
+      // 4. Revert old customer debt if applicable
+      const oldDebt = Number(existingOrder.debt_amount || 0);
+      if (oldDebt > 0 && existingOrder.customer_id) {
+        await execute(
+          'UPDATE customers SET credit_balance = credit_balance - ? WHERE id = ? AND shop_id = ?',
+          [oldDebt, existingOrder.customer_id, shopId]
+        );
+      }
+
+      // 5. Update customer if name or phone changed
+      let finalCustomerId = existingOrder.customer_id;
+      if (customer_name !== undefined) {
+        const trimmedName = String(customer_name || '').trim() || 'Walk-in Client';
+        const trimmedPhone = String(customer_phone || '').trim();
+
+        const match = await queryOne(
+          'SELECT id FROM customers WHERE shop_id = ? AND (name = ? OR (phone != \'\' AND phone = ?))',
+          [shopId, trimmedName, trimmedPhone]
+        );
+        if (match) {
+          finalCustomerId = match.id;
+          if (trimmedPhone) {
+            await execute('UPDATE customers SET phone = ? WHERE id = ?', [trimmedPhone, finalCustomerId]);
+          }
+        } else {
+          const newC = await execute(
+            'INSERT INTO customers (shop_id, name, phone, credit_balance) VALUES (?, ?, ?, 0.0)',
+            [shopId, trimmedName, trimmedPhone]
+          );
+          finalCustomerId = newC.lastInsertId;
+        }
+      }
+
+      // 6. Validate and calculate new items
+      let totalAmount = 0;
+      const parsedItems: any[] = [];
+
+      for (const it of items) {
+        const prod = await queryOne('SELECT * FROM products WHERE id = ? AND shop_id = ?', [it.product_id, shopId]);
+        if (!prod) {
+          throw new Error(`Product #${it.product_id} not found in this store.`);
+        }
+
+        const qty = Number(it.quantity);
+        if (isNaN(qty) || qty <= 0) {
+          throw new Error(`Invalid quantity for product "${prod.name}"`);
+        }
+
+        const sellingPrice = it.selling_price !== undefined 
+          ? Number(it.selling_price) 
+          : (prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : Number(prod.buying_price || 0));
+        const subtotal = sellingPrice * qty;
+        const profit = (sellingPrice - Number(prod.buying_price || 0)) * qty;
+
+        totalAmount += subtotal;
+
+        parsedItems.push({
+          product: prod,
+          product_id: prod.id,
+          quantity: qty,
+          buying_price: Number(prod.buying_price || 0),
+          selling_price: sellingPrice,
+          subtotal,
+          profit,
+          fulfillment_source: it.fulfillment_source || 'Store'
+        });
+      }
+
+      // 7. Delete old order items
+      await execute('DELETE FROM order_items WHERE order_id = ?', [orderId]);
+
+      // 8. Insert new order items & deduct stock
+      for (const ni of parsedItems) {
+        await execute(
+          `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_store')`,
+          [orderId, ni.product_id, ni.quantity, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source]
+        );
+
+        // Deduct updated stock
+        await execute(
+          'UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ?',
+          [ni.quantity, ni.product_id, shopId]
+        );
+
+        // Record inventory movement
+        await execute(
+          `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+           VALUES (?, 1, ?, ?, 'Sale', ?, ?)`,
+          [shopId, ni.product_id, -ni.quantity, `Sale for Order #${existingOrder.order_number} (Updated)`, currentUserId]
+        );
+      }
+
+      // 9. Recalculate payments, debt & payment_status
+      const effectivePaid = paid_amount !== undefined 
+        ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) 
+        : Math.min(totalAmount, Number(existingOrder.paid_amount || 0));
+      const newDebt = Math.max(0, totalAmount - effectivePaid);
+      const newPaymentStatus = newDebt === 0 ? 'paid' : (effectivePaid > 0 ? 'partial' : 'debt');
+
+      await execute(
+        `UPDATE orders 
+         SET customer_id = ?, total_amount = ?, paid_amount = ?, debt_amount = ?, payment_status = ?, notes = COALESCE(?, notes)
+         WHERE id = ? AND shop_id = ?`,
+        [finalCustomerId, totalAmount, effectivePaid, newDebt, newPaymentStatus, notes || null, orderId, shopId]
+      );
+
+      // 10. Update Customer Credit Balance with new debt
+      if (newDebt > 0 && finalCustomerId) {
+        await execute(
+          'UPDATE customers SET credit_balance = credit_balance + ? WHERE id = ? AND shop_id = ?',
+          [newDebt, finalCustomerId, shopId]
+        );
+      }
+
+      // 11. Fetch full updated order with items
+      const fullOrder = await queryOne(`
+        SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name, s.name as stock_name
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN users u ON o.salesperson_id = u.id
+        LEFT JOIN stocks s ON o.stock_id = s.id
+        WHERE o.id = ? AND o.shop_id = ?
+      `, [orderId, shopId]);
+
+      const fullItems = await queryAll(`
+        SELECT oi.*, p.name as product_name, p.sku as product_sku, p.unit as product_unit
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = ?
+      `, [orderId]);
+
+      fullOrder.items = fullItems;
+      return fullOrder;
+    });
+
+    await logApiAudit(req, 'ORDER_UPDATED', `Staff ${userName} edited Order #${updated.order_number}: updated items and new total RWF ${updated.total_amount.toLocaleString()}`);
+
+    res.json({ success: true, order: updated, message: `Order #${updated.order_number} updated successfully.` });
+  } catch (err: any) {
+    console.error('Order update error:', err);
+    res.status(500).json({ error: 'Failed to update order: ' + (err.message || 'Unknown database error') });
+  }
+});
+
 // Create Order (POS Checkout with ATOMIC stock decrements)
 router.post('/orders', requireAuth, requireTenant, requirePermission('can_create_orders'), async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
