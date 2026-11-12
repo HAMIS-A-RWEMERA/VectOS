@@ -322,6 +322,11 @@ export const App: React.FC = () => {
           shop={shop}
           onClose={() => setReceiptOrder(null)}
           currentUser={user}
+          onOrderUpdated={(updated) => {
+            setReceiptOrder(updated);
+            loadDashboardStats();
+            showToast(`Order #${updated.order_number} successfully updated!`);
+          }}
         />
       )}
 

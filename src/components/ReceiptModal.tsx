@@ -37,7 +37,22 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
   useEffect(() => {
     setActiveOrder(initialOrder);
-  }, [initialOrder]);
+    if (initialOrder && (!initialOrder.items || initialOrder.items.length === 0)) {
+      import('../services/api').then(({ api }) => {
+        api.getOrderDetail(initialOrder.id).then(res => {
+          if (res && res.order) {
+            const merged = {
+              ...res.order,
+              items: res.items || []
+            };
+            setActiveOrder(merged);
+          }
+        }).catch(err => {
+          console.error('Failed to load items for receipt modal:', err);
+        });
+      });
+    }
+  }, [initialOrder?.id]);
 
   const order = activeOrder || initialOrder;
   const canPrintReceipt = !currentUser || 
@@ -98,7 +113,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         divider,
         ...(order.items && order.items.length > 0
           ? order.items.map((it, idx) => 
-              `${idx + 1}. ${(it.product_name || `Product #${it.product_id}`).slice(0, rollSize === '58mm' ? 18 : 26).padEnd(rollSize === '58mm' ? 18 : 26)} ${String(it.quantity).padStart(4)} ${it.unit || 'pcs'}`
+              `${idx + 1}. ${(it.product_name || `Product #${it.product_id}`).slice(0, rollSize === '58mm' ? 18 : 26).padEnd(rollSize === '58mm' ? 18 : 26)} ${String(it.quantity).padStart(4)} ${it.product_unit || it.unit || 'pcs'}`
             )
           : [`General Items Ordered                ${order.items?.length || 1} units`]
         ),
@@ -212,7 +227,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <div style="margin-bottom: 4px; padding-bottom: 3px; border-bottom: 1px dotted #ccc;">
                 <div style="font-weight: 700; word-break: break-word;">${idx + 1}. ${escapeHtml(it.product_name || `Product #${it.product_id}`)}</div>
                 <div style="display: flex; justify-content: space-between; font-size: 0.9em; margin-top: 1px;">
-                  <span>Unit: ${escapeHtml(it.unit || 'pcs')}</span>
+                  <span>Unit: ${escapeHtml(it.product_unit || it.unit || 'pcs')}</span>
                   <span style="font-weight: 800; font-size: 1.05em;">QTY: ${it.quantity}</span>
                 </div>
               </div>
@@ -669,8 +684,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                           {idx + 1}. {it.product_name || `Product #${it.product_id}`}
                         </p>
                         <div className="flex justify-between text-black">
-                          <span className="text-[9px] text-slate-700">Unit: {it.unit || 'pcs'}</span>
-                          <span className="font-black text-xs">{it.quantity} {it.unit || 'units'}</span>
+                          <span className="text-[9px] text-slate-700">Unit: {it.product_unit || it.unit || 'pcs'}</span>
+                          <span className="font-black text-xs">{it.quantity} {it.product_unit || it.unit || 'units'}</span>
                         </div>
                       </div>
                     ))

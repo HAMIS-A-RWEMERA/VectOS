@@ -70,40 +70,49 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
         console.error('Failed to load products for edit order modal:', err);
       });
 
-      // Fetch fresh order details if items are missing
-      if (!order.items || order.items.length === 0) {
-        api.getOrderDetail(order.id).then(res => {
-          const loadedItems = (res.items || []).map((it: OrderItem, idx: number) => ({
+      // Map any existing items immediately for responsive UI
+      if (order.items && order.items.length > 0) {
+        const initialMapped = (order.items || []).map((it: any, idx: number) => ({
+          tempId: `item-${it.product_id}-${idx}-${Date.now()}`,
+          product_id: Number(it.product_id),
+          product_name: it.product_name || it.name || `Product #${it.product_id}`,
+          product_sku: it.product_sku || it.sku || '',
+          unit: it.product_unit || it.unit || 'pcs',
+          quantity: Math.max(1, Number(it.quantity || 1)),
+          selling_price: Number(it.selling_price !== undefined ? it.selling_price : (it.buying_price || 0)),
+          buying_price: Number(it.buying_price || 0),
+          subtotal: Number(it.subtotal || (Number(it.selling_price || 0) * Number(it.quantity || 1)))
+        }));
+        setItems(initialMapped);
+      }
+
+      // Always fetch fresh order detail from server to guarantee complete items and prices
+      api.getOrderDetail(order.id).then(res => {
+        if (res && res.order) {
+          if (res.order.customer_name) setCustomerName(res.order.customer_name);
+          if (res.order.customer_phone !== undefined) setCustomerPhone(res.order.customer_phone || '');
+          if (res.order.notes !== undefined) setNotes(res.order.notes || '');
+          if (res.order.paid_amount !== undefined) setPaidAmount(Number(res.order.paid_amount || 0));
+        }
+        if (res && res.items && res.items.length > 0) {
+          const loadedItems = res.items.map((it: any, idx: number) => ({
             tempId: `item-${it.product_id}-${idx}-${Date.now()}`,
-            product_id: it.product_id,
-            product_name: it.product_name || `Product #${it.product_id}`,
-            product_sku: it.product_sku || '',
-            unit: it.product_unit || 'pcs',
-            quantity: Number(it.quantity || 1),
-            selling_price: Number(it.selling_price || it.buying_price || 0),
+            product_id: Number(it.product_id),
+            product_name: it.product_name || it.name || `Product #${it.product_id}`,
+            product_sku: it.product_sku || it.sku || '',
+            unit: it.product_unit || it.unit || 'pcs',
+            quantity: Math.max(1, Number(it.quantity || 1)),
+            selling_price: Number(it.selling_price !== undefined ? it.selling_price : (it.buying_price || 0)),
             buying_price: Number(it.buying_price || 0),
             subtotal: Number(it.subtotal || (Number(it.selling_price || 0) * Number(it.quantity || 1)))
           }));
           setItems(loadedItems);
-        }).catch(err => {
-          console.error('Failed to load order detail:', err);
-        });
-      } else {
-        const loadedItems = (order.items || []).map((it: OrderItem, idx: number) => ({
-          tempId: `item-${it.product_id}-${idx}-${Date.now()}`,
-          product_id: it.product_id,
-          product_name: it.product_name || `Product #${it.product_id}`,
-          product_sku: it.product_sku || '',
-          unit: it.product_unit || 'pcs',
-          quantity: Number(it.quantity || 1),
-          selling_price: Number(it.selling_price || it.buying_price || 0),
-          buying_price: Number(it.buying_price || 0),
-          subtotal: Number(it.subtotal || (Number(it.selling_price || 0) * Number(it.quantity || 1)))
-        }));
-        setItems(loadedItems);
-      }
+        }
+      }).catch(err => {
+        console.error('Failed to load fresh order details:', err);
+      });
     }
-  }, [order, isOpen]);
+  }, [order?.id, isOpen]);
 
   if (!isOpen || !order) return null;
 
@@ -473,6 +482,29 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                 onChange={e => setPaidAmount(Math.max(0, parseFloat(e.target.value) || 0))}
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm font-mono font-bold text-emerald-400 focus:outline-none focus:border-amber-500"
               />
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setPaidAmount(totalAmount)}
+                  className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition"
+                >
+                  Pay Full ({formatRwf(totalAmount)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaidAmount(Math.min(totalAmount, Number(order.paid_amount || 0)))}
+                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[10px] font-medium transition"
+                >
+                  Original ({formatRwf(order.paid_amount || 0)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaidAmount(0)}
+                  className="px-2 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-medium transition"
+                >
+                  Unpaid (0 RWF)
+                </button>
+              </div>
               <p className="text-[10px] text-slate-400 mt-1">
                 Set to equal order total if paid in full, or enter partial deposit.
               </p>

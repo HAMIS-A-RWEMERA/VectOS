@@ -333,7 +333,7 @@ export function requirePermission(permission: UserPermission) {
     }
 
     // Check specific granular permission flag
-    if (Number(user[permission]) === 1 || user[permission] === (true as any) || user[permission] === '1') {
+    if (Boolean(user[permission]) || Number(user[permission]) === 1) {
       return next();
     }
 

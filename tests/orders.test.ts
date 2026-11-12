@@ -80,4 +80,38 @@ describe('Order lifecycle', () => {
     });
     expect([302, 400]).toContain(res.status);
   });
+
+  it('allows staff to edit an existing order and adjusts items and totals', async () => {
+    // 1. Create order via API
+    const createRes = await agent.post('/api/orders').send({
+      customer_name: 'Original Customer',
+      customer_phone: '0788123456',
+      items: [{ product_id: productId, quantity: 2, selling_price: 10000 }],
+      payment_method: 'cash',
+      paid_amount: 20000,
+      notes: 'Original note'
+    });
+    expect(createRes.status).toBe(200);
+    expect(createRes.body.success).toBe(true);
+    const orderId = createRes.body.order.id;
+
+    // 2. Edit order: change customer, increase quantity to 4, update price, and change paid amount
+    const editRes = await agent.put(`/api/orders/${orderId}`).send({
+      customer_name: 'Revised Customer',
+      customer_phone: '0788999888',
+      paid_amount: 35000,
+      notes: 'Customer changed quantity from 2 to 4 and paid 35,000 RWF',
+      items: [{ product_id: productId, quantity: 4, selling_price: 10000 }]
+    });
+    expect(editRes.status).toBe(200);
+    expect(editRes.body.success).toBe(true);
+    expect(editRes.body.order).toBeTruthy();
+    expect(editRes.body.order.total_amount).toBe(40000);
+    expect(editRes.body.order.paid_amount).toBe(35000);
+    expect(editRes.body.order.debt_amount).toBe(5000);
+    expect(editRes.body.order.payment_status).toBe('partial');
+    expect(editRes.body.order.customer_name).toBe('Revised Customer');
+    expect(editRes.body.order.items).toHaveLength(1);
+    expect(editRes.body.order.items[0].quantity).toBe(4);
+  });
 });

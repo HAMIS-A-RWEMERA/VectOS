@@ -62,14 +62,19 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const handleOrderUpdated = (updated: Order) => {
     setOrders(prev => prev.map(o => o.id === updated.id ? { ...o, ...updated } : o));
     if (selectedOrder && selectedOrder.id === updated.id) {
-      setSelectedOrder(updated);
-      if (updated.items) {
+      setSelectedOrder({
+        ...selectedOrder,
+        ...updated,
+        items: updated.items || selectedOrder.items || []
+      });
+      if (updated.items && updated.items.length > 0) {
         setOrderItems(updated.items);
       } else {
         handleViewOrder(updated.id);
       }
     }
     setEditingOrder(null);
+    fetchOrders();
   };
 
   const canProcessPayments = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_process_payments);
@@ -134,7 +139,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const handleViewOrder = async (orderId: number) => {
     try {
       const res = await api.getOrderDetail(orderId);
-      setSelectedOrder(res.order);
+      const fullOrder = {
+        ...res.order,
+        items: res.items || []
+      };
+      setSelectedOrder(fullOrder);
       setOrderItems(res.items || []);
       setOrderPayments(res.payments || []);
       setIsDetailOpen(true);
@@ -722,6 +731,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Edit Order & Receipt Modal */}
+      {editingOrder && (
+        <EditOrderModal
+          isOpen={Boolean(editingOrder)}
+          order={editingOrder}
+          onClose={() => setEditingOrder(null)}
+          onOrderUpdated={handleOrderUpdated}
+        />
       )}
     </div>
   );

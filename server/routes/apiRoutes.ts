@@ -1566,6 +1566,11 @@ router.get('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
 router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
+
+  if (!orderId || isNaN(orderId)) {
+    return res.status(400).json({ error: 'Valid order ID is required.' });
+  }
+
   const {
     customer_name,
     customer_phone,
@@ -1589,6 +1594,13 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
         throw new Error('Order not found in this store.');
       }
 
+      // Determine valid stock location for this store
+      let stockId = existingOrder.stock_id;
+      if (!stockId) {
+        const defaultStock = await queryOne<{ id: number }>('SELECT id FROM stocks WHERE shop_id = ? ORDER BY is_main DESC, id ASC LIMIT 1', [shopId]);
+        stockId = defaultStock ? defaultStock.id : 1;
+      }
+
       // 2. Fetch old order items
       const oldItems = await queryAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
 
@@ -1600,8 +1612,8 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
         );
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
-           VALUES (?, 1, ?, ?, 'Adjustment', ?, ?)`,
-          [shopId, oi.product_id, oi.quantity, `Reversal for Order #${existingOrder.order_number} Edit`, currentUserId]
+           VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
+          [shopId, stockId, oi.product_id, oi.quantity, `Reversal for Order #${existingOrder.order_number} Edit`, currentUserId]
         );
       }
 
@@ -1614,20 +1626,24 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
         );
       }
 
-      // 5. Update customer if name or phone changed
+      // 5. Update or match customer if name or phone changed
       let finalCustomerId = existingOrder.customer_id;
       if (customer_name !== undefined) {
         const trimmedName = String(customer_name || '').trim() || 'Walk-in Client';
         const trimmedPhone = String(customer_phone || '').trim();
 
-        const match = await queryOne(
-          'SELECT id FROM customers WHERE shop_id = ? AND (name = ? OR (phone != \'\' AND phone = ?))',
-          [shopId, trimmedName, trimmedPhone]
-        );
+        let match = null;
+        if (trimmedPhone) {
+          match = await queryOne<{ id: number }>('SELECT id FROM customers WHERE shop_id = ? AND phone = ?', [shopId, trimmedPhone]);
+        }
+        if (!match && trimmedName) {
+          match = await queryOne<{ id: number }>('SELECT id FROM customers WHERE shop_id = ? AND name = ?', [shopId, trimmedName]);
+        }
+
         if (match) {
           finalCustomerId = match.id;
           if (trimmedPhone) {
-            await execute('UPDATE customers SET phone = ? WHERE id = ?', [trimmedPhone, finalCustomerId]);
+            await execute('UPDATE customers SET phone = ? WHERE id = ? AND shop_id = ?', [trimmedPhone, finalCustomerId, shopId]);
           }
         } else {
           const newC = await execute(
@@ -1636,6 +1652,9 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
           );
           finalCustomerId = newC.lastInsertId;
         }
+      }
+      if (!finalCustomerId) {
+        finalCustomerId = existingOrder.customer_id || 1;
       }
 
       // 6. Validate and calculate new items
@@ -1680,8 +1699,8 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
       for (const ni of parsedItems) {
         await execute(
           `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_store')`,
-          [orderId, ni.product_id, ni.quantity, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [orderId, ni.product_id, ni.quantity, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source, existingOrder.fulfillment_status || 'pending_store']
         );
 
         // Deduct updated stock
@@ -1693,8 +1712,8 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
         // Record inventory movement
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
-           VALUES (?, 1, ?, ?, 'Sale', ?, ?)`,
-          [shopId, ni.product_id, -ni.quantity, `Sale for Order #${existingOrder.order_number} (Updated)`, currentUserId]
+           VALUES (?, ?, ?, ?, 'Sale', ?, ?)`,
+          [shopId, stockId, ni.product_id, -ni.quantity, `Sale for Order #${existingOrder.order_number} (Updated)`, currentUserId]
         );
       }
 
@@ -1707,9 +1726,9 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
 
       await execute(
         `UPDATE orders 
-         SET customer_id = ?, total_amount = ?, paid_amount = ?, debt_amount = ?, payment_status = ?, notes = COALESCE(?, notes)
+         SET customer_id = ?, total_amount = ?, paid_amount = ?, debt_amount = ?, payment_status = ?, notes = ?
          WHERE id = ? AND shop_id = ?`,
-        [finalCustomerId, totalAmount, effectivePaid, newDebt, newPaymentStatus, notes || null, orderId, shopId]
+        [finalCustomerId, totalAmount, effectivePaid, newDebt, newPaymentStatus, notes !== undefined ? notes : existingOrder.notes, orderId, shopId]
       );
 
       // 10. Update Customer Credit Balance with new debt
@@ -1720,28 +1739,32 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
         );
       }
 
-      // 11. Fetch full updated order with items
+      // 11. Fetch full updated order with items, customer and shop metadata
       const fullOrder = await queryOne(`
-        SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name, s.name as stock_name
+        SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+               stk.name as stock_name, sh.name as shop_name, sh.tin_number, sh.receipt_footer_text, sh.phone as shop_phone
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN users u ON o.salesperson_id = u.id
-        LEFT JOIN stocks s ON o.stock_id = s.id
+        LEFT JOIN stocks stk ON o.stock_id = stk.id
+        LEFT JOIN shops sh ON o.shop_id = sh.id
         WHERE o.id = ? AND o.shop_id = ?
       `, [orderId, shopId]);
 
       const fullItems = await queryAll(`
         SELECT oi.*, p.name as product_name, p.sku as product_sku, p.unit as product_unit
         FROM order_items oi
-        JOIN products p ON oi.product_id = p.id
+        LEFT JOIN products p ON oi.product_id = p.id
         WHERE oi.order_id = ?
       `, [orderId]);
 
-      fullOrder.items = fullItems;
+      if (fullOrder) {
+        fullOrder.items = fullItems;
+      }
       return fullOrder;
     });
 
-    await logApiAudit(req, 'ORDER_UPDATED', `Staff ${userName} edited Order #${updated.order_number}: updated items and new total RWF ${updated.total_amount.toLocaleString()}`);
+    await logApiAudit(req, 'ORDER_UPDATED', `Staff ${userName} edited Order #${updated.order_number}: updated items and new total RWF ${Number(updated.total_amount).toLocaleString()}`);
 
     res.json({ success: true, order: updated, message: `Order #${updated.order_number} updated successfully.` });
   } catch (err: any) {
@@ -1927,7 +1950,28 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
 
     await logApiAudit(req, 'ORDER_CREATED', `Salesperson ${req.session?.user?.name || 'Staff'} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? 'RWF ' + result.paid.toLocaleString() + ' paid' : 'Unpaid'})`);
 
-    const createdOrder = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [result.orderId, shopId]);
+    const createdOrder = await queryOne(`
+      SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+             stk.name as stock_name, sh.name as shop_name, sh.tin_number, sh.receipt_footer_text, sh.phone as shop_phone
+      FROM orders o
+      LEFT JOIN customers c ON o.customer_id = c.id
+      LEFT JOIN users u ON o.salesperson_id = u.id
+      LEFT JOIN stocks stk ON o.stock_id = stk.id
+      LEFT JOIN shops sh ON o.shop_id = sh.id
+      WHERE o.id = ? AND o.shop_id = ?
+    `, [result.orderId, shopId]);
+
+    const createdItems = await queryAll(`
+      SELECT oi.*, p.name as product_name, p.sku as product_sku, p.unit as product_unit
+      FROM order_items oi
+      LEFT JOIN products p ON oi.product_id = p.id
+      WHERE oi.order_id = ?
+    `, [result.orderId]);
+
+    if (createdOrder) {
+      createdOrder.items = createdItems;
+    }
+
     res.json({ success: true, order: createdOrder });
   } catch (err: any) {
     console.error('Order creation error:', err);
