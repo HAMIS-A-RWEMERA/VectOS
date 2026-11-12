@@ -466,6 +466,10 @@ async function initSqlJsSchema(): Promise<void> {
     `);
   }
 
+  try {
+    sqlJsDbInstance.run('UPDATE products SET selling_price = buying_price WHERE buying_price IS NOT NULL AND buying_price > 0');
+  } catch {}
+
   await ensureAdminAccounts();
 }
 
@@ -717,6 +721,10 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
       // safe to ignore if column/index already present or table not owned
     }
   }
+
+  try {
+    await pool.query('UPDATE products SET selling_price = buying_price WHERE buying_price IS NOT NULL AND buying_price > 0;');
+  } catch {}
 
   // Seed Default Active Shop if none exists in Postgres
   try {

@@ -436,6 +436,10 @@ async function initSqlJsSchema() {
       VALUES (1, 1, 'Kigali Prime Contractors Ltd', '+250 788 123 456', 'procurement@kigaliprime.rw', 'Kacyiru, Kigali', 0)
     `);
   }
+  try {
+    sqlJsDbInstance.run("UPDATE products SET selling_price = buying_price WHERE buying_price IS NOT NULL AND buying_price > 0");
+  } catch {
+  }
   await ensureAdminAccounts();
 }
 function saveDb(dbToSave) {
@@ -668,6 +672,10 @@ async function initPostgresSchemaIfNeeded() {
       await pool.query(m);
     } catch {
     }
+  }
+  try {
+    await pool.query("UPDATE products SET selling_price = buying_price WHERE buying_price IS NOT NULL AND buying_price > 0;");
+  } catch {
   }
   try {
     const shopCheck = await pool.query("SELECT COUNT(*) as count FROM shops");
@@ -2020,12 +2028,19 @@ router.get("/products", requireAuth, requireTenant, async (req, res) => {
     }
     sql += ` ORDER BY name ASC`;
     const products = await queryAll(sql, params);
+    const normalizedProducts = products.map((p) => {
+      const buyPrice = Number(p.buying_price || 0);
+      return {
+        ...p,
+        selling_price: buyPrice > 0 ? buyPrice : Number(p.selling_price || 0)
+      };
+    });
     const categories = await queryAll(
       `SELECT DISTINCT category FROM products WHERE shop_id = ? AND category IS NOT NULL AND category != '' ORDER BY category ASC`,
       [shopId]
     );
     res.json({
-      products,
+      products: normalizedProducts,
       categories: categories.map((c) => c.category)
     });
   } catch (err) {
@@ -2061,7 +2076,7 @@ router.post("/products", requireAuth, requireTenant, requirePermission("can_mana
     const finalThreshold = low_stock_threshold !== void 0 ? Math.max(0, Number(low_stock_threshold)) : 10;
     const finalQty = quantity !== void 0 ? Math.max(0, Number(quantity)) : 0;
     const rawSellingPrice = req.body.selling_price !== void 0 ? req.body.selling_price : req.body.price;
-    const finalSellingPrice = rawSellingPrice !== void 0 && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) >= 0 ? Number(rawSellingPrice) : Number(buying_price) > 0 ? Math.round(Number(buying_price) * 1.25) : 0;
+    const finalSellingPrice = rawSellingPrice !== void 0 && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0 ? Number(rawSellingPrice) : Number(buying_price) > 0 ? Number(buying_price) : 0;
     let hasSellingPrice = false;
     try {
       const pCol = await queryOne(
@@ -2137,6 +2152,7 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
     let updatedCount = 0;
     const errors = [];
     await withTransaction(async () => {
+      const usedSkusInBatch = /* @__PURE__ */ new Set();
       for (let i = 0; i < rawProducts.length; i++) {
         const item = rawProducts[i];
         if (!item.name || typeof item.name !== "string" || !item.name.trim()) {
@@ -2144,56 +2160,97 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
           continue;
         }
         const name = item.name.trim();
-        const sku = item.sku && String(item.sku).trim() || `SKU-${Date.now().toString().slice(-5)}${i.toString().padStart(3, "0")}`;
+        let rawSku = item.sku ? String(item.sku).trim() : "";
         const barcode = item.barcode ? String(item.barcode).trim() : null;
-        const category = item.category && String(item.category).trim() || "General Hardware";
-        const unit = item.unit && String(item.unit).trim() || "Pcs";
+        let category = item.category && String(item.category).trim() || "General Hardware";
+        if (/^(n\/?a|none|-|null)$/i.test(category)) {
+          category = "General Hardware";
+        }
+        let unit = item.unit && String(item.unit).trim() || "Pcs";
+        if (unit === "1" || /^(n\/?a|none|-|null)$/i.test(unit)) {
+          unit = "Pcs";
+        }
         const buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
         const rawSelling = item.selling_price !== void 0 ? item.selling_price : item.price;
-        const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) >= 0 ? Number(rawSelling) : buying_price > 0 ? Math.round(buying_price * 1.25) : 0;
+        const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) > 0 ? Number(rawSelling) : buying_price > 0 ? buying_price : 0;
         const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Number(item.quantity) : 0;
         const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Number(item.low_stock_threshold)) : 10;
         const description = item.description ? String(item.description).trim() : null;
-        const existing = await queryOne("SELECT id, quantity FROM products WHERE shop_id = ? AND sku = ?", [shopId, sku]);
-        if (existing) {
+        const existingByName = await queryOne(
+          "SELECT id, name, sku, quantity, buying_price FROM products WHERE shop_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1",
+          [shopId, name]
+        );
+        if (existingByName) {
           if (hasSellingPrice) {
             await execute(
-              `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
-              [name, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description, existing.id, shopId]
+              `UPDATE products SET category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [category, unit, buying_price, selling_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
             );
           } else {
             await execute(
-              `UPDATE products SET name = ?, category = ?, unit = ?, buying_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
-              [name, category, unit, buying_price, quantity, low_stock_threshold, description, existing.id, shopId]
+              `UPDATE products SET category = ?, unit = ?, buying_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [category, unit, buying_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
             );
+          }
+          if (existingByName.sku) {
+            usedSkusInBatch.add(String(existingByName.sku).toLowerCase());
           }
           if (quantity > 0) {
             await execute(
               `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
                VALUES (?, ?, ?, ?, 'Stock Received', 'Bulk Import Replenishment', ?)`,
-              [shopId, finalStockId, existing.id, quantity, req.session?.user?.id || 1]
+              [shopId, finalStockId, existingByName.id, quantity, req.session?.user?.id || 1]
             );
           }
           updatedCount++;
-        } else {
-          const resInsert = hasSellingPrice ? await execute(
-            `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description]
-          ) : await execute(
-            `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [shopId, finalStockId, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description]
-          );
-          if (quantity > 0) {
-            await execute(
-              `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
-               VALUES (?, ?, ?, ?, 'Stock Received', 'Initial Bulk Import', ?)`,
-              [shopId, finalStockId, resInsert.lastInsertId, quantity, req.session?.user?.id || 1]
-            );
-          }
-          insertedCount++;
+          continue;
         }
+        const isPlaceholder = !rawSku || /^(1+|0+|n\/?a|none|-|null|tbd|sample|test)$/i.test(rawSku);
+        let baseSku = rawSku;
+        if (isPlaceholder) {
+          const cleanBase = rawSku && /^[A-Za-z0-9_-]+$/.test(rawSku) ? rawSku : "SKU";
+          baseSku = `${cleanBase}-${String(i + 1).padStart(2, "0")}`;
+        }
+        let candidateSku = baseSku;
+        let suffix = 1;
+        while (true) {
+          const isUsedInBatch = usedSkusInBatch.has(candidateSku.toLowerCase());
+          let isUsedInDb = false;
+          if (!isUsedInBatch) {
+            const existingDb = await queryOne(
+              "SELECT id FROM products WHERE shop_id = ? AND LOWER(sku) = LOWER(?) LIMIT 1",
+              [shopId, candidateSku]
+            );
+            isUsedInDb = Boolean(existingDb);
+          }
+          if (!isUsedInBatch && !isUsedInDb) {
+            break;
+          }
+          candidateSku = `${baseSku}-${suffix}`;
+          suffix++;
+          if (suffix > 500) {
+            candidateSku = `SKU-${Date.now().toString().slice(-4)}${i.toString().padStart(3, "0")}`;
+            break;
+          }
+        }
+        usedSkusInBatch.add(candidateSku.toLowerCase());
+        const resInsert = hasSellingPrice ? await execute(
+          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [shopId, finalStockId, name, candidateSku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description]
+        ) : await execute(
+          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [shopId, finalStockId, name, candidateSku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description]
+        );
+        if (quantity > 0) {
+          await execute(
+            `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+             VALUES (?, ?, ?, ?, 'Stock Received', 'Initial Bulk Import', ?)`,
+            [shopId, finalStockId, resInsert.lastInsertId, quantity, req.session?.user?.id || 1]
+          );
+        }
+        insertedCount++;
       }
     });
     await logApiAudit(req, "PRODUCTS_BULK_IMPORTED", `Bulk imported ${insertedCount} new products and updated ${updatedCount} existing items.`);
@@ -2228,8 +2285,9 @@ router.put("/products/:id", requireAuth, requireTenant, requirePermission("can_m
     if (!existing) {
       return res.status(404).json({ error: "Product not found in this store" });
     }
+    const effectiveBuyPrice = buying_price !== void 0 ? Number(buying_price) : Number(existing.buying_price || 0);
     const rawSellingPrice = req.body.selling_price !== void 0 ? req.body.selling_price : req.body.price;
-    const finalSellingPrice = rawSellingPrice !== void 0 && !isNaN(Number(rawSellingPrice)) ? Number(rawSellingPrice) : existing.selling_price !== void 0 ? Number(existing.selling_price) : 0;
+    const finalSellingPrice = rawSellingPrice !== void 0 && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0 ? Number(rawSellingPrice) : effectiveBuyPrice > 0 ? effectiveBuyPrice : existing.selling_price !== void 0 ? Number(existing.selling_price) : 0;
     let hasSellingPrice = false;
     try {
       const pCol = await queryOne(
@@ -2610,7 +2668,7 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
         if (isNaN(qty) || qty <= 0) {
           throw new Error(`Invalid quantity for product ${prod.name}`);
         }
-        const sellingPrice = item.selling_price !== void 0 ? Number(item.selling_price) : prod.buying_price * 1.15;
+        const sellingPrice = item.selling_price !== void 0 ? Number(item.selling_price) : prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : prod.buying_price;
         const subtotal = sellingPrice * qty;
         const profit = (sellingPrice - prod.buying_price) * qty;
         totalAmount += subtotal;

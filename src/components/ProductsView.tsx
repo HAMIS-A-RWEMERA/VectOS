@@ -137,7 +137,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
       category: p.category,
       unit: p.unit,
       buying_price: p.buying_price,
-      selling_price: p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : p.buying_price,
+      selling_price: p.buying_price > 0 ? p.buying_price : (p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : 0),
       quantity: p.quantity,
       low_stock_threshold: p.low_stock_threshold,
       description: p.description || ''
@@ -324,7 +324,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
               {filteredProducts.map((p) => {
                 const isOutOfStock = p.quantity <= 0;
                 const isLowStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
-                const sellingPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : (p.buying_price > 0 ? p.buying_price : 1000);
+                const sellingPrice = p.buying_price > 0 ? p.buying_price : (p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : 0);
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-800/40 transition">

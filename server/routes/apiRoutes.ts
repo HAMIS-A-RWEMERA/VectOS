@@ -757,6 +757,13 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
 
     sql += ` ORDER BY name ASC`;
     const products = await queryAll(sql, params);
+    const normalizedProducts = products.map((p: any) => {
+      const buyPrice = Number(p.buying_price || 0);
+      return {
+        ...p,
+        selling_price: buyPrice > 0 ? buyPrice : Number(p.selling_price || 0)
+      };
+    });
 
     const categories = await queryAll(
       `SELECT DISTINCT category FROM products WHERE shop_id = ? AND category IS NOT NULL AND category != '' ORDER BY category ASC`,
@@ -764,7 +771,7 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
     );
 
     res.json({
-      products,
+      products: normalizedProducts,
       categories: categories.map(c => c.category)
     });
   } catch (err: any) {
@@ -1053,10 +1060,11 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
       return res.status(404).json({ error: 'Product not found in this store' });
     }
 
+    const effectiveBuyPrice = buying_price !== undefined ? Number(buying_price) : Number(existing.buying_price || 0);
     const rawSellingPrice = req.body.selling_price !== undefined ? req.body.selling_price : req.body.price;
-    const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice))
+    const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0
       ? Number(rawSellingPrice)
-      : (existing.selling_price !== undefined ? Number(existing.selling_price) : 0);
+      : (effectiveBuyPrice > 0 ? effectiveBuyPrice : (existing.selling_price !== undefined ? Number(existing.selling_price) : 0));
 
     let hasSellingPrice = false;
     try {
