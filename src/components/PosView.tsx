@@ -107,7 +107,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const getCatalogPrice = (product: Product): number => {
     return (product.selling_price && Number(product.selling_price) > 0)
       ? Number(product.selling_price)
-      : (product.buying_price > 0 ? Math.round(product.buying_price * 1.25) : 1000);
+      : (product.buying_price > 0 ? Number(product.buying_price) : 1000);
   };
 
   // Cart operations

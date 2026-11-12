@@ -160,7 +160,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       if (sellIdx >= 0 && cleanParts[sellIdx] !== undefined && !isNaN(parseFloat(cleanParts[sellIdx])) && parseFloat(cleanParts[sellIdx]) > 0) {
         selling_price = parseFloat(cleanParts[sellIdx]);
       } else {
-        selling_price = buying_price > 0 ? Math.round(buying_price * 1.25) : 0;
+        selling_price = buying_price > 0 ? buying_price : 0;
       }
 
       const rawQty = cleanParts[qtyIdx] !== undefined ? cleanParts[qtyIdx] : cleanParts[5];

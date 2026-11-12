@@ -119,7 +119,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
       category: categories[1] || 'Building Materials',
       unit: 'cartons',
       buying_price: 1000,
-      selling_price: 1250,
+      selling_price: 1000,
       quantity: 10,
       low_stock_threshold: 5,
       description: ''
@@ -137,7 +137,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
       category: p.category,
       unit: p.unit,
       buying_price: p.buying_price,
-      selling_price: p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Math.round(p.buying_price * 1.25),
+      selling_price: p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : p.buying_price,
       quantity: p.quantity,
       low_stock_threshold: p.low_stock_threshold,
       description: p.description || ''
@@ -324,7 +324,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
               {filteredProducts.map((p) => {
                 const isOutOfStock = p.quantity <= 0;
                 const isLowStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
-                const sellingPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : (p.buying_price > 0 ? Math.round(p.buying_price * 1.25) : 1000);
+                const sellingPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : (p.buying_price > 0 ? p.buying_price : 1000);
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-800/40 transition">
@@ -471,7 +471,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                   <input
                     type="number"
                     value={formData.buying_price}
-                    onChange={(e) => setFormData({ ...formData, buying_price: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const newBuy = Number(e.target.value);
+                      setFormData((prev) => ({
+                        ...prev,
+                        buying_price: newBuy,
+                        selling_price: newBuy
+                      }));
+                    }}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -481,7 +488,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                   <input
                     type="number"
                     value={formData.selling_price || ''}
-                    placeholder="Auto: Cost + 25%"
+                    placeholder="Suggested: Equals buying cost"
                     onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
                   />

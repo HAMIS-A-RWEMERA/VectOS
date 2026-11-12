@@ -806,9 +806,9 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
     const finalThreshold = low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : 10;
     const finalQty = quantity !== undefined ? Math.max(0, Number(quantity)) : 0;
     const rawSellingPrice = req.body.selling_price !== undefined ? req.body.selling_price : req.body.price;
-    const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) >= 0
+    const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0
       ? Number(rawSellingPrice)
-      : (Number(buying_price) > 0 ? Math.round(Number(buying_price) * 1.25) : 0);
+      : (Number(buying_price) > 0 ? Number(buying_price) : 0);
 
     // Check if selling_price column exists on products table
     let hasSellingPrice = false;
@@ -922,7 +922,7 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         const rawSelling = item.selling_price !== undefined ? item.selling_price : item.price;
         const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) > 0
           ? Number(rawSelling)
-          : (buying_price > 0 ? Math.round(buying_price * 1.25) : 0);
+          : (buying_price > 0 ? buying_price : 0);
         const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Number(item.quantity) : 0;
         const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Number(item.low_stock_threshold)) : 10;
         const description = item.description ? String(item.description).trim() : null;
@@ -1506,7 +1506,9 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           throw new Error(`Invalid quantity for product ${prod.name}`);
         }
 
-        const sellingPrice = item.selling_price !== undefined ? Number(item.selling_price) : prod.buying_price * 1.15;
+        const sellingPrice = item.selling_price !== undefined 
+          ? Number(item.selling_price) 
+          : (prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : prod.buying_price);
         const subtotal = sellingPrice * qty;
         const profit = (sellingPrice - prod.buying_price) * qty;
 
