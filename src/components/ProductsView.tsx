@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Product, User, StockLocation } from '../types';
 import { api } from '../services/api';
 import { BulkImportModal } from './BulkImportModal';
+import { AiInvoiceScannerModal } from './AiInvoiceScannerModal';
 import { 
   Package, 
   Plus, 
@@ -15,7 +16,8 @@ import {
   X,
   ArrowUpDown,
   UploadCloud,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Sparkles
 } from 'lucide-react';
 
 interface ProductsViewProps {
@@ -36,6 +38,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isAiScanOpen, setIsAiScanOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
 
   // Form states
@@ -225,6 +228,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
         </div>
 
         <div className="flex items-center gap-2.5">
+          {canBulkImport && (
+            <button
+              onClick={() => setIsAiScanOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs shadow-md transition transform active:scale-95"
+              title="Scan paper invoices, delivery receipts, or PDFs with AI"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-400" />
+              <span className="hidden sm:inline">AI Invoice Scanner (Option 3)</span>
+              <span className="sm:hidden">AI Scan</span>
+            </button>
+          )}
+
           {canBulkImport && (
             <button
               onClick={() => setIsBulkImportOpen(true)}
@@ -631,13 +646,26 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
         </div>
       )}
 
-      {/* Bulk Stock Import Modal */}
+      {/* Bulk Stock Import Modal (Option 2) */}
       {isBulkImportOpen && (
         <BulkImportModal
           stocks={stocks}
           onClose={() => setIsBulkImportOpen(false)}
           onSuccess={() => {
             setIsBulkImportOpen(false);
+            fetchProducts();
+          }}
+        />
+      )}
+
+      {/* AI Invoice & Document Scanner Modal (Option 3) */}
+      {isAiScanOpen && (
+        <AiInvoiceScannerModal
+          isOpen={isAiScanOpen}
+          stocks={stocks}
+          onClose={() => setIsAiScanOpen(false)}
+          onSuccess={() => {
+            setIsAiScanOpen(false);
             fetchProducts();
           }}
         />

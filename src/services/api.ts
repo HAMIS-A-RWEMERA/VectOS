@@ -35,8 +35,9 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
     }
   } catch (_) {}
 
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     'Accept': 'application/json',
     ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
     ...(options.headers as Record<string, string> || {})
@@ -165,6 +166,10 @@ export const api = {
   bulkImportProducts: (products: any[], stock_id?: number) => request<{ success: boolean; message: string; insertedCount: number; updatedCount: number; errors?: string[] }>('/api/products/bulk-import', {
     method: 'POST',
     body: JSON.stringify({ products, stock_id })
+  }),
+  aiExtractInvoice: (formData: FormData) => request<{ success: boolean; count: number; items: any[]; message?: string }>('/api/products/ai-extract-invoice', {
+    method: 'POST',
+    body: formData
   }),
   updateProduct: (id: number, productData: Partial<Product>) => request<{ success: boolean; product: Product }>(`/api/products/${id}`, {
     method: 'PUT',

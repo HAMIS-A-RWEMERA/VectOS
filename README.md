@@ -44,15 +44,16 @@ To prevent employee collusion and inventory theft, orders adhere to a verifiable
 - Below-cost alert indicator when counter salespeople negotiate prices near or below supplier cost.
 - Instant thermal receipt and standard invoice printing (PDF generation via jsPDF & AutoTable).
 
-### 4. Inventory, Valuation & Stock Movements
-- Complete inventory audit trail (`inventory_movements`) tracking:
-  - Initial inventory setup
-  - Supplier restocks
-  - Customer order deductions
-  - Stock transfers between warehouses
-  - Damaged / scrap adjustments
-- Bulk product CSV/Excel importation with auto-generated SKUs and validation.
-- Low-stock threshold alerts with color-coded dashboard indicators.
+### 4. Inventory, Valuation & 3-Tier Stock Ingestion
+VectOS offers three complementary methods to add or restock inventory:
+1. **Option 1 — Single Product Entry:** Manual modal form with SKU generation, category assignment, safety stock thresholds, and unit definition.
+2. **Option 2 — Bulk Excel / CSV Upload:** Standard spreadsheet importer with automatic header mapping and SKU collision prevention.
+3. **Option 3 — AI Invoice & Document Scanner (Option 3):**
+   - Built specifically for merchants who prefer snapping a phone photo of a paper receipt, supplier invoice, delivery note, or PDF from wholesalers.
+   - Powered by Gemini 3.8 Flash (free-tier processing).
+   - **Interactive Double-Check Review Table (Staging Screen):** Nothing is saved automatically. The merchant is presented with an editable staging table showing product names, categories, quantities, units, and invoice prices so they can verify every detail before confirming.
+   - Enforces the 1:1 price parity rule (`suggested_selling_price = invoice_price`) by default.
+   - Complete inventory audit trail (`inventory_movements`) tracking all restocks, adjustments, and depot transfers.
 
 ### 5. Role-Based Access Control (RBAC) & Capabilities
 Granular permission matrix supporting five primary operational roles:

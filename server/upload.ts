@@ -8,7 +8,7 @@ export const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max file size
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime|xlsx|xls|csv/;
+    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime|xlsx|xls|csv|pdf/;
     const extname = allowedTypes.test(require('path').extname(file.originalname).toLowerCase());
 
     if (extname) {

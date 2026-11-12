@@ -11,7 +11,8 @@ import {
   createAuthToken
 } from '../auth';
 import { throttleCheck, throttleFail, throttleClear } from '../security';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
+import { upload } from '../upload';
 
 const router = Router();
 
@@ -1035,6 +1036,119 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
   } catch (err: any) {
     console.error('Bulk import error:', err);
     res.status(500).json({ error: 'Bulk product import failed: ' + (err.message || 'Unknown database error') });
+  }
+});
+
+// AI Smart Invoice & Document Scanner (Option 3)
+router.post('/products/ai-extract-invoice', requireAuth, requireTenant, requirePermission('can_manage_stock'), upload.single('document'), async (req: Request, res: Response) => {
+  const file = req.file;
+  const rawText = req.body?.text_content ? String(req.body.text_content).trim() : '';
+
+  if (!file && !rawText) {
+    return res.status(400).json({ error: 'Please upload an invoice photo/document or provide text to scan.' });
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+
+    const parts: any[] = [];
+
+    if (file) {
+      const mime = file.mimetype || 'image/jpeg';
+      parts.push({
+        inlineData: {
+          mimeType: mime,
+          data: file.buffer.toString('base64')
+        }
+      });
+    }
+
+    const promptText = `You are an expert Kigali / Rwandan hardware store (quincaillerie) and construction materials inventory assistant.
+Analyze this supplier invoice, delivery note, paper receipt photo, bill of materials, or pasted inventory text.
+Extract all distinct inventory products, construction materials, plumbing, electrical, steel, paints, or tools into a clean JSON array.
+
+CRITICAL EXTRACTION RULES:
+1. Product Name: Clean, descriptive name including standard grades/sizes (e.g., "Ciment Twiga 32.5R (50kg)", "Fer à Béton 12mm (Barre 12m)", "Tôles Bac 28G (Bleu nuit 3m)", "Peinture Vinyle Blanche Plascon (20L)").
+2. Price Rule (MANDATORY):
+   - Extract the unit invoice/purchase price.
+   - Set BOTH "buying_price" AND "selling_price" EQUAL to this exact price per unit (1:1 parity rule).
+   - If no price is stated, set both to 0.
+3. Quantity: The numeric quantity delivered/billed. Default to 1 if not stated.
+4. Categories: Standardize to one of:
+   "Construction / Cement", "Steel & Metals", "Roofing & Sheets", "Plumbing / Pipes", "Paints & Finishes", "Tools & Hardware", "Electrical & Lighting", "General Supplies".
+5. Packaging Units: Standardize to:
+   "pcs", "bags", "bars", "sheets", "meters", "cartons", "rolls", "liters", "boxes", "kg".
+6. SKU: Short practical SKU (e.g., "CIM-TWI-325", "STL-IRN-12M").
+${rawText ? `Additional pasted invoice text/context: ${rawText}` : ''}`;
+
+    parts.push({ text: promptText });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: parts,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              sku: { type: Type.STRING },
+              category: { type: Type.STRING },
+              unit: { type: Type.STRING },
+              quantity: { type: Type.NUMBER },
+              buying_price: { type: Type.NUMBER },
+              selling_price: { type: Type.NUMBER },
+              low_stock_threshold: { type: Type.NUMBER },
+              description: { type: Type.STRING }
+            },
+            required: ['name', 'buying_price', 'selling_price', 'quantity']
+          }
+        }
+      }
+    });
+
+    let items: any[] = [];
+    try {
+      items = JSON.parse(response.text || '[]');
+    } catch {
+      const match = response.text?.match(/\[\s*\{.*\}\s*\]/s);
+      if (match) items = JSON.parse(match[0]);
+    }
+
+    const sanitized = (Array.isArray(items) ? items : []).map((it: any, idx: number) => {
+      const buyPrice = Math.max(0, Number(it.buying_price || 0));
+      return {
+        name: String(it.name || '').trim(),
+        sku: String(it.sku || `SKU-${Date.now().toString().slice(-4)}-${idx + 1}`).trim(),
+        category: String(it.category || 'General Supplies').trim(),
+        unit: String(it.unit || 'pcs').trim().toLowerCase(),
+        quantity: Math.max(1, Number(it.quantity || 1)),
+        buying_price: buyPrice,
+        selling_price: buyPrice, // enforce 1:1 parity rule
+        low_stock_threshold: Math.max(1, Number(it.low_stock_threshold || 10)),
+        description: it.description ? String(it.description).trim() : null
+      };
+    }).filter((it: any) => it.name.length > 0);
+
+    return res.json({
+      success: true,
+      count: sanitized.length,
+      items: sanitized
+    });
+  } catch (err: any) {
+    console.error('AI Invoice Extraction error:', err);
+    return res.status(500).json({
+      error: 'AI document extraction failed: ' + (err.message || 'Please ensure document is clear or try again.')
+    });
   }
 });
 

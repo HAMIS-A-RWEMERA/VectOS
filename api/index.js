@@ -1444,7 +1444,40 @@ async function throttleClear(identity) {
 }
 
 // server/routes/apiRoutes.ts
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
+
+// server/upload.ts
+import multer from "multer";
+import path2 from "path";
+var upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  // 50MB max file size
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime|xlsx|xls|csv|pdf/;
+    const extname = allowedTypes.test(__require("path").extname(file.originalname).toLowerCase());
+    if (extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error("File format not supported. Allowed formats: images, videos, XLSX, XLS, CSV."));
+    }
+  }
+});
+var uploadSpreadsheet = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  // 10MB max spreadsheet file
+  fileFilter: (req, file, cb) => {
+    const ext = path2.extname(file.originalname).toLowerCase();
+    if (ext === ".xlsx" || ext === ".xls" || ext === ".csv") {
+      cb(null, true);
+    } else {
+      cb(new Error("Only Excel (.xlsx, .xls) and CSV (.csv) files are allowed."));
+    }
+  }
+});
+
+// server/routes/apiRoutes.ts
 var router = Router();
 var autoApproveNewStores = process.env.AUTO_APPROVE_STORES === "true";
 function getTenantShopId(req) {
@@ -2264,6 +2297,108 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
   } catch (err) {
     console.error("Bulk import error:", err);
     res.status(500).json({ error: "Bulk product import failed: " + (err.message || "Unknown database error") });
+  }
+});
+router.post("/products/ai-extract-invoice", requireAuth, requireTenant, requirePermission("can_manage_stock"), upload.single("document"), async (req, res) => {
+  const file = req.file;
+  const rawText = req.body?.text_content ? String(req.body.text_content).trim() : "";
+  if (!file && !rawText) {
+    return res.status(400).json({ error: "Please upload an invoice photo/document or provide text to scan." });
+  }
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build"
+        }
+      }
+    });
+    const parts = [];
+    if (file) {
+      const mime = file.mimetype || "image/jpeg";
+      parts.push({
+        inlineData: {
+          mimeType: mime,
+          data: file.buffer.toString("base64")
+        }
+      });
+    }
+    const promptText = `You are an expert Kigali / Rwandan hardware store (quincaillerie) and construction materials inventory assistant.
+Analyze this supplier invoice, delivery note, paper receipt photo, bill of materials, or pasted inventory text.
+Extract all distinct inventory products, construction materials, plumbing, electrical, steel, paints, or tools into a clean JSON array.
+
+CRITICAL EXTRACTION RULES:
+1. Product Name: Clean, descriptive name including standard grades/sizes (e.g., "Ciment Twiga 32.5R (50kg)", "Fer \xE0 B\xE9ton 12mm (Barre 12m)", "T\xF4les Bac 28G (Bleu nuit 3m)", "Peinture Vinyle Blanche Plascon (20L)").
+2. Price Rule (MANDATORY):
+   - Extract the unit invoice/purchase price.
+   - Set BOTH "buying_price" AND "selling_price" EQUAL to this exact price per unit (1:1 parity rule).
+   - If no price is stated, set both to 0.
+3. Quantity: The numeric quantity delivered/billed. Default to 1 if not stated.
+4. Categories: Standardize to one of:
+   "Construction / Cement", "Steel & Metals", "Roofing & Sheets", "Plumbing / Pipes", "Paints & Finishes", "Tools & Hardware", "Electrical & Lighting", "General Supplies".
+5. Packaging Units: Standardize to:
+   "pcs", "bags", "bars", "sheets", "meters", "cartons", "rolls", "liters", "boxes", "kg".
+6. SKU: Short practical SKU (e.g., "CIM-TWI-325", "STL-IRN-12M").
+${rawText ? `Additional pasted invoice text/context: ${rawText}` : ""}`;
+    parts.push({ text: promptText });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: parts,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              sku: { type: Type.STRING },
+              category: { type: Type.STRING },
+              unit: { type: Type.STRING },
+              quantity: { type: Type.NUMBER },
+              buying_price: { type: Type.NUMBER },
+              selling_price: { type: Type.NUMBER },
+              low_stock_threshold: { type: Type.NUMBER },
+              description: { type: Type.STRING }
+            },
+            required: ["name", "buying_price", "selling_price", "quantity"]
+          }
+        }
+      }
+    });
+    let items = [];
+    try {
+      items = JSON.parse(response.text || "[]");
+    } catch {
+      const match = response.text?.match(/\[\s*\{.*\}\s*\]/s);
+      if (match) items = JSON.parse(match[0]);
+    }
+    const sanitized = (Array.isArray(items) ? items : []).map((it, idx) => {
+      const buyPrice = Math.max(0, Number(it.buying_price || 0));
+      return {
+        name: String(it.name || "").trim(),
+        sku: String(it.sku || `SKU-${Date.now().toString().slice(-4)}-${idx + 1}`).trim(),
+        category: String(it.category || "General Supplies").trim(),
+        unit: String(it.unit || "pcs").trim().toLowerCase(),
+        quantity: Math.max(1, Number(it.quantity || 1)),
+        buying_price: buyPrice,
+        selling_price: buyPrice,
+        // enforce 1:1 parity rule
+        low_stock_threshold: Math.max(1, Number(it.low_stock_threshold || 10)),
+        description: it.description ? String(it.description).trim() : null
+      };
+    }).filter((it) => it.name.length > 0);
+    return res.json({
+      success: true,
+      count: sanitized.length,
+      items: sanitized
+    });
+  } catch (err) {
+    console.error("AI Invoice Extraction error:", err);
+    return res.status(500).json({
+      error: "AI document extraction failed: " + (err.message || "Please ensure document is clear or try again.")
+    });
   }
 });
 router.put("/products/:id", requireAuth, requireTenant, requirePermission("can_manage_stock"), async (req, res) => {
@@ -3657,39 +3792,6 @@ init_db();
 import { Router as Router2 } from "express";
 import path3 from "path";
 import bcrypt3 from "bcryptjs";
-
-// server/upload.ts
-import multer from "multer";
-import path2 from "path";
-var upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
-  // 50MB max file size
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime|xlsx|xls|csv/;
-    const extname = allowedTypes.test(__require("path").extname(file.originalname).toLowerCase());
-    if (extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error("File format not supported. Allowed formats: images, videos, XLSX, XLS, CSV."));
-    }
-  }
-});
-var uploadSpreadsheet = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  // 10MB max spreadsheet file
-  fileFilter: (req, file, cb) => {
-    const ext = path2.extname(file.originalname).toLowerCase();
-    if (ext === ".xlsx" || ext === ".xls" || ext === ".csv") {
-      cb(null, true);
-    } else {
-      cb(new Error("Only Excel (.xlsx, .xls) and CSV (.csv) files are allowed."));
-    }
-  }
-});
-
-// server/routes/iomsRoutes.ts
 import { generateSecret, generateURI, verify as verifyOtp } from "otplib";
 import QRCode from "qrcode";
 var router2 = Router2();
