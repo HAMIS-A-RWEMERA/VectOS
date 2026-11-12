@@ -26,19 +26,21 @@ interface Message {
 }
 
 const QUICK_QUESTIONS = [
+  'VectOS ikora iki & Ikemura ibihe bibazo?',
+  'Uburyo 3 bwo kwinjiza ibicuruzwa (AI Scanner)',
   'Gucuruza & kwakira MoMo (POS Sales)',
+  'Gusohora ibintu mu bubiko (3-Way Dispatch)',
   'Amadeni y\'abakiriya (Customer Debt)',
-  'Kwimura ibicuruzwa (Stock Transfer)',
   'Inshingano 8 z\'abakozi (8 Roles)',
-  'Kuguriza ibikoresho (Partner Borrowing)',
-  'Kwemezwa na Big Boss (Store Approval)'
+  'Ububiko burenze bumwe (Multi-Warehouse)',
+  'Imbibi z\'ubushobozi bwa sisitemu (System Limits)'
 ];
 
 export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'model',
-      text: "Muraho! I am your VectOS AI Assistant. Nshinzwe kubafasha gusobanukirwa no gukoresha VectOS: gucuruza (POS & MoMo), ububiko (warehouses), kwimura ibicuruzwa (transfers), amadeni (customer debt), inyemezabuguzi (EBM receipts), n'inshingano z'abakozi.\n\nBaza ikibazo mu Kinyarwanda cyangwa mu Cyongereza (Ask in Kinyarwanda or English)!",
+      text: "Muraho neza! Welcome to VectOS Customer Care Assistant.\n\nNshinzwe kubasobanurira birambuye uko VectOS ikora, ibibazo ikemura (guhagarika ubujura mu bubiko, kuringaniza MoMo/Cash, gucunga amadeni), uburyo 3 bwo kwinjiza ibicuruzwa (harimo na AI Scanner nshya), gucururiza kuri kounteri (POS), n'inshingano z'abakozi.\n\nBaza ikibazo cyose mu Kinyarwanda cyangwa mu Cyongereza!",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -84,7 +86,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
         ...prev,
         {
           role: 'model',
-          text: 'VectOS Assistant is ready to help! Mwatwandikira no kuri WhatsApp yacu ya +250 781 549 993 mugihe mukeneye ubufasha bwihuse bwa tekiniki.',
+          text: "Muraho neza! Niteguye kubafasha muri buri kintu cyose cyerekeye VectOS.\n\n• Kwinjiza ibicuruzwa: Koresha 'Add New Product', 'Bulk Stock Import (Excel)', cyangwa 'AI Invoice Scanner' ifata ifoto ya fagitire.\n• Gucuruza: Koresha tab ya 'POS & Counter Sales' wakire MoMo, Cash, cyangwa Amadeni.\n• Umutekano: Komande yose igomba kwemezwa n'umubitsi mbere y'uko ushinzwe ububiko asohora ibicuruzwa.\n\nBaza ikindi kibazo cyose ushaka gusobanukirwa birambuye!",
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);

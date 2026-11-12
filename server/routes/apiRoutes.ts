@@ -13,6 +13,7 @@ import {
 import { throttleCheck, throttleFail, throttleClear } from '../security';
 import { GoogleGenAI, Type } from '@google/genai';
 import { upload } from '../upload';
+import { VECTOS_SYSTEM_INSTRUCTION, getVectOSKnowledgeResponse } from '../aiHelpKnowledge';
 
 const router = Router();
 
@@ -2698,7 +2699,7 @@ router.post('/backup/restore', requireAuth, requireTenant, requireManager, async
 });
 
 // ============================================================================
-// 12. VECTOS AI HELP ASSISTANT (STRICTLY SCOPED TO VECTOS RETAIL ERP)
+// 12. VECTOS AI HELP ASSISTANT (CUSTOMER CARE & KNOWLEDGE ENGINE)
 // ============================================================================
 
 router.post('/ai/help', async (req: Request, res: Response) => {
@@ -2707,85 +2708,51 @@ router.post('/ai/help', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Question is required' });
   }
 
-  const cleanQuestion = question.trim().slice(0, 500);
+  const cleanQuestion = question.trim().slice(0, 800);
+  const geminiApiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || '').trim();
 
-  try {
-    const ai = new GoogleGenAI();
-    const systemInstruction = `You are the VectOS AI Assistant, a rapid in-app expert strictly for VectOS (the Retail Operating System & ERP for Hardware and Electronics Depots in Kigali, Rwanda).
+  // Try live Gemini 3.8 Flash model if API key is present
+  if (geminiApiKey) {
+    try {
+      const ai = new GoogleGenAI({
+        apiKey: geminiApiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
 
-CRITICAL SPEED & CONCISENESS RULES:
-- Respond VERY QUICKLY: provide concise, direct, and actionable answers (2 to 4 bullet points max).
-- Never write long rambling essays or unnecessary fluff. Answer immediately.
-
-MULTILINGUAL FLUENCY (KINYARWANDA & ENGLISH):
-- You fluently understand and answer in KINYARWANDA, ENGLISH, and FRENCH.
-- If the user greets or asks in Kinyarwanda (e.g. "Muraho", "Gucuruza bikorwa bite?", "Nafungura nte iduka?", "Ububiko", "Amadeni", "Inshingano"), answer fluently and naturally in Kinyarwanda!
-- If the user asks in English, answer in English.
-- If in French, answer in French.
-
-VectOS Core Domain Knowledge:
-1. Inshingano 8 z'abakozi (8 User Roles):
-   - SuperAdmin ("Big Boss" - rwemera30@gmail.com): Umuyobozi mukuru wemeza amaduka mashya yiyandikishije (approves new stores), akanagenzura gahunda ya seriveri.
-   - Platform Operations (platform_ops): Abakozi ba VectOS bashinzwe ubufasha bw'abakiriya (customer relations), kwinjiza amaduka (onboarding), no kwamamaza (marketing).
-   - Nyiriduka / Store Owner (manager): Afite ububasha busesuye ku bicuruzwa, abakozi, ibiciro biranguza n'ibiciriritse, n'amadeni.
-   - Umubitsi / Accountant (accountant): Reconciles cash, MTN MoMo, Airtel Money, konti za banki, na raporo z'inyungu.
-   - Ushinzwe Ububiko / Storekeeper (storekeeper): Gucunga ububiko bw'ibikoresho (warehouses), kwimura ibicuruzwa hagati y'amaduka (stock transfers).
-   - Umugurisha / Salesperson (salesperson): Gucururiza ku kounteri (POS), kureba ibiri mu bubiko.
-   - Umucungamari / Cashier (cashier): Kwakira ubwishyu no gusohora inyemezabuguzi (thermal receipt / A4 EBM invoice).
-   - Umukozi / Employee (employee): Gufata komande z'ibanze.
-
-2. POS Counter Sales & MoMo (Gucuruza):
-   - Shakisha ibikoresho ukoresheje barcode scanner cyangwa izina.
-   - Ubwishyu: Amafaranga y'inoti (Cash), MTN Mobile Money (MoMo), Airtel Money, Bank Transfer, cyangwa Amadeni (Customer Debt).
-   - Inyemezabuguzi: A4 official receipt cyangwa 80mm thermal slip ifite TIN na barcode.
-
-3. Ububiko n'Ibyimurwa (Warehouses & Stock Transfers):
-   - Gucunga ububiko burenze bumwe (Main Depot, Branch).
-   - Kwimura ibicuruzwa hagati y'ububiko (Warehouse Transfers) bibaruwe neza.
-
-4. Kuguriza / Gutira hagati y'Abacuruzi (Partner Borrowing):
-   - Gutira ibikoresho by'ubwubatsi mu yindi depot mugenzi wawe mugihe ubishizemo, no kubisubiza.
-
-5. Kwiyandikisha k'Ubucuruzi (Store Registration & Approval):
-   - Kwiyandikisha ku rubuga rw'ibanze.
-   - Iduka ritangira riri muri "Pending" kugeza igihe Big Boss (SuperAdmin - rwemera30@gmail.com) akandiye "Accept & Activate".
-
-6. WhatsApp Customer Support (Ubufasha kuri WhatsApp):
-   - Nimero ya WhatsApp: +250 781 549 993 (Direct Chat).
-
-STRICT SCOPE BOUNDARY:
-- ONLY answer questions about VectOS ERP, depot inventory, POS sales, customer credit, partner borrowing, roles, and hardware depot management.
-- For unrelated questions, politely decline in the user's language: "Mumbabarire, nshinzwe gusa gufasha ku bijyanye na VectOS ERP n'imicungire y'amaduka mu Rwanda. Ni iki nabafasha ku iduka ryanyu uyu munsi? / I am strictly specialized in VectOS Retail ERP and depot operations. How can I help with your store today?"`;
-
-    const chatContents: any[] = [];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-6)) {
-        if (h && (h.role === 'user' || h.role === 'model')) {
-          chatContents.push({ role: h.role, parts: [{ text: String(h.text || '') }] });
+      const chatContents: any[] = [];
+      if (Array.isArray(history)) {
+        for (const h of history.slice(-6)) {
+          if (h && (h.role === 'user' || h.role === 'model')) {
+            chatContents.push({ role: h.role, parts: [{ text: String(h.text || '') }] });
+          }
         }
       }
-    }
-    chatContents.push({ role: 'user', parts: [{ text: cleanQuestion }] });
+      chatContents.push({ role: 'user', parts: [{ text: cleanQuestion }] });
 
-    const aiRes = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: chatContents,
-      config: {
-        systemInstruction,
-        temperature: 0.2,
-        maxOutputTokens: 380,
+      const aiRes = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: chatContents,
+        config: {
+          systemInstruction: VECTOS_SYSTEM_INSTRUCTION,
+        }
+      });
+
+      if (aiRes.text && aiRes.text.trim().length > 15) {
+        return res.json({ success: true, reply: aiRes.text.trim() });
       }
-    });
-
-    const reply = aiRes.text || 'Muraho! Niteguye kubafasha ku bijyanye na VectOS. How can I assist you with the system today?';
-    res.json({ success: true, reply });
-  } catch (err: any) {
-    console.error('VectOS AI Help Assistant fallback:', err?.message || err);
-    res.json({
-      success: true,
-      reply: `VectOS AI Assistant is ready! Muraho, niteguye kubafasha ku bijyanye na VectOS. For immediate human support, contact VectOS Customer Support directly on WhatsApp at +250 781 549 993.`
-    });
+    } catch (err: any) {
+      console.warn('Gemini 3.8 Flash live call note (falling back to built-in Customer Care Knowledge Engine):', err?.message || err);
+    }
   }
+
+  // Built-in Encyclopedic Customer Care Knowledge Engine
+  // Delivers instant, comprehensive, empathetic, customer-oriented answers even if Gemini API key is absent or offline
+  const reply = getVectOSKnowledgeResponse(cleanQuestion, history);
+  return res.json({ success: true, reply });
 });
 
 export default router;
