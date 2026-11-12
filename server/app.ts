@@ -105,9 +105,10 @@ if (hasDbUrl) {
 
 const sessionSecret = getSessionSecret();
 
-// In production / Vercel (same-origin), SameSite 'lax' ensures browsers accept cookies without third-party blocking.
-// In iframe development environments (AI Studio), 'none' is required for cross-origin preview frames.
-const cookieSameSite = (process.env.VERCEL === '1' || process.env.NODE_ENV === 'production') ? 'lax' : (isTest ? 'lax' : 'none');
+// In standalone production on Vercel without iframe: 'lax'
+// In AI Studio preview or any embedded iframe: 'none' (with secure: true) is mandatory for browsers not to drop cookies.
+const isVercelStandalone = process.env.VERCEL === '1' && !process.env.IFRAME_MODE;
+const cookieSameSite = isVercelStandalone ? 'lax' : (isTest ? 'lax' : 'none');
 
 app.use(
   session({

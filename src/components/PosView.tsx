@@ -503,14 +503,14 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             <div className="grid grid-cols-2 gap-2 pt-1">
               <input
                 type="text"
-                placeholder="Client Name (opt)"
+                placeholder="Client Name (optional)"
                 value={customCustomerName}
                 onChange={(e) => setCustomCustomerName(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-amber-500"
               />
               <input
                 type="text"
-                placeholder="Phone (078...)"
+                placeholder="Client Phone (optional)"
                 value={customCustomerPhone}
                 onChange={(e) => setCustomCustomerPhone(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-amber-500"

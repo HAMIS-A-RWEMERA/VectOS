@@ -39,7 +39,10 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     'Accept': 'application/json',
-    ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
+    ...(authToken ? { 
+      'Authorization': `Bearer ${authToken}`,
+      'x-auth-token': authToken 
+    } : {}),
     ...(options.headers as Record<string, string> || {})
   };
 
@@ -61,6 +64,11 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
       } catch {
         data = { error: text || `HTTP ${response.status}` };
       }
+    }
+
+    // Auto-persist new or refreshed token from server if returned
+    if (data && typeof data === 'object' && typeof data.token === 'string' && data.token.trim()) {
+      persistToken(data.token.trim());
     }
 
     if (!response.ok) {

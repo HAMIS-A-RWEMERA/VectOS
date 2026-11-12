@@ -1221,22 +1221,25 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
     let custId = parseInt(customer_id, 10);
 
     // Auto-register customer at checkout if needed
-    if (customer_mode === 'new' || (!customer_id && new_customer_name && new_customer_phone)) {
-      const trimmedName = String(new_customer_name || '').trim();
+    if (customer_mode === 'new' || (!customer_id && (new_customer_name || new_customer_phone))) {
+      const trimmedName = String(new_customer_name || 'Walk-in Customer').trim();
       const trimmedPhone = String(new_customer_phone || '').trim();
       const trimmedIdNo = String(new_customer_id_number || '').trim();
 
-      if (!trimmedName || !trimmedPhone) {
+      if (!trimmedName) {
         return res.status(400).render('error', {
           title: 'Customer Details Missing',
-          message: 'To automatically register a new customer, please enter both Full Name and Phone Number.',
+          message: 'Please enter a customer name.',
           path: req.path
         });
       }
 
-      let existingCust = await queryOne('SELECT * FROM customers WHERE shop_id = ? AND phone = ?', [shopId, trimmedPhone]);
+      let existingCust = trimmedPhone ? await queryOne('SELECT * FROM customers WHERE shop_id = ? AND phone = ?', [shopId, trimmedPhone]) : null;
       if (!existingCust && trimmedIdNo) {
         existingCust = await queryOne('SELECT * FROM customers WHERE shop_id = ? AND id_number = ?', [shopId, trimmedIdNo]);
+      }
+      if (!existingCust && trimmedName !== 'Walk-in Customer') {
+        existingCust = await queryOne('SELECT * FROM customers WHERE shop_id = ? AND name = ?', [shopId, trimmedName]);
       }
 
       if (existingCust) {
@@ -1250,7 +1253,7 @@ router.post('/orders/create', requirePermission('can_create_orders'), async (req
           [shopId, trimmedName, trimmedPhone, trimmedIdNo || null]
         );
         custId = resCust.lastInsertId;
-        await logAudit(user.id, 'CUSTOMER_AUTO_REGISTER', `Auto-registered customer ${trimmedName} (${trimmedPhone}) during order placement`, req, shopId);
+        await logAudit(user.id, 'CUSTOMER_AUTO_REGISTER', `Auto-registered customer ${trimmedName} (${trimmedPhone || 'No Phone'}) during order placement`, req, shopId);
       }
     }
 

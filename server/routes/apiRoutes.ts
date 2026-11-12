@@ -2062,7 +2062,7 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    const p = permissions || {};
+    const p = { ...req.body, ...(permissions || {}) };
 
     const result = await execute(
       `INSERT INTO users (
@@ -2153,19 +2153,18 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
       params.push(hash);
     }
 
-    if (permissions) {
-      const permKeys = [
-        'can_create_orders', 'can_process_payments', 'can_release_stock', 'can_manage_stock',
-        'can_import_export_stock', 'can_partner_borrow', 'can_view_reports', 'can_view_buying_prices',
-        'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
-        'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
-        'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions'
-      ];
-      for (const pk of permKeys) {
-        if (permissions[pk] !== undefined) {
-          updates.push(`${pk} = ?`);
-          params.push(permissions[pk] ? 1 : 0);
-        }
+    const p = { ...req.body, ...(permissions || {}) };
+    const permKeys = [
+      'can_create_orders', 'can_process_payments', 'can_release_stock', 'can_manage_stock',
+      'can_import_export_stock', 'can_partner_borrow', 'can_view_reports', 'can_view_buying_prices',
+      'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
+      'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
+      'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions'
+    ];
+    for (const pk of permKeys) {
+      if (p[pk] !== undefined) {
+        updates.push(`${pk} = ?`);
+        params.push(p[pk] ? 1 : 0);
       }
     }
 
