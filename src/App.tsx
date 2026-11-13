@@ -272,10 +272,6 @@ export const App: React.FC = () => {
           isMobileOpen={isMobileMenuOpen}
           onCloseMobile={() => setIsMobileMenuOpen(false)}
           onOpenMobile={() => setIsMobileMenuOpen(true)}
-          onOpenChangePassword={() => {
-            setIsMobileMenuOpen(false);
-            setIsChangePasswordOpen(true);
-          }}
         />
 
         {/* Content View Area */}

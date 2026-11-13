@@ -595,13 +595,14 @@ export function exportSingleOrderPdf({
   doc.text('VectOS ERP', margin, 12);
 
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Official Sales Invoice & Delivery Order', margin + 35, 12);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text("Client's Order", margin + 35, 12);
 
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(203, 213, 225);
-  doc.text(`INVOICE REF: ${order.order_number}`, margin, 19);
+  doc.text(`ORDER REF: ${order.order_number}`, margin, 19);
 
   currentY = 32;
 
@@ -746,7 +747,7 @@ export function exportSingleOrderPdf({
   const footerText = shop?.receipt_footer_text || 'Goods once sold in good condition are not returnable. Thank you for choosing us!';
   doc.text(footerText, pageWidth / 2, pageHeight - 12, { align: 'center' });
 
-  const filename = `Invoice_${order.order_number}_${Date.now()}.pdf`;
+  const filename = `Clients_Order_${order.order_number}_${Date.now()}.pdf`;
   doc.save(filename);
 }
 

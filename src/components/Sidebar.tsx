@@ -17,7 +17,6 @@ import {
   Crown,
   Menu,
   MessageCircle,
-  KeyRound,
   X
 } from 'lucide-react';
 
@@ -29,7 +28,6 @@ interface SidebarProps {
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
   onOpenMobile?: () => void;
-  onOpenChangePassword?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -39,8 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   lowStockCount,
   isMobileOpen,
   onCloseMobile,
-  onOpenMobile,
-  onOpenChangePassword
+  onOpenMobile
 }) => {
   const isSuperAdmin = user?.role === 'superadmin' || user?.email === 'rwemera30@gmail.com';
   const canCreateOrders = hasPermission(user, 'can_create_orders');
@@ -94,16 +91,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
               </span>
             </div>
-            {onOpenChangePassword && (
-              <button
-                type="button"
-                onClick={onOpenChangePassword}
-                className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-amber-500/15 border border-slate-700/80 hover:border-amber-500/40 text-[11px] font-semibold text-slate-200 hover:text-amber-300 transition"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                <span>Change Password</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -207,16 +194,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
                   </span>
                 </div>
-                {onOpenChangePassword && (
-                  <button
-                    type="button"
-                    onClick={onOpenChangePassword}
-                    className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-amber-500/15 border border-slate-700/80 hover:border-amber-500/40 text-[11px] font-semibold text-slate-200 hover:text-amber-300 transition"
-                  >
-                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Change Password</span>
-                  </button>
-                )}
               </div>
             </div>
 

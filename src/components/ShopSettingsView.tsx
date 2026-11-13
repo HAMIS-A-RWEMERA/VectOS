@@ -320,8 +320,10 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
                   TIN: {trimmedTin}
                 </p>
               )}
-              <div className="border-t border-dashed border-black my-2 pt-1.5 text-[9px] font-bold uppercase tracking-wider">
-                OFFICIAL CASH SALE RECEIPT
+              <div className="border-t border-dashed border-black my-2 pt-2">
+                <span className="inline-block border-2 border-black px-2.5 py-0.5 text-xs font-black tracking-tight text-black">
+                  Client&apos;s Order
+                </span>
               </div>
               <div className="py-3 text-[10px] text-slate-600 italic">
                 [ Items &amp; totals appear here ]

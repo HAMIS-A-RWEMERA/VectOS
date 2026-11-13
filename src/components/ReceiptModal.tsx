@@ -98,8 +98,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
   const formatRwf = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
-  const taxAmount = (order.total_amount * 0.18) / 1.18;
-  const taxableNet = order.total_amount - taxAmount;
   const totalDispatchedQty = order.items?.reduce((acc, it) => acc + (it.quantity || 0), 0) || 0;
 
   // Plain text generator for thermal Bluetooth, raw printers or clipboard sharing
@@ -156,13 +154,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
       shopPhone ? `TEL: ${shopPhone}` : '',
       shopTin ? `TIN: ${shopTin}` : '',
       divider,
-      'OFFICIAL CASH SALE RECEIPT',
+      "*** Client's Order ***",
       divider,
-      `RECEIPT: ${order.order_number}`,
-      `DATE:    ${new Date(order.created_at).toLocaleString()}`,
-      `CASHIER: ${order.salesperson_name || 'Counter Operator'}`,
-      `CLIENT:  ${order.customer_name || 'Walk-in Client'}`,
-      order.customer_phone ? `PHONE:   ${order.customer_phone}` : '',
+      `ORDER NO: ${order.order_number}`,
+      `DATE:     ${new Date(order.created_at).toLocaleString()}`,
+      `CASHIER:  ${order.salesperson_name || 'Counter Operator'}`,
+      `CLIENT:   ${order.customer_name || 'Walk-in Client'}`,
+      order.customer_phone ? `PHONE:    ${order.customer_phone}` : '',
       divider,
       'ITEM                       QTY    TOTAL (RWF)',
       divider,
@@ -173,8 +171,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         : [`Hardware Sale Items                   ${formatRwf(order.total_amount)}`]
       ),
       divider,
-      `Taxable Subtotal:          ${formatRwf(taxableNet)}`,
-      `VAT (18% Included):        ${formatRwf(taxAmount)}`,
       `TOTAL DUE:                 ${formatRwf(order.total_amount)}`,
       `PAID AMOUNT:               ${formatRwf(order.paid_amount)}`,
       order.debt_amount > 0 ? `BALANCE DUE:               ${formatRwf(order.debt_amount)}` : '',
@@ -260,7 +256,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <html>
           <head>
             <meta charset="utf-8">
-            <title>${targetType === 'delivery_notice' ? 'Delivery-Notice-A4' : 'Receipt-A4'}-${escapeHtml(order.order_number)}</title>
+            <title>${targetType === 'delivery_notice' ? 'Delivery-Notice-A4' : 'Clients-Order-A4'}-${escapeHtml(order.order_number)}</title>
             <style>
               @page { size: A4 portrait; margin: 14mm; }
               @media print {
@@ -285,7 +281,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               .shop-name { font-size: 20px; font-weight: 800; text-transform: uppercase; margin: 0 0 4px 0; }
               .shop-line { font-size: 11.5px; color: #334155; margin: 1px 0; }
               .doc-box { text-align: right; }
-              .doc-title { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 4px 0; }
+              .doc-title { display: inline-block; font-size: 18px; font-weight: 900; border: 2px solid #0f172a; padding: 3px 10px; letter-spacing: 0.3px; margin: 0 0 6px 0; }
               .doc-sub { font-size: 11px; color: #475569; margin: 1px 0; }
               .info-grid {
                 display: flex;
@@ -330,8 +326,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 ${shopTin ? `<p class="shop-line"><strong>TIN: ${escapeHtml(shopTin)}</strong></p>` : ''}
               </div>
               <div class="doc-box">
-                <p class="doc-title">${targetType === 'delivery_notice' ? 'DELIVERY NOTICE (BON DE LIVRAISON)' : 'OFFICIAL CASH SALE RECEIPT'}</p>
-                <p class="doc-sub"><strong>${targetType === 'delivery_notice' ? 'BL No' : 'Receipt No'}:</strong> ${targetType === 'delivery_notice' ? `BL-${escapeHtml(order.order_number.replace('ORD-', ''))}` : escapeHtml(order.order_number)}</p>
+                <p class="doc-title">${targetType === 'delivery_notice' ? 'DELIVERY NOTICE (BON DE LIVRAISON)' : "Client's Order"}</p>
+                <p class="doc-sub"><strong>${targetType === 'delivery_notice' ? 'BL No' : 'Order No'}:</strong> ${targetType === 'delivery_notice' ? `BL-${escapeHtml(order.order_number.replace('ORD-', ''))}` : escapeHtml(order.order_number)}</p>
                 ${targetType === 'delivery_notice' ? `<p class="doc-sub"><strong>Order Ref:</strong> ${escapeHtml(order.order_number)}</p>` : ''}
                 <p class="doc-sub"><strong>Date:</strong> ${new Date(order.created_at).toLocaleString()}</p>
                 <p class="doc-sub"><strong>Status:</strong> ${(order.payment_status || 'PAID').toUpperCase()}</p>
@@ -377,8 +373,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               : `
                 <div class="summary-wrap">
                   <div class="summary-box">
-                    <div class="sum-row"><span>Taxable Net:</span><span class="mono">${formatRwf(taxableNet)}</span></div>
-                    <div class="sum-row"><span>VAT (18% Included):</span><span class="mono">${formatRwf(taxAmount)}</span></div>
                     <div class="sum-row total"><span>TOTAL DUE:</span><span class="mono">${formatRwf(order.total_amount)}</span></div>
                     <div class="sum-row bold"><span>PAID AMOUNT:</span><span class="mono">${formatRwf(order.paid_amount)}</span></div>
                     ${order.debt_amount > 0 ? `<div class="sum-row bold"><span>BALANCE DUE:</span><span class="mono">${formatRwf(order.debt_amount)}</span></div>` : ''}
@@ -495,14 +489,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               ${shopPhone ? `<div style="font-size: 0.85em;">TEL: ${escapeHtml(shopPhone)}</div>` : ''}
               ${shopTin ? `<div style="font-size: 0.85em; font-weight: bold;">TIN: ${escapeHtml(shopTin)}</div>` : ''}
               <div class="divider"></div>
-              <div class="bold" style="font-size: 0.95em; letter-spacing: 0.5px;">OFFICIAL CASH SALE RECEIPT</div>
-              <div style="font-size: 0.8em; font-weight: 600;">COMMERCIAL INVOICE</div>
+              <div style="margin: 4px 0;">
+                <span style="display: inline-block; border: 2px solid #000; padding: 2px 8px; font-size: 1.25em; font-weight: 900; letter-spacing: 0.3px;">Client's Order</span>
+              </div>
             </div>
 
             <div class="divider"></div>
 
             <div class="meta" style="font-size: 0.9em;">
-              <div class="row"><span>Receipt No:</span><span class="bold">${escapeHtml(order.order_number)}</span></div>
+              <div class="row"><span>Order No:</span><span class="bold">${escapeHtml(order.order_number)}</span></div>
               <div class="row"><span>Date:</span><span>${new Date(order.created_at).toLocaleString()}</span></div>
               <div class="row"><span>Cashier:</span><span>${escapeHtml(order.salesperson_name || 'Counter Operator')}</span></div>
               <div class="row"><span>Client:</span><span class="bold">${escapeHtml(order.customer_name || 'Walk-in Client')}</span></div>
@@ -519,15 +514,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             ${itemsHtml}
 
             <div class="divider"></div>
-
-            <div class="row" style="font-size: 0.9em;">
-              <span>Taxable Net:</span>
-              <span>${formatRwf(taxableNet)}</span>
-            </div>
-            <div class="row" style="font-size: 0.9em;">
-              <span>VAT (18% Included):</span>
-              <span>${formatRwf(taxAmount)}</span>
-            </div>
 
             <div class="row bold" style="font-size: 1.1em; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 0; margin: 2px 0;">
               <span>TOTAL DUE:</span>
@@ -564,7 +550,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <html>
           <head>
             <meta charset="utf-8">
-            <title>${targetType === 'delivery_notice' ? 'Delivery-Notice' : 'Receipt'}-${escapeHtml(order.order_number)}</title>
+            <title>${targetType === 'delivery_notice' ? 'Delivery-Notice' : 'Clients-Order'}-${escapeHtml(order.order_number)}</title>
             <style>
               @page {
                 size: ${rollWidthMm}mm auto;
@@ -673,14 +659,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs sm:text-sm font-black text-white">
-                  {docType === 'receipt' ? 'Official Commercial Receipt' : 'Delivery Notice (Bon de Livraison)'}
+                  {docType === 'receipt' ? "Client's Order" : 'Delivery Notice (Bon de Livraison)'}
                 </span>
                 <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   {rollSize}
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">
-                Order #{order.order_number} • {docType === 'receipt' ? 'Prices & VAT included' : 'Warehouse stock release (Quantities only, no prices)'}
+                Order #{order.order_number} • {docType === 'receipt' ? 'Itemized prices & totals (Non-EBM)' : 'Warehouse stock release (Quantities only, no prices)'}
               </p>
             </div>
           </div>
@@ -760,7 +746,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             }`}
           >
             <Receipt className="w-4 h-4 shrink-0" />
-            <span className="truncate">{shopTin ? 'Full Receipt (Prices & TIN)' : 'Full Receipt (Prices)'}</span>
+            <span className="truncate">{shopTin ? "Client's Order (Prices & TIN)" : "Client's Order (Prices)"}</span>
           </button>
 
           <button
@@ -799,7 +785,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <p>
                 {docType === 'delivery_notice'
                   ? `Hand this Delivery Notice (${rollSize}) to the storekeeper or driver to release products without revealing commercial prices.`
-                  : `Full financial receipt (${rollSize}) with itemized prices and VAT (18%).${shopTin ? ` Shop TIN: ${shopTin}.` : ''}`}
+                  : `Client's Order (${rollSize}) with itemized prices and totals (taxes excluded).${shopTin ? ` Shop TIN: ${shopTin}.` : ''}`}
               </p>
             </div>
             <button
@@ -832,12 +818,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   {shopTin && <p className="text-xs font-bold text-slate-950">TIN: {shopTin}</p>}
                 </div>
 
-                <div className="sm:text-right space-y-0.5">
-                  <h3 className="text-sm font-black uppercase tracking-wide text-slate-950">
-                    {docType === 'delivery_notice' ? 'DELIVERY NOTICE / BON DE LIVRAISON' : 'OFFICIAL CASH SALE RECEIPT'}
+                <div className="sm:text-right space-y-1">
+                  <h3 className={docType === 'delivery_notice'
+                    ? 'text-sm font-black uppercase tracking-wide text-slate-950'
+                    : 'inline-block text-base sm:text-lg font-black text-slate-950 border-2 border-slate-950 px-3 py-0.5 rounded-sm tracking-tight'
+                  }>
+                    {docType === 'delivery_notice' ? 'DELIVERY NOTICE / BON DE LIVRAISON' : "Client's Order"}
                   </h3>
                   <p className="text-xs text-slate-700">
-                    <strong>{docType === 'delivery_notice' ? 'BL No:' : 'Receipt No:'}</strong>{' '}
+                    <strong>{docType === 'delivery_notice' ? 'BL No:' : 'Order No:'}</strong>{' '}
                     {docType === 'delivery_notice' ? `BL-${order.order_number.replace('ORD-', '')}` : order.order_number}
                   </p>
                   {docType === 'delivery_notice' && (
@@ -947,14 +936,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               ) : (
                 <div className="flex justify-end">
                   <div className="w-full sm:w-72 border border-slate-400 rounded-md overflow-hidden text-xs">
-                    <div className="flex justify-between px-3 py-1.5 border-b border-slate-200">
-                      <span>Taxable Net:</span>
-                      <span className="font-mono">{formatRwf(taxableNet)}</span>
-                    </div>
-                    <div className="flex justify-between px-3 py-1.5 border-b border-slate-200">
-                      <span>VAT (18% Included):</span>
-                      <span className="font-mono">{formatRwf(taxAmount)}</span>
-                    </div>
                     <div className="flex justify-between px-3 py-2 bg-slate-900 text-white font-black text-sm">
                       <span>TOTAL DUE:</span>
                       <span className="font-mono">{formatRwf(order.total_amount)}</span>
@@ -1098,14 +1079,16 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                     {shopLocation && <p className="text-[10px] text-black">{shopLocation}</p>}
                     {shopPhone && <p className="text-[10px] text-black">TEL: {shopPhone}</p>}
                     {shopTin && <p className="text-[10px] font-bold text-black">TIN: {shopTin}</p>}
-                    <div className="pt-1 text-[9px] font-black uppercase tracking-widest text-black border-t border-dotted border-black mt-1">
-                      OFFICIAL CASH SALE RECEIPT
+                    <div className="pt-1.5 mt-1 border-t border-dotted border-black">
+                      <span className="inline-block border-2 border-black px-2.5 py-0.5 text-sm font-black text-black tracking-tight">
+                        Client&apos;s Order
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-0.5 text-[10px] border-y border-dashed border-black py-1.5 my-1.5">
                     <div className="flex justify-between">
-                      <span>Receipt No:</span>
+                      <span>Order No:</span>
                       <span className="font-bold">{order.order_number}</span>
                     </div>
                     <div className="flex justify-between">
@@ -1153,14 +1136,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   </div>
 
                   <div className="space-y-1 text-[10px] border-t border-dashed border-black pt-1.5 mt-2">
-                    <div className="flex justify-between">
-                      <span>Taxable Net:</span>
-                      <span>{formatRwf(taxableNet)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>VAT (18% Incl):</span>
-                      <span>{formatRwf(taxAmount)}</span>
-                    </div>
                     <div className="flex justify-between text-xs font-black border-y border-black py-1 my-0.5 text-black">
                       <span>TOTAL DUE:</span>
                       <span>{formatRwf(order.total_amount)}</span>
@@ -1194,7 +1169,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           <p className="text-[11px] text-slate-400 mt-3 text-center">
             {docType === 'delivery_notice'
               ? `Delivery Notice (${rollSize}): Quantities and items only for warehouse release & transport.`
-              : `Official Receipt (${rollSize}): Full commercial prices, VAT, and payments.`}
+              : `Client's Order (${rollSize}): Itemized prices and payments (taxes excluded).`}
           </p>
         </div>
 

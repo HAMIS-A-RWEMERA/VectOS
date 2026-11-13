@@ -704,10 +704,6 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               <span>Items Count</span>
               <span className="font-mono">{cart.reduce((a, b) => a + b.quantity, 0)} units</span>
             </div>
-            <div className="flex justify-between text-slate-400">
-              <span>VAT Included (18%)</span>
-              <span className="font-mono">{formatRwf(cartSubtotal * 0.18 / 1.18)}</span>
-            </div>
             <div className="flex justify-between text-base font-black text-white pt-1 border-t border-slate-800">
               <span>Total to Pay</span>
               <span className="text-amber-400 font-mono">{formatRwf(cartSubtotal)}</span>
