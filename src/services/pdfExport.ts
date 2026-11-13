@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { ReportSummary, Order, Shop, User } from '../types';
+import { ReportSummary, Order, Product, Shop, User } from '../types';
 
 const formatCurrency = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
@@ -726,4 +726,247 @@ export function exportSingleOrderPdf({
 
   const filename = `Invoice_${order.order_number}_${Date.now()}.pdf`;
   doc.save(filename);
+}
+
+/**
+ * Generates a branded Stock Inventory & Valuation PDF sheet matching the user's sort/filter view.
+ * Strictly hides buying prices and cost totals when showBuyingPrices is false.
+ */
+export function exportStockPdf({
+  products,
+  sortLabel,
+  filterSummary,
+  showBuyingPrices,
+  shop,
+  user,
+}: {
+  products: Product[];
+  sortLabel: string;
+  filterSummary: string;
+  showBuyingPrices: boolean;
+  shop: Shop | null;
+  user: User | null;
+}) {
+  const doc = new jsPDF({
+    orientation: 'landscape',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 12;
+  let currentY = 14;
+
+  // Header Banner
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 25, 'F');
+
+  doc.setTextColor(245, 158, 11);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text('VectOS ERP', margin, 11);
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Stock Inventory & Warehouse Count Sheet', margin + 35, 11);
+
+  doc.setFontSize(8.5);
+  doc.setTextColor(203, 213, 225);
+  doc.text(
+    `STORE: ${shop?.name || 'Main Store'} | Location: ${shop?.location || 'Kigali, Rwanda'} | TIN: ${shop?.tin_number || 'N/A'} | Phone: ${shop?.phone || 'N/A'}`,
+    margin,
+    18.5
+  );
+
+  // Sort badge
+  const badgeText = `SORT: ${sortLabel.toUpperCase()}`;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setFillColor(245, 158, 11);
+  doc.setTextColor(15, 23, 42);
+  const badgeWidth = Math.min(doc.getTextWidth(badgeText) + 8, 95);
+  doc.roundedRect(pageWidth - margin - badgeWidth, 7.5, badgeWidth, 8, 2, 2, 'F');
+  doc.text(badgeText, pageWidth - margin - badgeWidth + 4, 12.8, { maxWidth: badgeWidth - 6 });
+
+  currentY = 31;
+
+  // Stock Summary KPIs
+  const totalItems = products.length;
+  const totalUnits = products.reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+  const totalSold = products.reduce((sum, p) => sum + Number(p.total_units_sold || 0), 0);
+  const lowOrOutCount = products.filter((p) => Number(p.quantity || 0) <= Number(p.low_stock_threshold || 0)).length;
+  const totalRetailValue = products.reduce((sum, p) => {
+    const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
+    return sum + Number(p.quantity || 0) * sellPrice;
+  }, 0);
+  const totalCostValue = products.reduce(
+    (sum, p) => sum + Number(p.quantity || 0) * Number(p.buying_price || 0),
+    0
+  );
+
+  const cards = [
+    { label: 'Products Listed', val: totalItems.toLocaleString() },
+    { label: 'Total Units in Stock', val: totalUnits.toLocaleString() },
+    { label: 'Total Units Sold', val: totalSold.toLocaleString() },
+    { label: 'Low / Out of Stock', val: `${lowOrOutCount} items` },
+    {
+      label: showBuyingPrices ? 'Stock Cost / Retail' : 'Total Retail Value',
+      val: showBuyingPrices
+        ? `${formatCurrency(totalCostValue)} / ${formatCurrency(totalRetailValue)}`
+        : formatCurrency(totalRetailValue),
+    },
+  ];
+
+  const cardW = (pageWidth - margin * 2 - 12) / cards.length;
+  const cardH = 14;
+
+  cards.forEach((stat, i) => {
+    const x = margin + i * (cardW + 3);
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x, currentY, cardW, cardH, 1.5, 1.5, 'FD');
+
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139);
+    doc.text(stat.label, x + 3.5, currentY + 5);
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text(stat.val, x + 3.5, currentY + 11, { maxWidth: cardW - 6 });
+  });
+
+  currentY += cardH + 5.5;
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    `Filter: ${filterSummary} | Printed on ${formatDate(new Date().toISOString())} by ${user?.name || 'Staff'}`,
+    margin,
+    currentY
+  );
+  currentY += 3;
+
+  const headRow = showBuyingPrices
+    ? [['#', 'Code', 'Product Name', 'Category', 'Location', 'Unit', 'Buying Cost', 'Selling Price', 'In Stock', 'Sold', 'Status', 'Date Added']]
+    : [['#', 'Code', 'Product Name', 'Category', 'Location', 'Unit', 'Selling Price', 'In Stock', 'Sold', 'Status', 'Date Added']];
+
+  const bodyRows = products.map((p, idx) => {
+    const qty = Number(p.quantity || 0);
+    const threshold = Number(p.low_stock_threshold || 0);
+    const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
+    const statusLabel = qty <= 0 ? 'OUT OF STOCK' : qty <= threshold ? 'LOW STOCK' : 'HEALTHY';
+    const dateVal = p.last_stocked_at || p.created_at;
+    const shortDate = dateVal
+      ? new Date(dateVal).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' })
+      : '-';
+
+    if (showBuyingPrices) {
+      return [
+        idx + 1,
+        p.sku || '-',
+        p.name,
+        p.category,
+        p.stock_name || 'Main',
+        p.unit || 'pcs',
+        formatCurrency(Number(p.buying_price || 0)),
+        formatCurrency(sellPrice),
+        qty.toLocaleString(),
+        Number(p.total_units_sold || 0).toLocaleString(),
+        statusLabel,
+        shortDate,
+      ];
+    }
+
+    return [
+      idx + 1,
+      p.sku || '-',
+      p.name,
+      p.category,
+      p.stock_name || 'Main',
+      p.unit || 'pcs',
+      formatCurrency(sellPrice),
+      qty.toLocaleString(),
+      Number(p.total_units_sold || 0).toLocaleString(),
+      statusLabel,
+      shortDate,
+    ];
+  });
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin, bottom: 26 },
+    head: headRow,
+    body: bodyRows,
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+    },
+    bodyStyles: {
+      fontSize: 7.2,
+      textColor: [30, 41, 59],
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: showBuyingPrices
+      ? {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 22 },
+          2: { cellWidth: 48 },
+          6: { halign: 'right' },
+          7: { halign: 'right' },
+          8: { halign: 'right', fontStyle: 'bold' },
+          9: { halign: 'right' },
+          10: { halign: 'center' },
+        }
+      : {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 24 },
+          2: { cellWidth: 56 },
+          6: { halign: 'right' },
+          7: { halign: 'right', fontStyle: 'bold' },
+          8: { halign: 'right' },
+          9: { halign: 'center' },
+        },
+  });
+
+  let finalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : pageHeight - 30;
+  if (finalY > pageHeight - 26) {
+    doc.addPage();
+    finalY = 20;
+  }
+
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.line(margin, finalY + 8, margin + 65, finalY + 8);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Storekeeper Stock Count Signature', margin, finalY + 13);
+
+  const rightSignX = pageWidth - margin - 65;
+  doc.line(rightSignX, finalY + 8, rightSignX + 65, finalY + 8);
+  doc.text('Store Manager Verification', rightSignX, finalY + 13);
+
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `VectOS Stock Inventory Sheet — ${shop?.name || 'Shop'} | Page ${i} of ${totalPages}`,
+      pageWidth / 2,
+      pageHeight - 5,
+      { align: 'center' }
+    );
+  }
+
+  doc.save(`VectOS_Stock_List_${Date.now()}.pdf`);
 }

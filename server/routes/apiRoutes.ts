@@ -765,28 +765,74 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
   const shopId = res.locals.shopId;
   const search = (req.query.q as string || '').trim().toLowerCase();
   const category = (req.query.category as string || '').trim();
+  const stockIdFilter = Number(req.query.stock_id || 0);
+  const sort = (req.query.sort as string || 'name_asc').trim().toLowerCase();
 
   try {
-    let sql = `SELECT * FROM products WHERE shop_id = ?`;
+    let sql = `
+      SELECT p.*,
+        (SELECT s.name FROM stocks s WHERE s.id = p.stock_id) as stock_name,
+        COALESCE((
+          SELECT SUM(oi.quantity)
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          WHERE oi.product_id = p.id
+            AND o.shop_id = p.shop_id
+            AND o.fulfillment_status != 'cancelled'
+            AND COALESCE(oi.item_status, 'approved') != 'rejected'
+        ), 0) as total_units_sold,
+        COALESCE((
+          SELECT MAX(im.created_at)
+          FROM inventory_movements im
+          WHERE im.product_id = p.id
+            AND im.shop_id = p.shop_id
+            AND im.quantity > 0
+        ), p.created_at) as last_stocked_at
+      FROM products p
+      WHERE p.shop_id = ?
+    `;
     const params: any[] = [shopId];
 
     if (search) {
-      sql += ` AND (LOWER(name) LIKE ? OR LOWER(sku) LIKE ? OR LOWER(barcode) LIKE ?)`;
+      sql += ` AND (LOWER(p.name) LIKE ? OR LOWER(p.sku) LIKE ? OR LOWER(p.barcode) LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     if (category && category !== 'all') {
-      sql += ` AND category = ?`;
+      sql += ` AND p.category = ?`;
       params.push(category);
     }
 
-    sql += ` ORDER BY name ASC`;
+    if (stockIdFilter > 0) {
+      sql += ` AND p.stock_id = ?`;
+      params.push(stockIdFilter);
+    }
+
+    const orderClauseMap: Record<string, string> = {
+      qty_desc: 'p.quantity DESC, p.name ASC',
+      qty_asc: 'p.quantity ASC, p.name ASC',
+      sold_desc: 'total_units_sold DESC, p.name ASC',
+      sold_asc: 'total_units_sold ASC, p.name ASC',
+      date_desc: 'last_stocked_at DESC, p.id DESC',
+      date_asc: 'p.created_at ASC, p.id ASC',
+      price_desc: 'p.selling_price DESC, p.name ASC',
+      price_asc: 'p.selling_price ASC, p.name ASC',
+      name_desc: 'p.name DESC',
+      name_asc: 'p.name ASC'
+    };
+    const orderBy = orderClauseMap[sort] || orderClauseMap.name_asc;
+    sql += ` ORDER BY ${orderBy}`;
+
     const products = await queryAll(sql, params);
     const normalizedProducts = products.map((p: any) => {
       const buyPrice = Number(p.buying_price || 0);
       const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : buyPrice;
       return {
         ...p,
+        quantity: Number(p.quantity || 0),
+        low_stock_threshold: Number(p.low_stock_threshold || 0),
+        total_units_sold: Number(p.total_units_sold || 0),
+        last_stocked_at: p.last_stocked_at || p.created_at || null,
         selling_price: sellPrice,
         buying_price: hasUserPermission(req.session?.user, 'can_view_buying_prices') ? buyPrice : null
       };
@@ -1315,7 +1361,7 @@ router.post('/products/:id/adjust-stock', requireAuth, requireTenant, requirePer
       if (adj < 0) {
         // Atomic deduction with stock check condition
         const deductionRes = await execute(
-          'UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ? AND quantity >= ?',
+          'UPDATE products SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND shop_id = ? AND quantity >= ?',
           [Math.abs(adj), productId, shopId, Math.abs(adj)]
         );
         if (deductionRes.changes === 0) {
@@ -1323,7 +1369,7 @@ router.post('/products/:id/adjust-stock', requireAuth, requireTenant, requirePer
         }
       } else {
         await execute(
-          'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
+          'UPDATE products SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND shop_id = ?',
           [adj, productId, shopId]
         );
       }

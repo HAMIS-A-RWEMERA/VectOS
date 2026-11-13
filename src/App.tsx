@@ -293,7 +293,7 @@ export const App: React.FC = () => {
           )}
 
           {activeTab === 'products' && (
-            <ProductsView user={user} />
+            <ProductsView user={user} shop={shop} />
           )}
 
           {activeTab === 'stocks' && (

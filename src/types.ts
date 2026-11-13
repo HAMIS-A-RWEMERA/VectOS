@@ -64,6 +64,7 @@ export interface Product {
   id: number;
   shop_id: number;
   stock_id?: number;
+  stock_name?: string;
   name: string;
   sku: string;
   barcode?: string | null;
@@ -74,6 +75,10 @@ export interface Product {
   quantity: number;
   low_stock_threshold: number;
   description?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  last_stocked_at?: string;
+  total_units_sold?: number;
 }
 
 export interface StockLocation {

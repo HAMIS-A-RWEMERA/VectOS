@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, User, StockLocation } from '../types';
+import { Product, User, StockLocation, Shop } from '../types';
 import { api } from '../services/api';
 import { BulkImportModal } from './BulkImportModal';
 import { AiInvoiceScannerModal } from './AiInvoiceScannerModal';
+import { exportStockPdf } from '../services/pdfExport';
 import { hasPermission } from '../utils/permissions';
 import { 
   Package, 
@@ -16,23 +17,59 @@ import {
   CheckCircle2, 
   X,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   UploadCloud,
   FileSpreadsheet,
-  Sparkles
+  Sparkles,
+  Printer,
+  FileText,
+  Download,
+  ChevronDown,
+  Layers
 } from 'lucide-react';
+
+type StockSortOption =
+  | 'qty_desc'
+  | 'qty_asc'
+  | 'sold_desc'
+  | 'sold_asc'
+  | 'date_desc'
+  | 'date_asc'
+  | 'name_asc'
+  | 'name_desc'
+  | 'price_desc'
+  | 'price_asc';
+
+const SORT_LABELS: Record<StockSortOption, string> = {
+  qty_desc: 'In Stock: Most to Least',
+  qty_asc: 'In Stock: Least / Zero First',
+  sold_desc: 'Best Selling First',
+  sold_asc: 'Slowest Selling First',
+  date_desc: 'Date Entered / Restocked (Newest)',
+  date_asc: 'Date Entered (Oldest First)',
+  name_asc: 'Product Name (A to Z)',
+  name_desc: 'Product Name (Z to A)',
+  price_desc: 'Selling Price (High to Low)',
+  price_asc: 'Selling Price (Low to High)'
+};
 
 interface ProductsViewProps {
   user: User | null;
+  shop?: Shop | null;
 }
 
-export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
+export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [stocks, setStocks] = useState<StockLocation[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedStockId, setSelectedStockId] = useState<string>('all');
   const [filterStockStatus, setFilterStockStatus] = useState<'all' | 'low' | 'out'>('all');
+  const [sortBy, setSortBy] = useState<StockSortOption>('qty_desc');
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -98,9 +135,55 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
     }
   };
 
+  const sortProductList = (list: Product[], sortKey: StockSortOption): Product[] => {
+    const getSellPrice = (p: Product) =>
+      p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
+    const getTimestamp = (val?: string) => {
+      if (!val) return 0;
+      const normalized = val.includes('T') || val.includes('Z') ? val : val.replace(' ', 'T') + 'Z';
+      const ms = new Date(normalized).getTime();
+      return Number.isNaN(ms) ? 0 : ms;
+    };
+
+    return [...list].sort((a, b) => {
+      switch (sortKey) {
+        case 'qty_desc':
+          return Number(b.quantity || 0) - Number(a.quantity || 0) || a.name.localeCompare(b.name);
+        case 'qty_asc':
+          return Number(a.quantity || 0) - Number(b.quantity || 0) || a.name.localeCompare(b.name);
+        case 'sold_desc':
+          return Number(b.total_units_sold || 0) - Number(a.total_units_sold || 0) || a.name.localeCompare(b.name);
+        case 'sold_asc':
+          return Number(a.total_units_sold || 0) - Number(b.total_units_sold || 0) || a.name.localeCompare(b.name);
+        case 'date_desc': {
+          const diff =
+            getTimestamp(b.last_stocked_at || b.created_at) -
+            getTimestamp(a.last_stocked_at || a.created_at);
+          return diff !== 0 ? diff : b.id - a.id;
+        }
+        case 'date_asc': {
+          const diff =
+            getTimestamp(a.created_at || a.last_stocked_at) -
+            getTimestamp(b.created_at || b.last_stocked_at);
+          return diff !== 0 ? diff : a.id - b.id;
+        }
+        case 'price_desc':
+          return getSellPrice(b) - getSellPrice(a) || a.name.localeCompare(b.name);
+        case 'price_asc':
+          return getSellPrice(a) - getSellPrice(b) || a.name.localeCompare(b.name);
+        case 'name_desc':
+          return b.name.localeCompare(a.name);
+        case 'name_asc':
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
+  };
+
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    const filtered = products.filter((p) => {
       const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
+      const matchLoc = selectedStockId === 'all' || Number(p.stock_id || 1) === Number(selectedStockId);
       const q = searchQuery.toLowerCase().trim();
       const matchQuery = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcode && p.barcode.toLowerCase().includes(q));
       
@@ -111,9 +194,219 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
         matchStock = p.quantity <= 0;
       }
 
-      return matchCat && matchQuery && matchStock;
+      return matchCat && matchLoc && matchQuery && matchStock;
     });
-  }, [products, searchQuery, selectedCategory, filterStockStatus]);
+
+    return sortProductList(filtered, sortBy);
+  }, [products, searchQuery, selectedCategory, selectedStockId, filterStockStatus, sortBy]);
+
+  const toggleColumnSort = (descKey: StockSortOption, ascKey: StockSortOption) => {
+    setSortBy((prev) => (prev === descKey ? ascKey : descKey));
+  };
+
+  const getFilterSummaryText = () => {
+    const parts: string[] = [];
+    if (selectedCategory !== 'All') parts.push(`Category: ${selectedCategory}`);
+    if (selectedStockId !== 'all') {
+      const st = stocks.find((s) => String(s.id) === selectedStockId);
+      parts.push(`Location: ${st?.name || selectedStockId}`);
+    }
+    if (filterStockStatus === 'low') parts.push('Low Stock Only');
+    if (filterStockStatus === 'out') parts.push('Out of Stock Only');
+    if (searchQuery.trim()) parts.push(`Search: "${searchQuery.trim()}"`);
+    return parts.length > 0 ? parts.join(' | ') : 'All Stock Items';
+  };
+
+  const formatShortDate = (val?: string) => {
+    if (!val) return '-';
+    try {
+      const normalized = val.includes('T') || val.includes('Z') ? val : val.replace(' ', 'T') + 'Z';
+      const d = new Date(normalized);
+      if (Number.isNaN(d.getTime())) return '-';
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return '-';
+    }
+  };
+
+  const escapeHtml = (unsafe: string) =>
+    String(unsafe || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+  const handleExportPdf = (mode: 'filtered' | 'all') => {
+    setIsExportMenuOpen(false);
+    const list = mode === 'all' ? sortProductList(products, sortBy) : filteredProducts;
+    exportStockPdf({
+      products: list,
+      sortLabel: SORT_LABELS[sortBy],
+      filterSummary: mode === 'all' ? 'All Shop Products' : getFilterSummaryText(),
+      showBuyingPrices: canViewBuyingPrices,
+      shop: shop || null,
+      user,
+    });
+  };
+
+  const handlePrintDirect = () => {
+    setIsExportMenuOpen(false);
+    const list = filteredProducts;
+    const totalUnits = list.reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+    const totalSold = list.reduce((sum, p) => sum + Number(p.total_units_sold || 0), 0);
+
+    let iframe = document.getElementById('vectos-stock-print-frame') as HTMLIFrameElement;
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'vectos-stock-print-frame';
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      document.body.appendChild(iframe);
+    }
+
+    const rowsHtml = list.map((p, idx) => {
+      const sellPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
+      const qty = Number(p.quantity || 0);
+      const status = qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy';
+      return `
+        <tr>
+          <td class="center">${idx + 1}</td>
+          <td class="mono">${escapeHtml(p.sku || '-')}</td>
+          <td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.category)}</span></td>
+          <td>${escapeHtml(p.stock_name || 'Main')}</td>
+          <td class="center">${escapeHtml(p.unit || 'pcs')}</td>
+          ${canViewBuyingPrices ? `<td class="right mono">${formatRwf(p.buying_price)}</td>` : ''}
+          <td class="right mono">${formatRwf(sellPrice)}</td>
+          <td class="right mono bold">${qty.toLocaleString()}</td>
+          <td class="right mono">${Number(p.total_units_sold || 0).toLocaleString()}</td>
+          <td class="center">${escapeHtml(status)}</td>
+          <td class="center">${escapeHtml(formatShortDate(p.last_stocked_at || p.created_at))}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Stock Inventory Sheet</title>
+        <style>
+          @page { size: A4 landscape; margin: 12mm; }
+          body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; font-size: 11px; margin: 0; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 10px; }
+          .title { font-size: 18px; font-weight: 800; margin: 0 0 2px 0; }
+          .sub { font-size: 11px; color: #475569; margin: 0; }
+          .meta { text-align: right; font-size: 10px; color: #334155; }
+          .summary { display: flex; gap: 12px; margin-bottom: 10px; font-size: 11px; }
+          .pill { background: #f8fafc; border: 1px solid #cbd5e1; padding: 5px 10px; border-radius: 4px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+          th, td { border: 1px solid #cbd5e1; padding: 5px 6px; text-align: left; vertical-align: top; }
+          th { background: #0f172a; color: #ffffff; font-size: 10px; text-transform: uppercase; }
+          tr:nth-child(even) td { background: #f8fafc; }
+          .right { text-align: right; }
+          .center { text-align: center; }
+          .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+          .bold { font-weight: 700; }
+          .muted { color: #64748b; font-size: 9.5px; }
+          .sigs { display: flex; justify-content: space-between; margin-top: 24px; padding-top: 10px; }
+          .sig-box { width: 220px; border-top: 1px solid #475569; padding-top: 4px; font-size: 10px; font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1 class="title">${escapeHtml(shop?.name || 'VectOS Hardware Store')} — Stock Sheet</h1>
+            <p class="sub">${escapeHtml(shop?.location || 'Kigali, Rwanda')} | TIN: ${escapeHtml(shop?.tin_number || 'N/A')} | Phone: ${escapeHtml(shop?.phone || 'N/A')}</p>
+          </div>
+          <div class="meta">
+            <div><strong>Sorted by:</strong> ${escapeHtml(SORT_LABELS[sortBy])}</div>
+            <div><strong>Filter:</strong> ${escapeHtml(getFilterSummaryText())}</div>
+            <div><strong>Printed:</strong> ${escapeHtml(new Date().toLocaleString())} by ${escapeHtml(user?.name || 'Staff')}</div>
+          </div>
+        </div>
+        <div class="summary">
+          <div class="pill"><strong>Items Listed:</strong> ${list.length.toLocaleString()}</div>
+          <div class="pill"><strong>Total Units in Stock:</strong> ${totalUnits.toLocaleString()}</div>
+          <div class="pill"><strong>Total Units Sold:</strong> ${totalSold.toLocaleString()}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th class="center">#</th>
+              <th>Code</th>
+              <th>Product & Category</th>
+              <th>Location</th>
+              <th class="center">Unit</th>
+              ${canViewBuyingPrices ? '<th class="right">Buying Cost</th>' : ''}
+              <th class="right">Selling Price</th>
+              <th class="right">In Stock</th>
+              <th class="right">Sold</th>
+              <th class="center">Status</th>
+              <th class="center">Date Entered</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml || '<tr><td colspan="11" class="center">No products match the selected filter.</td></tr>'}
+          </tbody>
+        </table>
+        <div class="sigs">
+          <div class="sig-box">Storekeeper Signature & Date</div>
+          <div class="sig-box">Store Manager Approval & Date</div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      }, 200);
+    }
+  };
+
+  const handleExportCsv = () => {
+    setIsExportMenuOpen(false);
+    const list = filteredProducts;
+    const headers = canViewBuyingPrices
+      ? ['Item Code', 'Product Name', 'Category', 'Location', 'Unit', 'Buying Cost (RWF)', 'Selling Price (RWF)', 'In Stock', 'Units Sold', 'Status', 'Date Entered']
+      : ['Item Code', 'Product Name', 'Category', 'Location', 'Unit', 'Selling Price (RWF)', 'In Stock', 'Units Sold', 'Status', 'Date Entered'];
+
+    const csvSafe = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = list.map((p) => {
+      const sellPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
+      const qty = Number(p.quantity || 0);
+      const status = qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy';
+      const dateStr = formatShortDate(p.last_stocked_at || p.created_at);
+      const cols = canViewBuyingPrices
+        ? [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, Number(p.buying_price || 0), sellPrice, qty, Number(p.total_units_sold || 0), status, dateStr]
+        : [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, sellPrice, qty, Number(p.total_units_sold || 0), status, dateStr];
+      return cols.map(csvSafe).join(',');
+    });
+
+    const csvContent = [headers.map(csvSafe).join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `VectOS_Stock_List_${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const handleOpenAdd = () => {
     setFormData({
@@ -231,7 +524,76 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Print & Export Stock Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setIsExportMenuOpen((prev) => !prev)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/20 border border-rose-500/30 transition transform active:scale-95"
+              title="Print stock sheet or export as PDF / CSV"
+            >
+              <Printer className="w-4 h-4 text-white" />
+              <span>Print / Export Stock</span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </button>
+
+            {isExportMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsExportMenuOpen(false)}
+                />
+                <div className="absolute right-0 mt-2 w-72 rounded-xl bg-[#121620] border border-slate-700 shadow-2xl p-2 z-50 text-xs">
+                  <button
+                    onClick={handlePrintDirect}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200 transition font-medium flex flex-col gap-0.5"
+                  >
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                      Print Stock Sheet Now
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Opens printer layout for current view ({filteredProducts.length} items)
+                    </span>
+                  </button>
+                  <div className="my-1 border-t border-slate-800" />
+                  <button
+                    onClick={() => handleExportPdf('filtered')}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200 transition font-medium flex flex-col gap-0.5"
+                  >
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-amber-400" />
+                      Save Current Stock as PDF
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Keeps active sort & filter ({SORT_LABELS[sortBy]})
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => handleExportPdf('all')}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200 transition font-medium flex flex-col gap-0.5"
+                  >
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-sky-400" />
+                      Save Complete Shop Stock PDF
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      All {products.length} items ordered by selected sort
+                    </span>
+                  </button>
+                  <div className="my-1 border-t border-slate-800" />
+                  <button
+                    onClick={handleExportCsv}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200 transition font-medium flex items-center gap-2"
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="font-bold text-white">Download Stock List (CSV)</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
           {canManageStock && (
             <button
               onClick={() => setIsAiScanOpen(true)}
@@ -268,11 +630,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
+      {/* Filter, Sort and Search Bar */}
       <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           {/* Search */}
-          <div className="relative md:col-span-2">
+          <div className="relative md:col-span-5">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -283,8 +645,30 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
             />
           </div>
 
+          {/* Sort Selector */}
+          <div className="relative md:col-span-4">
+            <ArrowUpDown className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <select
+              aria-label="Sort stock items"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as StockSortOption)}
+              className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-100 focus:outline-none focus:border-amber-500"
+            >
+              <option value="qty_desc">Sort: Most in Stock First (High → Low)</option>
+              <option value="qty_asc">Sort: Least / Zero Stock First (Low → High)</option>
+              <option value="sold_desc">Sort: Best Selling First (Most Sold)</option>
+              <option value="sold_asc">Sort: Slowest Moving First (Least Sold)</option>
+              <option value="date_desc">Sort: Date Entered / Restocked (Newest)</option>
+              <option value="date_asc">Sort: Date Entered (Oldest First)</option>
+              <option value="name_asc">Sort: Product Name (A → Z)</option>
+              <option value="name_desc">Sort: Product Name (Z → A)</option>
+              <option value="price_desc">Sort: Selling Price (High → Low)</option>
+              <option value="price_asc">Sort: Selling Price (Low → High)</option>
+            </select>
+          </div>
+
           {/* Stock Health Filter */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 md:col-span-3">
             {[
               { id: 'all', label: 'All Stock' },
               { id: 'low', label: 'Low Stock' },
@@ -305,21 +689,39 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
           </div>
         </div>
 
-        {/* Categories */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pt-1 text-xs">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded-lg whitespace-nowrap transition ${
-                selectedCategory === cat
-                  ? 'bg-amber-500 text-slate-950 font-bold'
-                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-              }`}
+        {/* Categories & Optional Warehouse Filter */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1 rounded-lg whitespace-nowrap transition ${
+                  selectedCategory === cat
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {stocks.length > 1 && (
+            <select
+              aria-label="Filter by store location"
+              value={selectedStockId}
+              onChange={(e) => setSelectedStockId(e.target.value)}
+              className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
             >
-              {cat}
-            </button>
-          ))}
+              <option value="all">All Store Locations</option>
+              {stocks.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name} ({s.code})
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -330,11 +732,58 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
               <tr>
                 <th className="py-3 px-4 font-semibold">Item Code</th>
-                <th className="py-3 px-4 font-semibold">Product Name & Category</th>
+                <th className="py-3 px-4 font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => toggleColumnSort('name_asc', 'name_desc')}
+                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                  >
+                    <span>Product Name & Category</span>
+                    {sortBy === 'name_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : sortBy === 'name_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                  </button>
+                </th>
                 <th className="py-3 px-4 font-semibold">Unit</th>
                 {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">Buying Cost</th>}
-                <th className="py-3 px-4 font-semibold">Selling Price</th>
-                <th className="py-3 px-4 font-semibold">In Stock</th>
+                <th className="py-3 px-4 font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => toggleColumnSort('price_desc', 'price_asc')}
+                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                  >
+                    <span>Selling Price</span>
+                    {sortBy === 'price_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'price_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                  </button>
+                </th>
+                <th className="py-3 px-4 font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => toggleColumnSort('qty_desc', 'qty_asc')}
+                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                  >
+                    <span>In Stock</span>
+                    {sortBy === 'qty_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'qty_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                  </button>
+                </th>
+                <th className="py-3 px-4 font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => toggleColumnSort('sold_desc', 'sold_asc')}
+                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                  >
+                    <span>Sold</span>
+                    {sortBy === 'sold_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'sold_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                  </button>
+                </th>
+                <th className="py-3 px-4 font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => toggleColumnSort('date_desc', 'date_asc')}
+                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                  >
+                    <span>Date Entered</span>
+                    {sortBy === 'date_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'date_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                  </button>
+                </th>
                 <th className="py-3 px-4 font-semibold">Status</th>
                 {canManageStock && <th className="py-3 px-4 font-semibold text-right">Actions</th>}
               </tr>
@@ -352,7 +801,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                     <td className="py-3 px-4 font-mono font-bold text-amber-400">{p.sku}</td>
                     <td className="py-3 px-4">
                       <p className="font-bold text-slate-100">{p.name}</p>
-                      <p className="text-[10px] text-slate-400">{p.category}</p>
+                      <p className="text-[10px] text-slate-400">
+                        {p.category}{p.stock_name ? ` • ${p.stock_name}` : ''}
+                      </p>
                     </td>
                     <td className="py-3 px-4 text-slate-300 font-mono">{p.unit}</td>
                     {canViewBuyingPrices && (
@@ -360,6 +811,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                     )}
                     <td className="py-3 px-4 font-bold text-slate-200 font-mono">{formatRwf(sellingPrice)}</td>
                     <td className="py-3 px-4 font-mono font-black text-white">{p.quantity}</td>
+                    <td className="py-3 px-4 font-mono font-semibold text-sky-300">
+                      {Number(p.total_units_sold || 0).toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                      {formatShortDate(p.last_stocked_at || p.created_at)}
+                    </td>
                     <td className="py-3 px-4">
                       {isOutOfStock ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
@@ -400,7 +857,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
 
               {filteredProducts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Package className="w-8 h-8 mx-auto mb-2 text-slate-400" />
                     <p className="font-semibold text-slate-300">No products found matching criteria</p>
                   </td>
