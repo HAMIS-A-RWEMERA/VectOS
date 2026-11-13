@@ -328,6 +328,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
     for (const key of ALL_SHOP_PERMISSION_KEYS) {
       perms[key] = Boolean((u as any)[key]);
     }
+    if (u.role === 'manager' || u.role === 'superadmin') {
+      perms.can_edit_company_settings = true;
+    }
     setFormData({
       name: u.name,
       email: u.email,
@@ -377,6 +380,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
     const explicitPermissions: Record<string, boolean> = {};
     for (const key of ALL_SHOP_PERMISSION_KEYS) {
       explicitPermissions[key] = Boolean(formData[key]);
+    }
+    if (formData.role === 'manager' || formData.role === 'superadmin') {
+      explicitPermissions.can_edit_company_settings = true;
     }
 
     try {
@@ -651,7 +657,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                               Paused / On Leave
                             </span>
                           )}
-                          {u.force_password_change === 1 && (
+                          {Number(u.force_password_change) === 1 && (
                             <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-400 font-semibold" title="Must change password on next login">
                               Password Change Pending
                             </span>
@@ -714,6 +720,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                       )}
                       {(isFullRole || u.can_view_audit_trail) && (
                         <span className="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 text-[10px] border border-amber-800/40">Activity History</span>
+                      )}
+                      {(isFullRole || u.can_edit_company_settings) && (
+                        <span className="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 text-[10px] border border-purple-800/40">Edit Shop Info</span>
                       )}
                       {!isFullRole && activePermCount === 0 && (
                         <span className="px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 text-[10px] italic">
@@ -900,7 +909,17 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   <label className="text-xs font-semibold text-slate-300">Main Role</label>
                   <select
                     value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      setFormData((prev: any) => ({
+                        ...prev,
+                        role: nextRole,
+                        can_edit_company_settings:
+                          nextRole === 'manager' || nextRole === 'superadmin'
+                            ? true
+                            : prev.can_edit_company_settings
+                      }));
+                    }}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
                     <option value="employee">Shop Staff / Custom</option>
@@ -1026,23 +1045,40 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
-                      {group.items.map((item) => (
-                        <label
-                          key={item.key}
-                          className="flex items-start gap-2.5 p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800/80 cursor-pointer transition border border-slate-800"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={Boolean(formData[item.key])}
-                            onChange={(e) => {
-                              setSelectedTemplateId('custom');
-                              setFormData({ ...formData, [item.key]: e.target.checked });
-                            }}
-                            className="mt-0.5 rounded accent-amber-500"
-                          />
-                          <span className="text-xs text-slate-200 leading-tight">{item.label}</span>
-                        </label>
-                      ))}
+                      {group.items.map((item) => {
+                        const isLockedOwnerSetting =
+                          item.key === 'can_edit_company_settings' &&
+                          (formData.role === 'manager' || formData.role === 'superadmin');
+
+                        return (
+                          <label
+                            key={item.key}
+                            className={`flex items-start gap-2.5 p-2 rounded-lg bg-slate-900/80 transition border border-slate-800 ${
+                              isLockedOwnerSetting ? 'opacity-90 cursor-not-allowed border-amber-500/30' : 'hover:bg-slate-800/80 cursor-pointer'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isLockedOwnerSetting ? true : Boolean(formData[item.key])}
+                              disabled={isLockedOwnerSetting}
+                              onChange={(e) => {
+                                if (isLockedOwnerSetting) return;
+                                setSelectedTemplateId('custom');
+                                setFormData({ ...formData, [item.key]: e.target.checked });
+                              }}
+                              className="mt-0.5 rounded accent-amber-500"
+                            />
+                            <div className="leading-tight">
+                              <span className="text-xs text-slate-200">{item.label}</span>
+                              {isLockedOwnerSetting && (
+                                <p className="text-[10px] text-amber-400 mt-0.5">
+                                  Shop Owner / Manager always keeps this duty
+                                </p>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

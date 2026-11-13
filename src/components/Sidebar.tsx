@@ -17,6 +17,7 @@ import {
   Crown,
   Menu,
   MessageCircle,
+  KeyRound,
   X
 } from 'lucide-react';
 
@@ -28,6 +29,7 @@ interface SidebarProps {
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
   onOpenMobile?: () => void;
+  onOpenChangePassword?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -37,7 +39,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   lowStockCount,
   isMobileOpen,
   onCloseMobile,
-  onOpenMobile
+  onOpenMobile,
+  onOpenChangePassword
 }) => {
   const isSuperAdmin = user?.role === 'superadmin' || user?.email === 'rwemera30@gmail.com';
   const canCreateOrders = hasPermission(user, 'can_create_orders');
@@ -50,6 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canManagePartners = hasPermission(user, 'can_manage_partners') || hasPermission(user, 'can_partner_borrow');
   const canManageCustomers = hasPermission(user, 'can_manage_customers');
   const canVoidOrders = hasPermission(user, 'can_void_orders');
+  const canEditCompanySettings = hasPermission(user, 'can_edit_company_settings');
 
   const canSeeProducts = canCreateOrders || canManageStock || canImportExportStock || canReleaseStock;
   const canSeeOrders = canCreateOrders || canProcessPayments || canReleaseStock || canVoidOrders || canViewReports;
@@ -70,6 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'customers', label: 'Customers & Debt', icon: Users, visible: canManageCustomers || canCreateOrders || canProcessPayments },
     { id: 'partners', label: 'Partner Shops', icon: Handshake, visible: canManagePartners },
     { id: 'reports', label: 'Sales & Profit Reports', icon: BarChart3, visible: canViewReports },
+    { id: 'shop_settings', label: 'Business Info & TIN', icon: Building, visible: canEditCompanySettings },
     { id: 'users', label: 'Staff & Duties', icon: Settings, visible: canManageUsers },
     { id: 'superadmin', label: 'Platform Approvals', icon: Crown, visible: isSuperAdmin, highlight: true },
   ];
@@ -89,6 +94,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
               </span>
             </div>
+            {onOpenChangePassword && (
+              <button
+                type="button"
+                onClick={onOpenChangePassword}
+                className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-amber-500/15 border border-slate-700/80 hover:border-amber-500/40 text-[11px] font-semibold text-slate-200 hover:text-amber-300 transition"
+              >
+                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                <span>Change Password</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -192,6 +207,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
                   </span>
                 </div>
+                {onOpenChangePassword && (
+                  <button
+                    type="button"
+                    onClick={onOpenChangePassword}
+                    className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-amber-500/15 border border-slate-700/80 hover:border-amber-500/40 text-[11px] font-semibold text-slate-200 hover:text-amber-300 transition"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Change Password</span>
+                  </button>
+                )}
               </div>
             </div>
 

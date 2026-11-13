@@ -91,7 +91,13 @@ export function exportReportsPdf({
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
   currentY += 5;
-  doc.text(`Location: ${shop?.location || 'Kigali, Rwanda'} | TIN: ${shop?.tin_number || 'N/A'} | Phone: ${shop?.phone || 'N/A'}`, margin, currentY);
+  const reportTin = (shop?.tin_number || '').trim();
+  const reportInfoParts = [
+    `Location: ${shop?.location || 'Kigali, Rwanda'}`,
+    ...(reportTin ? [`TIN: ${reportTin}`] : []),
+    ...(shop?.phone ? [`Phone: ${shop.phone}`] : [])
+  ];
+  doc.text(reportInfoParts.join(' | '), margin, currentY);
   currentY += 4.5;
   doc.text(`Report Generated: ${formatDate(new Date().toISOString())} | Prepared By: ${user?.name || 'Store Manager'} (${user?.role || 'Staff'})`, margin, currentY);
 
@@ -411,7 +417,13 @@ export function exportOrdersPdf({
 
   doc.setFontSize(8.5);
   doc.setTextColor(203, 213, 225);
-  doc.text(`STORE: ${shop?.name || 'Quincaille Central Depot'} | TIN: ${shop?.tin_number || '100234567'}`, margin, 18);
+  const ordersTin = (shop?.tin_number || '').trim();
+  const ordersHeaderParts = [
+    `STORE: ${shop?.name || 'Quincaille Central Depot'}`,
+    ...(ordersTin ? [`TIN: ${ordersTin}`] : []),
+    ...(shop?.phone ? [`TEL: ${shop.phone}`] : [])
+  ];
+  doc.text(ordersHeaderParts.join(' | '), margin, 18);
 
   // Period Badge
   const badgeText = `TIMEFRAME: ${periodLabel.toUpperCase()}`;
@@ -605,11 +617,21 @@ export function exportSingleOrderPdf({
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
 
-  // Seller details
-  doc.text(shop?.name || 'Quincaille Central Store', margin, currentY);
-  doc.text(`Location: ${shop?.location || 'Kigali, Rwanda'}`, margin, currentY + 4);
-  doc.text(`TIN: ${shop?.tin_number || '100234567'}`, margin, currentY + 8);
-  doc.text(`Phone: ${shop?.phone || '+250 788 100 001'}`, margin, currentY + 12);
+  // Seller details (omit TIN completely if shop has no TIN)
+  const sellerTin = (shop?.tin_number || order?.tin_number || '').trim();
+  let sellerY = currentY;
+  doc.text(shop?.name || order?.shop_name || 'Hardware Store', margin, sellerY);
+  sellerY += 4;
+  if (shop?.location) {
+    doc.text(`Location: ${shop.location}`, margin, sellerY);
+    sellerY += 4;
+  }
+  doc.text(`Phone: ${shop?.phone || order?.shop_phone || 'N/A'}`, margin, sellerY);
+  sellerY += 4;
+  if (sellerTin) {
+    doc.text(`TIN: ${sellerTin}`, margin, sellerY);
+    sellerY += 4;
+  }
 
   // Customer details
   const custX = pageWidth / 2 + 5;
@@ -618,7 +640,7 @@ export function exportSingleOrderPdf({
   doc.text(`Salesperson: ${order.salesperson_name || 'Sales Staff'}`, custX, currentY + 8);
   doc.text(`Date: ${formatDate(order.created_at)}`, custX, currentY + 12);
 
-  currentY += 20;
+  currentY = Math.max(sellerY + 4, currentY + 20);
 
   // Line items table
   autoTable(doc, {
@@ -774,11 +796,14 @@ export function exportStockPdf({
 
   doc.setFontSize(8.5);
   doc.setTextColor(203, 213, 225);
-  doc.text(
-    `STORE: ${shop?.name || 'Main Store'} | Location: ${shop?.location || 'Kigali, Rwanda'} | TIN: ${shop?.tin_number || 'N/A'} | Phone: ${shop?.phone || 'N/A'}`,
-    margin,
-    18.5
-  );
+  const stockTin = (shop?.tin_number || '').trim();
+  const stockMetaParts = [
+    `STORE: ${shop?.name || 'Main Store'}`,
+    `Location: ${shop?.location || 'Kigali, Rwanda'}`,
+    ...(stockTin ? [`TIN: ${stockTin}`] : []),
+    ...(shop?.phone ? [`Phone: ${shop.phone}`] : [])
+  ];
+  doc.text(stockMetaParts.join(' | '), margin, 18.5);
 
   // Sort badge
   const badgeText = `SORT: ${sortLabel.toUpperCase()}`;
@@ -970,3 +995,126 @@ export function exportStockPdf({
 
   doc.save(`VectOS_Stock_List_${Date.now()}.pdf`);
 }
+
+/**
+ * Generates an A4 Delivery Notice (Bon de Livraison) PDF without commercial prices.
+ */
+export function exportDeliveryNoticePdf({
+  order,
+  items,
+  shop,
+}: {
+  order: Order;
+  items: any[];
+  shop: Shop | null;
+}) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  let currentY = 16;
+
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 24, 'F');
+
+  doc.setTextColor(245, 158, 11);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.text(shop?.name || order.shop_name || 'Hardware Store', margin, 12);
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Delivery Notice / Bon de Livraison (Quantities Only)', margin, 19);
+
+  currentY = 32;
+
+  doc.setFontSize(9.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+  doc.text('SENDER / DEPOT DETAILS', margin, currentY);
+  doc.text('DELIVERY / CLIENT DETAILS', pageWidth / 2 + 5, currentY);
+
+  currentY += 5;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+
+  const tin = (shop?.tin_number || order?.tin_number || '').trim();
+  let sellerY = currentY;
+  doc.text(shop?.name || order?.shop_name || 'Hardware Store', margin, sellerY);
+  sellerY += 4;
+  if (shop?.location) {
+    doc.text(`Location: ${shop.location}`, margin, sellerY);
+    sellerY += 4;
+  }
+  doc.text(`Phone: ${shop?.phone || order?.shop_phone || 'N/A'}`, margin, sellerY);
+  sellerY += 4;
+  if (tin) {
+    doc.text(`TIN: ${tin}`, margin, sellerY);
+    sellerY += 4;
+  }
+
+  const custX = pageWidth / 2 + 5;
+  doc.text(`BL Ref: BL-${order.order_number.replace('ORD-', '')}`, custX, currentY);
+  doc.text(`Order Ref: ${order.order_number}`, custX, currentY + 4);
+  doc.text(`Client: ${order.customer_name || 'Walk-in Client'}`, custX, currentY + 8);
+  doc.text(`Depot: ${order.stock_name || 'Main Warehouse'} | Date: ${formatDate(order.created_at)}`, custX, currentY + 12);
+
+  currentY = Math.max(sellerY + 4, currentY + 20);
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    head: [['#', 'Product / Item Description', 'Unit', 'Quantity Dispatched', 'Check']],
+    body: items.map((item, idx) => [
+      idx + 1,
+      item.product_name || item.name || 'Hardware Material',
+      item.product_unit || item.unit || 'pcs',
+      Number(item.quantity).toLocaleString(),
+      '[   ]',
+    ]),
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: [255, 255, 255],
+      fontSize: 8.5,
+      fontStyle: 'bold',
+    },
+    bodyStyles: {
+      fontSize: 8.5,
+      textColor: [30, 41, 59],
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: {
+      0: { cellWidth: 12, halign: 'center' },
+      2: { cellWidth: 24, halign: 'center' },
+      3: { cellWidth: 38, halign: 'right', fontStyle: 'bold' },
+      4: { cellWidth: 20, halign: 'center' },
+    },
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 14;
+  if (currentY > pageHeight - 35) {
+    doc.addPage();
+    currentY = 24;
+  }
+
+  doc.setDrawColor(148, 163, 184);
+  doc.line(margin, currentY + 10, margin + 70, currentY + 10);
+  doc.line(pageWidth - margin - 70, currentY + 10, pageWidth - margin, currentY + 10);
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Released by (Storekeeper)', margin, currentY + 15);
+  doc.text('Received by (Customer / Driver)', pageWidth - margin - 70, currentY + 15);
+
+  doc.save(`Delivery_Notice_${order.order_number}_${Date.now()}.pdf`);
+}
+

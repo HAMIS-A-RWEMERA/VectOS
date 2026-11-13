@@ -13,6 +13,7 @@ import { PartnersView } from './components/PartnersView';
 import { UsersView } from './components/UsersView';
 import { SuperAdminView } from './components/SuperAdminView';
 import { ReportsView } from './components/ReportsView';
+import { ShopSettingsView } from './components/ShopSettingsView';
 import { ReceiptModal } from './components/ReceiptModal';
 import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
@@ -236,6 +237,7 @@ export const App: React.FC = () => {
         onSwitchShop={handleSwitchShop}
         onOpenPos={() => setActiveTab('pos')}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+        onOpenShopSettings={() => setActiveTab('shop_settings')}
         onOpenAiHelp={() => setIsAiHelpOpen(true)}
         onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
       />
@@ -270,6 +272,10 @@ export const App: React.FC = () => {
           isMobileOpen={isMobileMenuOpen}
           onCloseMobile={() => setIsMobileMenuOpen(false)}
           onOpenMobile={() => setIsMobileMenuOpen(true)}
+          onOpenChangePassword={() => {
+            setIsMobileMenuOpen(false);
+            setIsChangePasswordOpen(true);
+          }}
         />
 
         {/* Content View Area */}
@@ -327,6 +333,23 @@ export const App: React.FC = () => {
             <UsersView currentUser={user} />
           )}
 
+          {activeTab === 'shop_settings' && (
+            <ShopSettingsView
+              shop={shop}
+              user={user}
+              onShopUpdated={(updatedShop) => {
+                setShop(updatedShop);
+                setAvailableShops((prev) =>
+                  prev.map((s) => (s.id === updatedShop.id ? { ...s, ...updatedShop } : s))
+                );
+                if (user && Number(user.shop_id) === updatedShop.id) {
+                  setUser({ ...user, shop_name: updatedShop.name });
+                }
+                showToast(`Updated business details for ${updatedShop.name}!`);
+              }}
+            />
+          )}
+
           {activeTab === 'superadmin' && (
             <SuperAdminView
               currentUser={user}
@@ -382,15 +405,14 @@ export const App: React.FC = () => {
       )}
 
       {/* Self-Service & Enforced Password Change Modal */}
-      {(isChangePasswordOpen || user?.force_password_change === 1) && (
+      {(isChangePasswordOpen || Number(user?.force_password_change) === 1) && user && (
         <ChangePasswordModal
-          isForced={user?.force_password_change === 1}
+          user={user}
+          isForced={Number(user?.force_password_change) === 1}
           onClose={() => setIsChangePasswordOpen(false)}
           onSuccess={() => {
             setIsChangePasswordOpen(false);
-            if (user) {
-              setUser({ ...user, force_password_change: 0 });
-            }
+            setUser((prev) => (prev ? { ...prev, force_password_change: 0 } : prev));
             setToastMessage('Password updated successfully!');
             setTimeout(() => setToastMessage(null), 4000);
           }}

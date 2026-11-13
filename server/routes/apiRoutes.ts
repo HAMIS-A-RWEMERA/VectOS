@@ -592,22 +592,26 @@ router.post('/auth/change-password', requireAuth, async (req: Request, res: Resp
     return res.status(400).json({ error: 'Current password and new password are required.' });
   }
 
-  if (newPassword.trim().length < 6) {
+  if (String(newPassword).trim().length < 6) {
     return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
   }
 
   try {
-    const dbUser = await queryOne('SELECT * FROM users WHERE id = ?', [user.id]);
+    const dbUser = await queryOne<any>('SELECT * FROM users WHERE id = ?', [user.id]);
     if (!dbUser) {
       return res.status(404).json({ error: 'User account not found.' });
     }
 
-    const match = await bcrypt.compare(currentPassword, dbUser.password);
+    if (!dbUser.password) {
+      return res.status(400).json({ error: 'Password sign-in is not configured for this account.' });
+    }
+
+    const match = await bcrypt.compare(String(currentPassword), dbUser.password);
     if (!match) {
       return res.status(400).json({ error: 'Current password is incorrect.' });
     }
 
-    const hashed = await bcrypt.hash(newPassword.trim(), 10);
+    const hashed = await bcrypt.hash(String(newPassword).trim(), 10);
     await execute('UPDATE users SET password = ?, force_password_change = 0 WHERE id = ?', [hashed, user.id]);
 
     await logApiAudit(req, 'PASSWORD_CHANGED', `User ${user.name} (${user.email}) successfully changed their account password.`, user.shop_id || 1);
@@ -615,8 +619,10 @@ router.post('/auth/change-password', requireAuth, async (req: Request, res: Resp
     if (req.session.user) {
       req.session.user.force_password_change = 0;
     }
+    await saveSession(req);
+    const token = createAuthToken(req.session.user);
 
-    res.json({ success: true, message: 'Password updated successfully.' });
+    res.json({ success: true, message: 'Password updated successfully.', token });
   } catch (err: any) {
     console.error('Change password error:', err);
     res.status(500).json({ error: 'Failed to update password.' });
@@ -2793,6 +2799,7 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const p = { ...req.body, ...(permissions || {}) };
+    const isOwnerOrManagerRole = assignedRole === 'manager' || assignedRole === 'superadmin';
 
     const result = await execute(
       `INSERT INTO users (
@@ -2826,7 +2833,7 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         p.can_manage_customers !== undefined ? (p.can_manage_customers ? 1 : 0) : 1,
         p.can_manage_partners ? 1 : 0,
         p.can_void_orders ? 1 : 0,
-        p.can_edit_company_settings ? 1 : 0,
+        isOwnerOrManagerRole || p.can_edit_company_settings ? 1 : 0,
         p.can_view_audit_trail ? 1 : 0,
         p.can_reset_passwords ? 1 : 0,
         p.can_view_all_tenants !== undefined ? (p.can_view_all_tenants ? 1 : 0) : (assignedRole === 'platform_ops' ? 1 : 0),
@@ -2891,8 +2898,16 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
       'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
       'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions'
     ];
+    const effectiveRole = role && (currentUser.role === 'superadmin' || role !== 'superadmin')
+      ? String(role).toLowerCase()
+      : existing.role;
+    const isOwnerOrManagerRole = effectiveRole === 'manager' || effectiveRole === 'superadmin';
+
     for (const pk of permKeys) {
-      if (p[pk] !== undefined) {
+      if (pk === 'can_edit_company_settings' && isOwnerOrManagerRole) {
+        updates.push(`${pk} = ?`);
+        params.push(1);
+      } else if (p[pk] !== undefined) {
         updates.push(`${pk} = ?`);
         params.push(p[pk] ? 1 : 0);
       }
@@ -3030,21 +3045,46 @@ router.post('/shops', requireAuth, requireSuperAdmin, async (req: Request, res: 
   }
 });
 
-// Update Shop Settings (SuperAdmin or Store Manager for their own store)
-router.put('/shops/:id', requireAuth, requireManager, async (req: Request, res: Response) => {
+// Update Shop Settings (SuperAdmin, Store Owner/Manager, or staff with can_edit_company_settings for their own store)
+router.put('/shops/:id', requireAuth, requirePermission('can_edit_company_settings'), async (req: Request, res: Response) => {
   const shopId = Number(req.params.id);
   const user = req.session.user;
 
-  if (user.role !== 'superadmin' && user.shop_id !== shopId) {
+  if (user.role !== 'superadmin' && Number(user.shop_id) !== shopId) {
     return res.status(403).json({ error: 'Permission denied: Cannot edit settings for another store.' });
   }
 
   const { name, owner_name, phone, email, location, tin_number, receipt_footer_text, status, subscription_plan } = req.body;
 
+  if (name !== undefined && !String(name).trim()) {
+    return res.status(400).json({ error: 'Business / shop name cannot be empty.' });
+  }
+  if (phone !== undefined && !String(phone).trim()) {
+    return res.status(400).json({ error: 'Business phone number cannot be empty.' });
+  }
+  if (email !== undefined && !String(email).trim()) {
+    return res.status(400).json({ error: 'Business email address cannot be empty.' });
+  }
+
   try {
-    const existing = await queryOne('SELECT * FROM shops WHERE id = ?', [shopId]);
+    const existing = await queryOne<any>('SELECT * FROM shops WHERE id = ?', [shopId]);
     if (!existing) {
       return res.status(404).json({ error: 'Shop tenant not found' });
+    }
+
+    const cleanName = name !== undefined ? String(name).trim() : existing.name;
+    const cleanOwner = owner_name !== undefined ? String(owner_name).trim() : existing.owner_name;
+    const cleanPhone = phone !== undefined ? String(phone).trim() : existing.phone;
+    const cleanEmail = email !== undefined ? String(email).trim().toLowerCase() : existing.email;
+    const cleanLocation = location !== undefined ? String(location).trim() : existing.location;
+    const cleanTin = tin_number !== undefined ? (String(tin_number).trim() || null) : existing.tin_number;
+    const cleanFooter = receipt_footer_text !== undefined ? (String(receipt_footer_text).trim() || null) : existing.receipt_footer_text;
+
+    if (cleanEmail && cleanEmail !== existing.email) {
+      const duplicateEmail = await queryOne<any>('SELECT id FROM shops WHERE LOWER(TRIM(email)) = ? AND id != ?', [cleanEmail, shopId]);
+      if (duplicateEmail) {
+        return res.status(400).json({ error: 'Another shop is already using that email address.' });
+      }
     }
 
     // Only SuperAdmin can change subscription status or plan
@@ -3056,13 +3096,13 @@ router.put('/shops/:id', requireAuth, requireManager, async (req: Request, res: 
        SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?
        WHERE id = ?`,
       [
-        name || existing.name,
-        owner_name || existing.owner_name,
-        phone || existing.phone,
-        email || existing.email,
-        location || existing.location,
-        tin_number !== undefined ? tin_number : existing.tin_number,
-        receipt_footer_text !== undefined ? receipt_footer_text : existing.receipt_footer_text,
+        cleanName,
+        cleanOwner || existing.owner_name,
+        cleanPhone,
+        cleanEmail,
+        cleanLocation || existing.location,
+        cleanTin,
+        cleanFooter,
         newStatus,
         newPlan,
         shopId
@@ -3075,9 +3115,16 @@ router.put('/shops/:id', requireAuth, requireManager, async (req: Request, res: 
       await execute("UPDATE users SET activation_status = 'suspended' WHERE shop_id = ? AND role != 'superadmin'", [shopId]);
     }
 
-    await logApiAudit(req, 'SHOP_SETTINGS_UPDATED', `Updated store settings for #${shopId}`, shopId);
+    let token: string | undefined;
+    if (req.session.user && Number(req.session.user.shop_id) === shopId) {
+      req.session.user.shop_name = cleanName;
+      await saveSession(req);
+      token = createAuthToken(req.session.user);
+    }
+
+    await logApiAudit(req, 'SHOP_SETTINGS_UPDATED', `Updated store settings for "${cleanName}" (#${shopId})`, shopId);
     const updated = await queryOne('SELECT * FROM shops WHERE id = ?', [shopId]);
-    res.json({ success: true, shop: updated });
+    res.json({ success: true, shop: updated, ...(token ? { token } : {}) });
   } catch (err: any) {
     console.error('Update shop error:', err);
     res.status(500).json({ error: 'Failed to update store settings' });

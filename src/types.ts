@@ -164,6 +164,7 @@ export interface Order {
   items?: OrderItem[];
   payments?: Payment[];
   shop_name?: string;
+  stock_name?: string;
   tin_number?: string;
   receipt_footer_text?: string;
   shop_phone?: string;

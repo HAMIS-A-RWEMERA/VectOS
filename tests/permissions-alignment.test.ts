@@ -5,6 +5,8 @@ import { createTestShop, login } from './helpers';
 import { queryOne } from '../server/database/db';
 
 let managerAgent: ReturnType<typeof request.agent>;
+let shopId = 0;
+let managerId = 0;
 let productId = 0;
 let salespersonId = 0;
 let salespersonEmail = '';
@@ -15,9 +17,11 @@ const staffPassword = 'StaffPassword123!';
 beforeAll(async () => {
   await dbReady;
   const shop = await createTestShop('PermAlign');
-
+  shopId = shop.shopId;
   const mgrSession = await login(shop.managerEmail, shop.managerPassword);
   managerAgent = mgrSession.agent as any;
+  const mgrMe = await managerAgent.get('/api/auth/me');
+  managerId = mgrMe.body.user.id;
 
   // Create a product with distinct buying_price (5000) and selling_price (8000)
   const prodRes = await managerAgent.post('/api/products').send({
@@ -342,5 +346,80 @@ describe('Backend & UI Permission Alignment + Multi-Staff & Solo Workflows', () 
     const restoredStatsAttempt = await spAgent.get('/api/dashboard/stats');
     expect(restoredStatsAttempt.status).toBe(200);
   });
+
+  it('allows employee self-service password change and clears force_password_change', async () => {
+    const spSession = await login(salespersonEmail, staffPassword);
+    const spAgent = spSession.agent as any;
+    const newPass = 'NewEmployeePass99!';
+
+    const wrongAttempt = await spAgent.post('/api/auth/change-password').send({
+      currentPassword: 'WrongCurrentPassword',
+      newPassword: newPass
+    });
+    expect(wrongAttempt.status).toBe(400);
+
+    const changeRes = await spAgent.post('/api/auth/change-password').send({
+      currentPassword: staffPassword,
+      newPassword: newPass
+    });
+    expect(changeRes.status).toBe(200);
+    expect(changeRes.body.success).toBe(true);
+    expect(changeRes.body.token).toBeTruthy();
+
+    // New password logs in cleanly and force_password_change is 0
+    const reLogin = await login(salespersonEmail, newPass);
+    const reMe = await (reLogin.agent as any).get('/api/auth/me');
+    expect(reMe.status).toBe(200);
+    expect(Number(reMe.body.user.force_password_change)).toBe(0);
+  });
+
+  it('enforces can_edit_company_settings for shop business info, allows optional blank TIN, and keeps manager permission locked', async () => {
+    // 1. Salesperson without can_edit_company_settings is denied (403)
+    const spSession = await login(salespersonEmail, 'NewEmployeePass99!');
+    const spAgent = spSession.agent as any;
+
+    const deniedEdit = await spAgent.put(`/api/shops/${shopId}`).send({
+      name: 'Unauthorized Rename',
+      phone: '+250788111222',
+      email: `shop-${shopId}@test.rw`,
+      tin_number: ''
+    });
+    expect(deniedEdit.status).toBe(403);
+
+    // 2. Grant can_edit_company_settings to salesperson -> now allowed (200) and can clear TIN to null
+    const grantRes = await managerAgent.put(`/api/users/${salespersonId}`).send({
+      can_edit_company_settings: true
+    });
+    expect(grantRes.status).toBe(200);
+
+    const allowedEdit = await spAgent.put(`/api/shops/${shopId}`).send({
+      name: 'Kigali Builders Updated',
+      phone: '+250 788 555 444',
+      email: `updated-${shopId}@test.rw`,
+      location: 'Nyamata, Bugesera',
+      tin_number: ''
+    });
+    expect(allowedEdit.status).toBe(200);
+    expect(allowedEdit.body.shop.name).toBe('Kigali Builders Updated');
+    expect(allowedEdit.body.shop.phone).toBe('+250 788 555 444');
+    expect(allowedEdit.body.shop.tin_number).toBeNull();
+
+    // 3. Even if manager payload tries to uncheck can_edit_company_settings on manager, owner/manager retains it
+    const tryStripMgr = await managerAgent.put(`/api/users/${managerId}`).send({
+      role: 'manager',
+      can_edit_company_settings: false
+    });
+    expect(tryStripMgr.status).toBe(200);
+
+    const mgrRow = await queryOne<any>('SELECT can_edit_company_settings FROM users WHERE id = ?', [managerId]);
+    expect(Number(mgrRow.can_edit_company_settings)).toBe(1);
+
+    const mgrShopEdit = await managerAgent.put(`/api/shops/${shopId}`).send({
+      tin_number: '112233445'
+    });
+    expect(mgrShopEdit.status).toBe(200);
+    expect(mgrShopEdit.body.shop.tin_number).toBe('112233445');
+  });
 });
+
 

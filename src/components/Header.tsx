@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Shop } from '../types';
+import { hasPermission } from '../utils/permissions';
 import { 
   Building2, 
   ChevronDown, 
@@ -16,7 +17,8 @@ import {
   Sparkles,
   Smartphone,
   Crown,
-  Menu
+  Menu,
+  Pencil
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -31,6 +33,7 @@ interface HeaderProps {
   onSwitchShop: (shopId: number) => void;
   onOpenPos: () => void;
   onOpenChangePassword?: () => void;
+  onOpenShopSettings?: () => void;
   onOpenAiHelp?: () => void;
   onToggleMobileMenu?: () => void;
 }
@@ -47,10 +50,12 @@ export const Header: React.FC<HeaderProps> = ({
   onSwitchShop,
   onOpenPos,
   onOpenChangePassword,
+  onOpenShopSettings,
   onOpenAiHelp,
   onToggleMobileMenu
 }) => {
   const [showShopMenu, setShowShopMenu] = useState(false);
+  const canEditShopInfo = hasPermission(user, 'can_edit_company_settings');
 
   return (
     <header className="sticky top-0 z-40 bg-[#0F131A]/95 backdrop-blur border-b border-slate-800/80 px-3 sm:px-6 py-2.5 sm:py-3">
@@ -100,10 +105,20 @@ export const Header: React.FC<HeaderProps> = ({
                   <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
                 </button>
               ) : (
-                <div className="hidden xs:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs font-medium text-slate-300 max-w-[110px] sm:max-w-[200px]">
+                <div className="hidden xs:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs font-medium text-slate-300 max-w-[140px] sm:max-w-[230px]">
                   <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <span className="truncate">{shop.name}</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                  {canEditShopInfo && onOpenShopSettings && (
+                    <button
+                      type="button"
+                      onClick={onOpenShopSettings}
+                      className="ml-0.5 p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-400 transition shrink-0"
+                      title="Edit Business Info & TIN"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
               )}
 

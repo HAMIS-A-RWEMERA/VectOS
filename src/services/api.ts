@@ -132,10 +132,14 @@ export const api = {
     if (res?.token) persistToken(res.token);
     return res;
   },
-  changePassword: (currentPassword: string, newPassword: string) => request<{ success: boolean; message: string }>('/api/auth/change-password', {
-    method: 'POST',
-    body: JSON.stringify({ currentPassword, newPassword })
-  }),
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    const res = await request<{ success: boolean; message: string; token?: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
   demoSwitch: (role: string, email?: string) => request<{ success: boolean; user: User; shop: Shop }>('/api/auth/demo-switch', {
     method: 'POST',
     body: JSON.stringify({ role, email })
@@ -299,10 +303,14 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(shopData)
   }),
-  updateShop: (id: number, shopData: Partial<Shop>) => request<{ success: boolean; shop: Shop }>(`/api/shops/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(shopData)
-  }),
+  updateShop: async (id: number, shopData: Partial<Shop>) => {
+    const res = await request<{ success: boolean; shop: Shop; token?: string }>(`/api/shops/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(shopData)
+    });
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
   getAdminSettings: () => request<{ autoApproveNewStores: boolean; pendingShopsCount: number; pendingUsersCount: number }>('/api/admin/settings'),
   updateAdminSettings: (autoApproveNewStores: boolean) => request<{ success: boolean; autoApproveNewStores: boolean }>('/api/admin/settings', {
     method: 'POST',

@@ -323,8 +323,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       <body>
         <div class="header">
           <div>
-            <h1 class="title">${escapeHtml(shop?.name || 'VectOS Hardware Store')} — Stock Sheet</h1>
-            <p class="sub">${escapeHtml(shop?.location || 'Kigali, Rwanda')} | TIN: ${escapeHtml(shop?.tin_number || 'N/A')} | Phone: ${escapeHtml(shop?.phone || 'N/A')}</p>
+            <h1 class="title">${escapeHtml(shop?.name || 'Hardware Store')} — Stock Sheet</h1>
+            <p class="sub">${[
+              escapeHtml(shop?.location || 'Kigali, Rwanda'),
+              ...(shop?.tin_number?.trim() ? [`TIN: ${escapeHtml(shop.tin_number.trim())}`] : []),
+              ...(shop?.phone?.trim() ? [`Phone: ${escapeHtml(shop.phone.trim())}`] : [])
+            ].join(' | ')}</p>
           </div>
           <div class="meta">
             <div><strong>Sorted by:</strong> ${escapeHtml(SORT_LABELS[sortBy])}</div>
