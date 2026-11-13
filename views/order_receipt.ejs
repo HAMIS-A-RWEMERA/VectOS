@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -16,10 +16,13 @@
   </style>
 </head>
 <body class="text-slate-800 antialiased">
-  <!-- Print button -->
-  <div class="no-print max-w-3xl mx-auto px-4 pt-6 flex justify-between items-center">
+  <!-- Print & Edit buttons -->
+  <div class="no-print max-w-3xl mx-auto px-4 pt-6 flex justify-between items-center gap-3">
     <a href="/orders/<%= order.id %>" class="text-sm text-slate-600 hover:text-slate-900">&larr; Back to Order</a>
-    <button onclick="window.print()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow">Print Receipt</button>
+    <div class="flex items-center gap-2">
+      <a href="/?tab=orders&orderId=<%= order.id %>&edit=1" class="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold text-sm shadow transition">Edit Receipt &amp; Order</a>
+      <button onclick="window.print()" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow">Print Receipt</button>
+    </div>
   </div>
 
   <div class="max-w-3xl mx-auto bg-white my-6 rounded-2xl shadow-xl overflow-hidden print:shadow-none print:rounded-none print:my-0">

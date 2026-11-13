@@ -41,13 +41,39 @@ export const App: React.FC = () => {
   }, [isDarkMode]);
 
   // App UI State
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('tab') || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
 
   // Modals
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
-  const [selectedOrderIdForInspection, setSelectedOrderIdForInspection] = useState<number | null>(null);
+  const [selectedOrderIdForInspection, setSelectedOrderIdForInspection] = useState<number | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const oid = Number(params.get('orderId'));
+      return oid > 0 ? oid : null;
+    } catch {
+      return null;
+    }
+  });
+  const [autoEditOrderId, setAutoEditOrderId] = useState<number | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const oid = Number(params.get('orderId'));
+      const edit = params.get('edit');
+      return oid > 0 && (edit === '1' || edit === 'true') ? oid : null;
+    } catch {
+      return null;
+    }
+  });
+  const [ordersRefreshTick, setOrdersRefreshTick] = useState(0);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isAiHelpOpen, setIsAiHelpOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -59,6 +85,13 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     checkAuth();
+    // Clean URL params after capturing deep link state so refreshes don't replay stale modal state
+    try {
+      if (window.location.search) {
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    } catch {}
   }, []);
 
   const checkAuth = async () => {
@@ -262,6 +295,12 @@ export const App: React.FC = () => {
               shop={shop}
               onPrintReceipt={(ord) => setReceiptOrder(ord)}
               initialSelectedOrderId={selectedOrderIdForInspection}
+              initialEditOrderId={autoEditOrderId}
+              refreshTrigger={ordersRefreshTick}
+              onOrderUpdatedExternal={(updated) => {
+                loadDashboardStats();
+                showToast(`Order #${updated.order_number} updated!`);
+              }}
             />
           )}
 
@@ -324,6 +363,7 @@ export const App: React.FC = () => {
           currentUser={user}
           onOrderUpdated={(updated) => {
             setReceiptOrder(updated);
+            setOrdersRefreshTick(t => t + 1);
             loadDashboardStats();
             showToast(`Order #${updated.order_number} successfully updated!`);
           }}

@@ -36,6 +36,12 @@
         </a>
       <% } %>
 
+      <a href="/?tab=orders&orderId=<%= order.id %>&edit=1"
+        class="inline-flex items-center space-x-1.5 px-4 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 font-bold text-xs transition-all cursor-pointer">
+        <i data-lucide="edit-3" class="w-4 h-4"></i>
+        <span>Edit Receipt &amp; Order</span>
+      </a>
+
       <a href="/orders" class="px-3.5 py-2.5 rounded-xl bg-[var(--c-chip)] hover:bg-[var(--c-hover)] text-xs font-bold text-slate-300 transition-colors">
         &larr; Back
       </a>

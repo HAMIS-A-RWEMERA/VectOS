@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS orders (
   paid_amount NUMERIC(15,2) DEFAULT 0.0,
   debt_amount NUMERIC(15,2) DEFAULT 0.0,
   payment_status VARCHAR(50) DEFAULT 'pending' CHECK(payment_status IN ('pending', 'paid', 'partial', 'debt')),
-  fulfillment_status VARCHAR(50) DEFAULT 'pending_store' CHECK(fulfillment_status IN ('pending_accountant', 'pending_store', 'resolving_rejected', 'completed', 'cancelled')),
+  fulfillment_status VARCHAR(50) DEFAULT 'pending_store' CHECK(fulfillment_status IN ('pending_accountant', 'pending_store', 'approved', 'dispatched', 'resolving_rejected', 'completed', 'cancelled')),
   notes TEXT,
   client_ref TEXT,
   payment_approved_by INTEGER REFERENCES users(id),

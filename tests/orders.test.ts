@@ -114,4 +114,57 @@ describe('Order lifecycle', () => {
     expect(editRes.body.order.items).toHaveLength(1);
     expect(editRes.body.order.items[0].quantity).toBe(4);
   });
+
+  it('allows selective stock release per checked item, returns unreleased stock, and updates the receipt', async () => {
+    const secondProductId = await addProduct(agent as any, token, {
+      name: 'Order Test Rebar',
+      sku: 'OTR-' + Date.now(),
+      buying_price: '10000',
+      initial_quantity: '50'
+    });
+
+    const prod1Before = await queryOne<{ quantity: number }>('SELECT quantity FROM products WHERE id = ?', [productId]);
+    const prod2Before = await queryOne<{ quantity: number }>('SELECT quantity FROM products WHERE id = ?', [secondProductId]);
+
+    // Create 2-item order: 5 of product 1 (10,000 each) + 3 of product 2 (12,000 each) = 86,000 RWF
+    const createRes = await agent.post('/api/orders').send({
+      customer_name: 'Checklist Client',
+      customer_phone: '0788776655',
+      items: [
+        { product_id: productId, quantity: 5, selling_price: 10000 },
+        { product_id: secondProductId, quantity: 3, selling_price: 12000 }
+      ],
+      payment_method: 'cash',
+      paid_amount: 86000
+    });
+    expect(createRes.status).toBe(200);
+    const order = createRes.body.order;
+    expect(order.items).toHaveLength(2);
+
+    const item1 = order.items.find((it: any) => it.product_id === productId);
+    expect(item1).toBeTruthy();
+
+    // Storekeeper checks ONLY item 1 and releases 3 of 5 units (item 2 is unchecked)
+    const releaseRes = await agent.post(`/api/orders/${order.id}/release-items`).send({
+      released_items: [{ order_item_id: item1.id, product_id: productId, quantity_released: 3 }],
+      update_receipt: true,
+      fulfillment_status: 'approved'
+    });
+
+    expect(releaseRes.status).toBe(200);
+    expect(releaseRes.body.success).toBe(true);
+    const updated = releaseRes.body.order;
+    expect(updated.items).toHaveLength(1);
+    expect(updated.items[0].product_id).toBe(productId);
+    expect(updated.items[0].quantity).toBe(3);
+    expect(updated.total_amount).toBe(30000);
+    expect(updated.paid_amount).toBe(30000);
+    expect(updated.debt_amount).toBe(0);
+
+    // Verify stock levels: 3 deducted from product 1 (2 returned), 0 deducted from product 2 (all 3 returned)
+    const prod1After = await queryOne<{ quantity: number }>('SELECT quantity FROM products WHERE id = ?', [productId]);
+    const prod2After = await queryOne<{ quantity: number }>('SELECT quantity FROM products WHERE id = ?', [secondProductId]);
+    expect(Number(prod1After?.quantity)).toBe(Number(prod1Before?.quantity) - 3);
+    expect(Number(prod2After?.quantity)).toBe(Number(prod2Before?.quantity));
+  });
 });

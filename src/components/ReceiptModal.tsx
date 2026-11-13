@@ -34,9 +34,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 }) => {
   const [activeOrder, setActiveOrder] = useState<Order | null>(initialOrder);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [printNotice, setPrintNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveOrder(initialOrder);
+    setPrintNotice(null);
     if (initialOrder && (!initialOrder.items || initialOrder.items.length === 0)) {
       import('../services/api').then(({ api }) => {
         api.getOrderDetail(initialOrder.id).then(res => {
@@ -52,7 +54,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         });
       });
     }
-  }, [initialOrder?.id]);
+  }, [initialOrder]);
 
   const order = activeOrder || initialOrder;
   const canPrintReceipt = !currentUser || 
@@ -193,9 +195,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   // Isolated iframe print for instant thermal POS or office desktop printing
   const executePrint = (targetType: 'receipt' | 'delivery_notice') => {
     if (targetType === 'receipt' && !canPrintReceipt) {
-      alert('Access Restricted: Your staff account does not have permission to print financial receipts. Please use the Delivery Notice option.');
+      setPrintNotice('Access Restricted: Your staff account does not have permission to print financial receipts. Please use the Delivery Notice option.');
       return;
     }
+    setPrintNotice(null);
 
     setIsPrinting(true);
 
@@ -570,11 +573,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         </div>
 
         {/* Permission Advisory if receipt restricted */}
-        {!canPrintReceipt && (
+        {(!canPrintReceipt || printNotice) && (
           <div className="p-2.5 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-300 flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
             <span>
-              <strong>Storekeeper View:</strong> Showing Delivery Notice (quantities only). Financial receipts require Manager or Cashier permission.
+              {printNotice || (
+                <>
+                  <strong>Storekeeper View:</strong> Showing Delivery Notice (quantities only). Financial receipts require Manager or Cashier permission.
+                </>
+              )}
             </span>
           </div>
         )}

@@ -1696,11 +1696,15 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
       await execute('DELETE FROM order_items WHERE order_id = ?', [orderId]);
 
       // 8. Insert new order items & deduct stock
+      const mappedItemStatus = (existingOrder.fulfillment_status === 'approved' || existingOrder.fulfillment_status === 'dispatched' || existingOrder.fulfillment_status === 'completed')
+        ? 'approved'
+        : (existingOrder.fulfillment_status === 'rejected' ? 'rejected' : 'pending_store');
+
       for (const ni of parsedItems) {
         await execute(
           `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [orderId, ni.product_id, ni.quantity, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source, existingOrder.fulfillment_status || 'pending_store']
+          [orderId, ni.product_id, ni.quantity, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source, mappedItemStatus]
         );
 
         // Deduct updated stock

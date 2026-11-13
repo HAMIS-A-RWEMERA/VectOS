@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Order, User, Shop } from '../types';
 import { api } from '../services/api';
 import { exportOrdersPdf, exportSingleOrderPdf } from '../services/pdfExport';
@@ -28,13 +28,19 @@ interface OrdersViewProps {
   shop: Shop | null;
   onPrintReceipt: (order: Order) => void;
   initialSelectedOrderId?: number | null;
+  initialEditOrderId?: number | null;
+  refreshTrigger?: number;
+  onOrderUpdatedExternal?: (updated: Order) => void;
 }
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
   user,
   shop,
   onPrintReceipt,
-  initialSelectedOrderId
+  initialSelectedOrderId,
+  initialEditOrderId,
+  refreshTrigger = 0,
+  onOrderUpdatedExternal,
 }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +68,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   // Selective Stock Release Checklist (item_id -> { checked: boolean, releaseQty: number })
   const [releaseSelection, setReleaseSelection] = useState<Record<number, { checked: boolean; releaseQty: number }>>({});
   const [isReleasingItems, setIsReleasingItems] = useState(false);
+  const [isReleaseConfirmOpen, setIsReleaseConfirmOpen] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const handledInitialOrderRef = useRef<number | null>(null);
+  const handledInitialEditRef = useRef<number | null>(null);
 
   const handleOrderUpdated = (updated: Order) => {
     setOrders(prev => prev.map(o => o.id === updated.id ? { ...o, ...updated } : o));
@@ -83,6 +93,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       }
     }
     setEditingOrder(null);
+    setActionFeedback({ type: 'success', message: `Order #${updated.order_number} & receipt updated.` });
+    if (onOrderUpdatedExternal) onOrderUpdatedExternal(updated);
     fetchOrders();
   };
 
@@ -121,26 +133,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     setReleaseSelection(updated);
   };
 
-  const handleExecuteSelectiveRelease = async (updateReceipt: boolean = true) => {
+  const executeSelectiveRelease = async (updateReceipt: boolean = true) => {
     if (!selectedOrder) return;
-
     const checkedItems = orderItems.filter(it => releaseSelection[it.id]?.checked);
     if (checkedItems.length === 0) {
-      alert('Please check at least one product to release from stock.');
+      setActionFeedback({ type: 'error', message: 'Please check at least one product to release from stock.' });
       return;
-    }
-
-    const uncheckedCount = orderItems.length - checkedItems.length;
-    const hasPartial = checkedItems.some(it => (releaseSelection[it.id]?.releaseQty || it.quantity) < it.quantity);
-
-    if (uncheckedCount > 0 || hasPartial) {
-      const confirmMsg = `You are releasing ${checkedItems.length} of ${orderItems.length} products.\n\n` +
-        `This will release the checked items from warehouse, return unreleased items to stock, and update the customer receipt to match what was released.\n\nProceed?`;
-      if (!confirm(confirmMsg)) return;
     }
 
     try {
       setIsReleasingItems(true);
+      setActionFeedback(null);
       const payloadItems = checkedItems.map(it => ({
         order_item_id: it.id,
         product_id: it.product_id,
@@ -153,16 +156,38 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         fulfillment_status: 'approved'
       });
 
+      setIsReleaseConfirmOpen(false);
       if (res && res.order) {
         handleOrderUpdated(res.order);
-        alert(res.message || 'Stock released and receipt updated successfully!');
+        setActionFeedback({ type: 'success', message: res.message || 'Stock released and receipt updated successfully!' });
       }
     } catch (err: any) {
       console.error('Selective release error:', err);
-      alert(err.message || 'Failed to release stock');
+      setIsReleaseConfirmOpen(false);
+      setActionFeedback({ type: 'error', message: err.message || 'Failed to release stock' });
     } finally {
       setIsReleasingItems(false);
     }
+  };
+
+  const handleExecuteSelectiveRelease = async (updateReceipt: boolean = true) => {
+    if (!selectedOrder) return;
+
+    const checkedItems = orderItems.filter(it => releaseSelection[it.id]?.checked);
+    if (checkedItems.length === 0) {
+      setActionFeedback({ type: 'error', message: 'Please check at least one product to release from stock.' });
+      return;
+    }
+
+    const uncheckedCount = orderItems.length - checkedItems.length;
+    const hasPartial = checkedItems.some(it => (releaseSelection[it.id]?.releaseQty || it.quantity) < it.quantity);
+
+    if (uncheckedCount > 0 || hasPartial) {
+      setIsReleaseConfirmOpen(true);
+      return;
+    }
+
+    await executeSelectiveRelease(updateReceipt);
   };
 
   const canProcessPayments = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_process_payments);
@@ -172,14 +197,29 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   useEffect(() => {
     if (user) {
       fetchOrders();
+      if (isDetailOpen && selectedOrder) {
+        handleViewOrder(selectedOrder.id);
+      }
     }
-  }, [user, statusFilter, period]);
+  }, [user, statusFilter, period, refreshTrigger]);
 
   useEffect(() => {
-    if (initialSelectedOrderId && orders.length > 0) {
+    if (initialSelectedOrderId && handledInitialOrderRef.current !== initialSelectedOrderId) {
+      handledInitialOrderRef.current = initialSelectedOrderId;
       handleViewOrder(initialSelectedOrderId);
     }
-  }, [initialSelectedOrderId, orders]);
+  }, [initialSelectedOrderId]);
+
+  useEffect(() => {
+    if (initialEditOrderId && handledInitialEditRef.current !== initialEditOrderId) {
+      handledInitialEditRef.current = initialEditOrderId;
+      api.getOrderDetail(initialEditOrderId).then(res => {
+        if (res && res.order) {
+          setEditingOrder({ ...res.order, items: res.items || [] });
+        }
+      }).catch(err => console.error('Auto-edit load error:', err));
+    }
+  }, [initialEditOrderId]);
 
   const fetchOrders = async () => {
     try {
@@ -211,7 +251,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
   const handleExportOrdersPdf = () => {
     if (orders.length === 0) {
-      alert('No orders found in this timeframe to export.');
+      setActionFeedback({ type: 'error', message: 'No orders found in this timeframe to export.' });
       return;
     }
     exportOrdersPdf({
@@ -226,6 +266,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
   const handleViewOrder = async (orderId: number) => {
     try {
+      setActionFeedback(null);
       const res = await api.getOrderDetail(orderId);
       const fullOrder = {
         ...res.order,
@@ -251,11 +292,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     if (!selectedOrder) return;
     try {
       setIsSubmitting(true);
+      setActionFeedback(null);
       await api.updateOrderStatus(selectedOrder.id, newStatus);
-      handleViewOrder(selectedOrder.id);
+      await handleViewOrder(selectedOrder.id);
       fetchOrders();
+      setActionFeedback({ type: 'success', message: `Order #${selectedOrder.order_number} marked as ${newStatus.replace('_', ' ')}.` });
     } catch (err: any) {
-      alert(err.message || 'Failed to update order status');
+      setActionFeedback({ type: 'error', message: err.message || 'Failed to update order status' });
     } finally {
       setIsSubmitting(false);
     }
@@ -537,6 +580,30 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {actionFeedback && (
+              <div className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+                actionFeedback.type === 'success'
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {actionFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  )}
+                  <span className="font-semibold">{actionFeedback.message}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActionFeedback(null)}
+                  className="text-slate-400 hover:text-white px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {/* Status & Quick Action Pipeline */}
             <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
@@ -990,6 +1057,83 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Selective Release Confirmation Modal (In-app, no browser confirm/alert) */}
+      {isReleaseConfirmOpen && selectedOrder && (
+        <div className="fixed inset-0 z-[90] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-amber-500/40 shadow-2xl p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-black text-white">Confirm Partial Stock Release</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Order <span className="font-mono text-amber-400 font-bold">{selectedOrder.order_number}</span> will be updated to match only what was physically released.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReleaseConfirmOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto text-xs">
+              {orderItems.map(it => {
+                const sel = releaseSelection[it.id];
+                const isChecked = Boolean(sel?.checked);
+                const qtyReleased = isChecked ? (sel?.releaseQty || it.quantity) : 0;
+                const diff = it.quantity - qtyReleased;
+                return (
+                  <div key={it.id} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-100 truncate">{it.product_name || `Product #${it.product_id}`}</p>
+                      <p className="text-[10px] text-slate-400">
+                        {isChecked ? `Releasing ${qtyReleased} of ${it.quantity}` : `Unchecked — returning all ${it.quantity} to stock`}
+                      </p>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                      !isChecked
+                        ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                        : diff > 0
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                    }`}>
+                      {!isChecked ? 'Removed & Returned' : diff > 0 ? `Partial (-${diff} returned)` : 'Full Release'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+              <span className="text-slate-400">Updated Receipt Total:</span>
+              <span className="font-mono font-black text-emerald-400 text-sm">
+                {formatRwf(orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + ((Number(it.selling_price) || 0) * (releaseSelection[it.id]?.releaseQty || it.quantity)) : acc, 0))}
+              </span>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsReleaseConfirmOpen(false)}
+                disabled={isReleasingItems}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300"
+              >
+                Go Back
+              </button>
+              <button
+                type="button"
+                onClick={() => executeSelectiveRelease(true)}
+                disabled={isReleasingItems}
+                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              >
+                {isReleasingItems ? 'Releasing Stock...' : 'Confirm Release & Update Receipt'}
+              </button>
+            </div>
           </div>
         </div>
       )}
