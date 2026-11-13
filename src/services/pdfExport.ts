@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { ReportSummary, Order, Product, Shop, User } from '../types';
+import { ReportSummary, Order, Product, Shop, User, CustomerStatement } from '../types';
 
 const formatCurrency = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
@@ -1118,4 +1118,265 @@ export function exportDeliveryNoticePdf({
 
   doc.save(`Delivery_Notice_${order.order_number}_${Date.now()}.pdf`);
 }
+
+/**
+ * Generates an A4 Finance-Ready Customer Account Statement PDF
+ * showing orders, itemized products, payments received, outstanding debt,
+ * and store credit owed to the client over a selected timeframe.
+ */
+export function exportCustomerStatementPdf({
+  statement,
+  shop,
+  user,
+}: {
+  statement: CustomerStatement;
+  shop: Shop | null;
+  user: User | null;
+}) {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 14;
+  let currentY = 16;
+
+  // Header Banner
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 28, 'F');
+
+  doc.setTextColor(245, 158, 11);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.text(shop?.name || statement.shop?.name || 'VectOS Store', margin, 12);
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text('CUSTOMER ACCOUNT STATEMENT & TRANSACTION HISTORY', margin, 20);
+
+  const badgeText = `PERIOD: ${statement.periodLabel.toUpperCase()}`;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setFillColor(245, 158, 11);
+  doc.setTextColor(15, 23, 42);
+  const badgeW = doc.getTextWidth(badgeText) + 8;
+  doc.roundedRect(pageWidth - margin - badgeW, 13, badgeW, 8, 2, 2, 'F');
+  doc.text(badgeText, pageWidth - margin - badgeW + 4, 18.5);
+
+  currentY = 35;
+
+  // Two-column Store & Customer Info
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+  doc.text('ISSUED BY (SUPPLIER)', margin, currentY);
+  doc.text('ACCOUNT / CLIENT DETAILS', pageWidth / 2 + 4, currentY);
+
+  currentY += 5;
+  doc.setFontSize(8.2);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+
+  const tin = (shop?.tin_number || statement.shop?.tin_number || '').trim();
+  const leftLines = [
+    shop?.name || statement.shop?.name || 'Store',
+    ...(shop?.location || statement.shop?.location ? [`Location: ${shop?.location || statement.shop?.location}`] : []),
+    ...(shop?.phone || statement.shop?.phone ? [`Tel: ${shop?.phone || statement.shop?.phone}`] : []),
+    ...(tin ? [`TIN: ${tin}`] : []),
+    `Prepared By: ${user?.name || 'Accountant / Manager'}`,
+    `Printed: ${formatDate(new Date().toISOString())}`
+  ];
+
+  const c = statement.customer;
+  const rightLines = [
+    c.name,
+    ...(c.phone ? [`Tel: ${c.phone}`] : []),
+    ...(c.id_number ? [`ID / TIN: ${c.id_number}`] : []),
+    ...(c.address ? [`Address: ${c.address}`] : []),
+    ...(c.email ? [`Email: ${c.email}`] : []),
+    `Lifetime Orders: ${statement.summary.lifetimeOrders} (${formatCurrency(statement.summary.lifetimeSpent)})`
+  ];
+
+  leftLines.forEach((line, i) => doc.text(line, margin, currentY + i * 4.2));
+  rightLines.forEach((line, i) => doc.text(line, pageWidth / 2 + 4, currentY + i * 4.2));
+
+  currentY += Math.max(leftLines.length, rightLines.length) * 4.2 + 5;
+
+  // Account KPI Summary Cards
+  const cardW = (pageWidth - margin * 2 - 9) / 4;
+  const cardH = 17;
+  const kpis = [
+    { label: 'Period Orders Total', val: formatCurrency(statement.summary.totalOrdered), color: [59, 130, 246] },
+    { label: 'Period Paid', val: formatCurrency(statement.summary.totalPaidOnOrders), color: [16, 185, 129] },
+    { label: 'Current Debt Balance', val: formatCurrency(statement.summary.currentDebtBalance), color: [244, 63, 94] },
+    { label: 'We Owe Client Credit', val: formatCurrency(statement.summary.currentStoreCredit), color: [168, 85, 247] },
+  ];
+
+  kpis.forEach((kpi, idx) => {
+    const x = margin + idx * (cardW + 3);
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x, currentY, cardW, cardH, 2, 2, 'FD');
+    doc.setFillColor(kpi.color[0], kpi.color[1], kpi.color[2]);
+    doc.rect(x, currentY, 2, cardH, 'F');
+    doc.setFontSize(7.2);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139);
+    doc.text(kpi.label, x + 4.5, currentY + 5.5);
+    doc.setFontSize(8.8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(kpi.val, x + 4.5, currentY + 12.5);
+  });
+
+  currentY += cardH + 7;
+
+  // Section 1: Orders & Items Table
+  doc.setFontSize(9.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(`1. Client's Orders (${statement.orders.length} order${statement.orders.length === 1 ? '' : 's'} in selected timeframe)`, margin, currentY);
+  currentY += 3;
+
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: margin, right: margin },
+    head: [['Date', 'Order Ref', 'Items Purchased', 'Order Total', 'Paid', 'Debt Due', 'Status']],
+    body: statement.orders.length > 0
+      ? statement.orders.map((o) => {
+          const itemsSummary = (o.statement_items && o.statement_items.length > 0)
+            ? o.statement_items.map((it) => `${it.product_name} × ${it.quantity} (@ ${Math.round(it.selling_price).toLocaleString()})`).join('; ')
+            : 'Order items';
+          return [
+            formatDate(o.created_at),
+            o.order_number,
+            itemsSummary,
+            formatCurrency(Number(o.total_amount || 0)),
+            formatCurrency(Number(o.paid_amount || 0)),
+            formatCurrency(Number(o.debt_amount || 0)),
+            (o.payment_status || 'pending').toUpperCase(),
+          ];
+        })
+      : [['—', '—', 'No orders found in this selected timeframe.', '—', '—', '—', '—']],
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+    },
+    bodyStyles: {
+      fontSize: 7.2,
+      textColor: [30, 41, 59],
+    },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+    columnStyles: {
+      0: { cellWidth: 27 },
+      1: { cellWidth: 21, fontStyle: 'bold' },
+      2: { cellWidth: 56 },
+      3: { halign: 'right' },
+      4: { halign: 'right' },
+      5: { halign: 'right', fontStyle: 'bold' },
+      6: { halign: 'center', cellWidth: 16 },
+    },
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 8;
+
+  // Section 2: Payments & Store Credit Ledger
+  if (statement.payments.length > 0 || statement.creditLedger.length > 0) {
+    if (currentY > pageHeight - 55) {
+      doc.addPage();
+      currentY = 18;
+    }
+
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('2. Payment Receipts & Store Credit Activity', margin, currentY);
+    currentY += 3;
+
+    const activityRows: any[] = [
+      ...statement.payments.map((p) => [
+        formatDate(p.created_at),
+        p.order_number || `Order #${p.order_id}`,
+        `Payment (${(p.payment_method || 'cash').replace('_', ' ').toUpperCase()})`,
+        formatCurrency(Number(p.amount || 0)),
+        p.reference_no || p.recorded_by_name || 'Confirmed',
+      ]),
+      ...statement.creditLedger.map((l) => [
+        formatDate(l.created_at),
+        l.order_number || l.reference_no || 'Account Ledger',
+        l.entry_type === 'credit_added'
+          ? 'Store Credit Added (We Owe Client)'
+          : l.entry_type === 'credit_used'
+          ? 'Store Credit Deducted'
+          : l.entry_type === 'credit_payout'
+          ? 'Store Credit Refund Paid Out'
+          : 'Bulk Debt Settlement Summary',
+        formatCurrency(Number(l.amount || 0)),
+        l.notes || 'Recorded',
+      ]),
+    ];
+
+    autoTable(doc, {
+      startY: currentY,
+      margin: { left: margin, right: margin },
+      head: [['Date & Time', 'Order / Ref', 'Activity Type', 'Amount (RWF)', 'Notes / Reference']],
+      body: activityRows,
+      headStyles: {
+        fillColor: [245, 158, 11],
+        textColor: [15, 23, 42],
+        fontStyle: 'bold',
+        fontSize: 7.5,
+      },
+      bodyStyles: {
+        fontSize: 7.2,
+        textColor: [30, 41, 59],
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 42 },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 26 },
+      },
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  // Signature Footer
+  if (currentY > pageHeight - 34) {
+    doc.addPage();
+    currentY = 22;
+  }
+  doc.setDrawColor(148, 163, 184);
+  doc.line(margin, currentY + 10, margin + 65, currentY + 10);
+  doc.line(pageWidth - margin - 65, currentY + 10, pageWidth - margin, currentY + 10);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Prepared / Verified by Store Finance', margin, currentY + 15);
+  doc.text('Acknowledged by Client Finance Dept', pageWidth - margin - 65, currentY + 15);
+
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(
+      `Customer Account Statement — ${c.name} | Page ${i} of ${totalPages}`,
+      pageWidth / 2,
+      pageHeight - 5,
+      { align: 'center' }
+    );
+  }
+
+  const safeName = (c.name || 'Customer').replace(/[^a-zA-Z0-9_-]/g, '_');
+  doc.save(`Customer_Statement_${safeName}_${statement.period}_${Date.now()}.pdf`);
+}
+
 

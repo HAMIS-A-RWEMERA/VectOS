@@ -58,6 +58,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const [errorMsg, setErrorMsg] = useState('');
   const [lastCreatedOrder, setLastCreatedOrder] = useState<any | null>(null);
   const [releaseImmediately, setReleaseImmediately] = useState(false);
+  const [useStoreCredit, setUseStoreCredit] = useState(false);
 
   const canProcessPayments = hasPermission(user, 'can_process_payments');
   const canGiveDiscounts = hasPermission(user, 'can_give_discounts');
@@ -153,7 +154,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       // If checkout is open, keep paidAmount in sync with new total
       if (isCheckoutOpen) {
         const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
-        setPaidAmount(String(newTotal));
+        const creditAvail = Number(selectedCustomer?.store_credit || 0);
+        const creditDed = canProcessPayments && useStoreCredit ? Math.min(newTotal, creditAvail) : 0;
+        setPaidAmount(canProcessPayments ? String(Math.max(0, newTotal - creditDed)) : '0');
       }
       return updated;
     });
@@ -167,7 +170,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       );
       if (isCheckoutOpen) {
         const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
-        setPaidAmount(String(newTotal));
+        const creditAvail = Number(selectedCustomer?.store_credit || 0);
+        const creditDed = canProcessPayments && useStoreCredit ? Math.min(newTotal, creditAvail) : 0;
+        setPaidAmount(canProcessPayments ? String(Math.max(0, newTotal - creditDed)) : '0');
       }
       return updated;
     });
@@ -183,7 +188,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       });
       if (isCheckoutOpen) {
         const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
-        setPaidAmount(String(newTotal));
+        const creditAvail = Number(selectedCustomer?.store_credit || 0);
+        const creditDed = canProcessPayments && useStoreCredit ? Math.min(newTotal, creditAvail) : 0;
+        setPaidAmount(canProcessPayments ? String(Math.max(0, newTotal - creditDed)) : '0');
       }
       return updated;
     });
@@ -194,7 +201,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       const updated = prev.filter((item) => item.product.id !== productId);
       if (isCheckoutOpen) {
         const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
-        setPaidAmount(String(newTotal));
+        const creditAvail = Number(selectedCustomer?.store_credit || 0);
+        const creditDed = canProcessPayments && useStoreCredit ? Math.min(newTotal, creditAvail) : 0;
+        setPaidAmount(canProcessPayments ? String(Math.max(0, newTotal - creditDed)) : '0');
       }
       return updated;
     });
@@ -206,6 +215,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     setCustomCustomerName('');
     setCustomCustomerPhone('');
     setOrderNotes('');
+    setUseStoreCredit(false);
     setErrorMsg('');
   };
 
@@ -218,8 +228,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     return customers.find(c => c.id === selectedCustomerId) || null;
   }, [customers, selectedCustomerId]);
 
+  const availableCustomerCredit = Math.max(0, Number(selectedCustomer?.store_credit || 0));
+  const appliedStoreCredit = canProcessPayments && useStoreCredit && availableCustomerCredit > 0
+    ? Math.min(cartSubtotal, availableCustomerCredit)
+    : 0;
+  const netDueAfterStoreCredit = Math.max(0, cartSubtotal - appliedStoreCredit);
+
   const openCheckout = () => {
     if (cart.length === 0) return;
+    setUseStoreCredit(false);
     setPaidAmount(canProcessPayments ? String(cartSubtotal) : '0');
     if (!canProcessPayments && paymentMethod !== 'debt_credit') {
       setPaymentMethod('cash');
@@ -230,13 +247,24 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     setIsCheckoutOpen(true);
   };
 
+  const handleToggleStoreCredit = (checked: boolean) => {
+    setUseStoreCredit(checked);
+    const creditDed = checked && availableCustomerCredit > 0
+      ? Math.min(cartSubtotal, availableCustomerCredit)
+      : 0;
+    const remaining = Math.max(0, cartSubtotal - creditDed);
+    if (canProcessPayments) {
+      setPaidAmount(String(remaining));
+    }
+  };
+
   const handleProcessOrder = async () => {
     try {
       setIsSubmitting(true);
       setErrorMsg('');
 
       const numericPaid = canProcessPayments ? (Number(paidAmount) || 0) : 0;
-      if (canProcessPayments && paymentMethod !== 'debt_credit' && numericPaid <= 0 && cartSubtotal > 0) {
+      if (canProcessPayments && paymentMethod !== 'debt_credit' && (numericPaid + appliedStoreCredit) <= 0 && cartSubtotal > 0) {
         setErrorMsg('Please specify a valid payment amount or choose Credit/Debt.');
         setIsSubmitting(false);
         return;
@@ -257,7 +285,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           : (paymentMethod === 'debt_credit' ? 'debt_credit' : 'cash'),
         paid_amount: !canProcessPayments || paymentMethod === 'debt_credit'
           ? 0
-          : Math.min(numericPaid, cartSubtotal),
+          : Math.min(numericPaid, netDueAfterStoreCredit),
+        use_store_credit: appliedStoreCredit > 0,
+        store_credit_amount: appliedStoreCredit > 0 ? appliedStoreCredit : undefined,
         payment_reference: canProcessPayments ? paymentRef : '',
         notes: orderNotes,
         release_immediately: isSoloOperator && releaseImmediately
@@ -268,7 +298,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         setLastCreatedOrder(res.order);
         setIsCheckoutOpen(false);
         clearCart();
-        loadData(); // refresh product stock counts
+        loadData(); // refresh product stock counts and customer credit balances
         onOrderCompleted(res.order);
       }
     } catch (err: any) {
@@ -506,11 +536,26 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               <option value="">Walk-in Cash Client</option>
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({formatRwf(c.credit_balance)} debt)
+                  {c.name} ({formatRwf(c.credit_balance)} debt{Number(c.store_credit || 0) > 0 ? ` | We owe: ${formatRwf(Number(c.store_credit))}` : ''})
                 </option>
               ))}
             </select>
           </div>
+
+          {selectedCustomer && (Number(selectedCustomer.credit_balance || 0) > 0 || Number(selectedCustomer.store_credit || 0) > 0) && (
+            <div className="flex flex-wrap gap-2 text-[10px] pt-0.5">
+              {Number(selectedCustomer.credit_balance || 0) > 0 && (
+                <span className="px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30 font-mono font-bold">
+                  Owes us: {formatRwf(selectedCustomer.credit_balance)}
+                </span>
+              )}
+              {Number(selectedCustomer.store_credit || 0) > 0 && (
+                <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono font-bold">
+                  We owe client: {formatRwf(Number(selectedCustomer.store_credit))}
+                </span>
+              )}
+            </div>
+          )}
 
           {!selectedCustomerId && (
             <div className="grid grid-cols-2 gap-2 pt-1">
@@ -749,10 +794,17 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             {/* Total Due Banner */}
             <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
               <div>
-                <p className="text-[11px] text-slate-400 uppercase font-semibold">Total Due</p>
-                <p className="text-xl sm:text-2xl font-black text-amber-400 font-mono mt-0.5">
-                  {formatRwf(cartSubtotal)}
+                <p className="text-[11px] text-slate-400 uppercase font-semibold">
+                  {appliedStoreCredit > 0 ? 'Remaining Due After Store Credit' : 'Total Due'}
                 </p>
+                <p className="text-xl sm:text-2xl font-black text-amber-400 font-mono mt-0.5">
+                  {formatRwf(netDueAfterStoreCredit)}
+                </p>
+                {appliedStoreCredit > 0 && (
+                  <p className="text-[10px] text-purple-300 font-mono mt-0.5">
+                    Order: {formatRwf(cartSubtotal)} − Store Credit: {formatRwf(appliedStoreCredit)}
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-[11px] text-slate-400">Customer</p>
@@ -761,6 +813,33 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 </p>
               </div>
             </div>
+
+            {/* Store Credit Offset Card (When we owe money to this client) */}
+            {canProcessPayments && availableCustomerCredit > 0 && (
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-purple-500/15 border border-purple-500/40 cursor-pointer hover:bg-purple-500/20 transition">
+                <input
+                  type="checkbox"
+                  checked={useStoreCredit}
+                  onChange={(e) => handleToggleStoreCredit(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded accent-purple-500 cursor-pointer"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-purple-200">
+                      Deduct Money We Owe Client
+                    </span>
+                    <span className="text-xs font-mono font-black text-purple-300">
+                      Avail: {formatRwf(availableCustomerCredit)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    {useStoreCredit
+                      ? `Applying ${formatRwf(appliedStoreCredit)} from client credit. Client only pays missing ${formatRwf(netDueAfterStoreCredit)}.`
+                      : 'Check this box to subtract what we owe this client from today’s order total.'}
+                  </p>
+                </div>
+              </label>
+            )}
 
             {/* Itemized Line Items Review */}
             <div className="space-y-2">
@@ -856,13 +935,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 {paymentMethod !== 'debt_credit' && (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-slate-300">Amount Received (RWF)</label>
+                      <label className="text-xs font-semibold text-slate-300">
+                        {appliedStoreCredit > 0 ? 'Missing Cash / MoMo Received (RWF)' : 'Amount Received (RWF)'}
+                      </label>
                       <button
                         type="button"
-                        onClick={() => setPaidAmount(String(cartSubtotal))}
+                        onClick={() => setPaidAmount(String(netDueAfterStoreCredit))}
                         className="text-[10px] text-amber-400 hover:underline font-semibold"
                       >
-                        Pay Exact Total
+                        Pay Remaining ({formatRwf(netDueAfterStoreCredit)})
                       </button>
                     </div>
                     <input
@@ -871,14 +952,14 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                       onChange={(e) => setPaidAmount(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-white focus:outline-none focus:border-amber-500"
                     />
-                    {Number(paidAmount) > cartSubtotal && (
+                    {Number(paidAmount) > netDueAfterStoreCredit && (
                       <p className="text-xs text-emerald-400 font-semibold font-mono">
-                        Change to Return: {formatRwf(Number(paidAmount) - cartSubtotal)}
+                        Change to Return: {formatRwf(Number(paidAmount) - netDueAfterStoreCredit)}
                       </p>
                     )}
-                    {Number(paidAmount) < cartSubtotal && Number(paidAmount) > 0 && (
+                    {Number(paidAmount) < netDueAfterStoreCredit && (Number(paidAmount) > 0 || appliedStoreCredit > 0) && (
                       <p className="text-xs text-amber-400 font-semibold font-mono">
-                        Remaining Balance Due: {formatRwf(cartSubtotal - Number(paidAmount))}
+                        Remaining Balance Due (Debt): {formatRwf(netDueAfterStoreCredit - Number(paidAmount))}
                       </p>
                     )}
                   </div>

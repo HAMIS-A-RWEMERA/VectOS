@@ -6,6 +6,7 @@ import {
   StockTransfer, 
   Order, 
   Customer, 
+  CustomerStatement,
   PartnerShop, 
   DashboardStats, 
   ReportSummary 
@@ -226,10 +227,12 @@ export const api = {
     items: { product_id: number; quantity: number; selling_price?: number; fulfillment_source?: string }[];
     payment_method: string;
     paid_amount: number;
+    use_store_credit?: boolean;
+    store_credit_amount?: number;
     notes?: string;
     payment_reference?: string;
     release_immediately?: boolean;
-  }) => request<{ success: boolean; order: Order }>('/api/orders', {
+  }) => request<{ success: boolean; order: Order; store_credit_applied?: number }>('/api/orders', {
     method: 'POST',
     body: JSON.stringify(orderData)
   }),
@@ -269,10 +272,67 @@ export const api = {
     }),
 
   // Customers
-  getCustomers: (search = '') => request<{ customers: Customer[] }>(`/api/customers?q=${encodeURIComponent(search)}`),
+  getCustomers: (search = '', sort = 'debt') => {
+    const q = new URLSearchParams();
+    if (search) q.append('q', search);
+    if (sort) q.append('sort', sort);
+    return request<{ customers: Customer[] }>(`/api/customers?${q.toString()}`);
+  },
   createCustomer: (customerData: Partial<Customer>) => request<{ success: boolean; customer: Customer }>('/api/customers', {
     method: 'POST',
     body: JSON.stringify(customerData)
+  }),
+  getCustomerStatement: (
+    customerId: number,
+    params?: { period?: 'day' | 'week' | 'month' | 'all' | 'custom'; startDate?: string; endDate?: string }
+  ) => {
+    const q = new URLSearchParams();
+    if (params?.period) q.append('period', params.period);
+    if (params?.startDate) q.append('startDate', params.startDate);
+    if (params?.endDate) q.append('endDate', params.endDate);
+    const qs = q.toString();
+    return request<CustomerStatement>(`/api/customers/${customerId}/statement${qs ? `?${qs}` : ''}`);
+  },
+  settleCustomerDebt: (
+    customerId: number,
+    data: {
+      amount: number;
+      payment_method?: string;
+      reference_no?: string;
+      notes?: string;
+      excess_to_store_credit?: boolean;
+    }
+  ) => request<{
+    success: boolean;
+    message: string;
+    customer: Customer;
+    appliedToDebt: number;
+    addedToStoreCredit: number;
+    remainingDebt: number;
+    settledOrders: {
+      order_id: number;
+      order_number: string;
+      applied_amount: number;
+      previous_debt: number;
+      remaining_debt: number;
+      new_payment_status: string;
+    }[];
+  }>(`/api/customers/${customerId}/settle-debt`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+  adjustCustomerStoreCredit: (
+    customerId: number,
+    data: {
+      action: 'add' | 'payout';
+      amount: number;
+      payment_method?: string;
+      reference_no?: string;
+      notes?: string;
+    }
+  ) => request<{ success: boolean; message: string; customer: Customer }>(`/api/customers/${customerId}/store-credit`, {
+    method: 'POST',
+    body: JSON.stringify(data)
   }),
 
   // Partners

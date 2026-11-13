@@ -1,17 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { api } from '../services/api';
-import { 
-  Sparkles, 
-  Send, 
-  X, 
-  MessageCircle, 
-  Bot, 
-  User as UserIcon, 
-  HelpCircle, 
-  ChevronRight, 
-  Trash2, 
-  ExternalLink,
-  ShieldCheck
+import {
+  Sparkles,
+  Send,
+  X,
+  MessageCircle,
+  Bot,
+  User as UserIcon,
+  Trash2,
+  ExternalLink
 } from 'lucide-react';
 
 interface AiHelpModalProps {
@@ -23,27 +20,93 @@ interface Message {
   role: 'user' | 'model';
   text: string;
   time?: string;
+  isWelcome?: boolean;
 }
 
 const QUICK_QUESTIONS = [
-  'VectOS ikora iki & Ikemura ibihe bibazo?',
-  'Uburyo 3 bwo kwinjiza ibicuruzwa (AI Scanner)',
-  'Gucuruza & kwakira MoMo (POS Sales)',
-  'Gusohora ibintu mu bubiko (3-Way Dispatch)',
+  'What does VectOS solve?',
+  'How do I add products (AI Scanner / CSV)?',
+  'How does Client\'s Order & Delivery Notice work?',
+  'How do I negotiate item prices in POS?',
+  '3-Way Order Dispatch & Storekeeper',
   'Amadeni y\'abakiriya (Customer Debt)',
-  'Inshingano 8 z\'abakozi (8 Roles)',
-  'Ububiko burenze bumwe (Multi-Warehouse)',
-  'Imbibi z\'ubushobozi bwa sisitemu (System Limits)'
+  'Inshingano 8 z\'abakozi (Staff Roles)',
+  'How do I change my password?'
 ];
 
-export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'model',
-      text: "Muraho neza! Welcome to VectOS Customer Care Assistant.\n\nNshinzwe kubasobanurira birambuye uko VectOS ikora, ibibazo ikemura (guhagarika ubujura mu bubiko, kuringaniza MoMo/Cash, gucunga amadeni), uburyo 3 bwo kwinjiza ibicuruzwa (harimo na AI Scanner nshya), gucururiza kuri kounteri (POS), n'inshingano z'abakozi.\n\nBaza ikibazo cyose mu Kinyarwanda cyangwa mu Cyongereza!",
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+function renderInlineFormatting(text: string): React.ReactNode[] {
+  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+  return tokens.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={i} className="font-bold text-white">{part.slice(2, -2)}</strong>;
     }
-  ]);
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return (
+        <code key={i} className="px-1 py-0.5 rounded bg-slate-800 text-amber-300 font-mono text-[11px]">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+      return <em key={i} className="italic text-slate-300">{part.slice(1, -1)}</em>;
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
+function FormattedAiMessage({ text }: { text: string }) {
+  const lines = text.split('\n');
+  return (
+    <div className="space-y-1.5 break-words">
+      {lines.map((rawLine, idx) => {
+        const line = rawLine.trim();
+        if (!line) {
+          return <div key={idx} className="h-1" />;
+        }
+        if (line === '---' || line === '***') {
+          return <hr key={idx} className="border-slate-800 my-1.5" />;
+        }
+        if (/^#{1,4}\s+/.test(line)) {
+          const heading = line.replace(/^#{1,4}\s+/, '');
+          return (
+            <p key={idx} className="font-bold text-amber-300 text-[13px] pt-1">
+              {renderInlineFormatting(heading)}
+            </p>
+          );
+        }
+        if (/^[-*•]\s+/.test(line)) {
+          const item = line.replace(/^[-*•]\s+/, '');
+          return (
+            <div key={idx} className="flex items-start gap-1.5 pl-1">
+              <span className="text-amber-400 font-bold leading-5">•</span>
+              <span className="flex-1">{renderInlineFormatting(item)}</span>
+            </div>
+          );
+        }
+        const numMatch = line.match(/^(\d+\.)\s+(.*)$/);
+        if (numMatch) {
+          return (
+            <div key={idx} className="flex items-start gap-1.5 pl-1">
+              <span className="text-amber-400 font-bold font-mono shrink-0">{numMatch[1]}</span>
+              <span className="flex-1">{renderInlineFormatting(numMatch[2])}</span>
+            </div>
+          );
+        }
+        return <p key={idx}>{renderInlineFormatting(rawLine)}</p>;
+      })}
+    </div>
+  );
+}
+
+const WELCOME_MESSAGE = (): Message => ({
+  role: 'model',
+  isWelcome: true,
+  text: "Muraho neza! Welcome to the **VectOS AI Assistant**.\n\nAsk me anything about using **VectOS**—such as POS sales & per-item price bargaining, printing **Client's Order** receipts or Delivery Notices, adding stock (manual, CSV, or AI Invoice Scanner), managing debts, staff permissions, or store setup.\n\nAsk your question in **English**, **Kinyarwanda**, or **French**!",
+  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+});
+
+export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => {
+  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE()]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -56,7 +119,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
     if (isOpen) {
       scrollToBottom();
     }
-  }, [messages, isOpen]);
+  }, [messages, isOpen, loading]);
 
   const handleSend = async (questionText?: string) => {
     const q = (questionText || input).trim();
@@ -68,25 +131,32 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
+    const conversationHistory = messages
+      .filter((m) => !m.isWelcome)
+      .slice(-16)
+      .map((m) => ({ role: m.role, text: m.text }));
+
     setMessages((prev) => [...prev, userMsg]);
     if (!questionText) setInput('');
     setLoading(true);
 
     try {
-      const history = messages.map(m => ({ role: m.role, text: m.text }));
-      const res = await api.askAiHelp(q, history);
+      const res = await api.askAiHelp(q, conversationHistory);
       const aiMsg: Message = {
         role: 'model',
-        text: res.reply || 'I am here to help you navigate VectOS. What would you like to know about the system?',
+        text: res.reply || 'I am here to help you with VectOS. What would you like to know?',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err: any) {
+      const msg = String(err?.message || '');
       setMessages((prev) => [
         ...prev,
         {
           role: 'model',
-          text: "Muraho neza! Niteguye kubafasha muri buri kintu cyose cyerekeye VectOS.\n\n• Kwinjiza ibicuruzwa: Koresha 'Add New Product', 'Bulk Stock Import (Excel)', cyangwa 'AI Invoice Scanner' ifata ifoto ya fagitire.\n• Gucuruza: Koresha tab ya 'POS & Counter Sales' wakire MoMo, Cash, cyangwa Amadeni.\n• Umutekano: Komande yose igomba kwemezwa n'umubitsi mbere y'uko ushinzwe ububiko asohora ibicuruzwa.\n\nBaza ikindi kibazo cyose ushaka gusobanukirwa birambuye!",
+          text: msg.includes('Too many requests')
+            ? msg
+            : "I'm having trouble reaching the VectOS server right now. Please check your internet connection and try asking again, or contact WhatsApp Support at **+250 781 549 993**.",
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -106,7 +176,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-end sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-      <div className="w-full sm:max-w-md h-[90vh] sm:h-[620px] rounded-t-3xl sm:rounded-3xl bg-[#121622] border border-slate-700/80 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-5">
+      <div className="w-full sm:max-w-lg h-[90vh] sm:h-[640px] rounded-t-3xl sm:rounded-3xl bg-[#121622] border border-slate-700/80 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-5">
         {/* Header */}
         <div className="p-4 bg-gradient-to-r from-slate-900 via-[#182030] to-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -120,7 +190,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
                   ERP Expert
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">Strictly focused on VectOS Rwanda Depot operations</p>
+              <p className="text-[11px] text-slate-400">Conversational support strictly for VectOS ERP</p>
             </div>
           </div>
 
@@ -130,7 +200,8 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
                 setMessages([
                   {
                     role: 'model',
-                    text: "Conversation cleared. How can I help you navigate VectOS today?",
+                    isWelcome: true,
+                    text: 'Conversation cleared. Ask me anything about using **VectOS**!',
                     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   }
                 ]);
@@ -183,13 +254,13 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
                 )}
 
                 <div
-                  className={`max-w-[85%] rounded-2xl p-3 leading-relaxed whitespace-pre-wrap ${
+                  className={`max-w-[85%] rounded-2xl p-3 leading-relaxed ${
                     isUser
-                      ? 'bg-amber-500 text-slate-950 font-medium rounded-tr-xs shadow-md shadow-amber-500/10'
+                      ? 'bg-amber-500 text-slate-950 font-medium rounded-tr-xs shadow-md shadow-amber-500/10 whitespace-pre-wrap'
                       : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-xs'
                   }`}
                 >
-                  <p>{m.text}</p>
+                  {isUser ? <p>{m.text}</p> : <FormattedAiMessage text={m.text} />}
                   {m.time && (
                     <p
                       className={`text-[9px] mt-1.5 text-right font-mono ${
@@ -229,7 +300,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
         {/* Suggested Quick Questions */}
         <div className="px-3 py-2 bg-slate-950/60 border-t border-slate-800/80 shrink-0">
           <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1.5">
-            Suggested Quick Questions:
+            Suggested Questions:
           </p>
           <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {QUICK_QUESTIONS.map((q, idx) => (
@@ -257,7 +328,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
           >
             <input
               type="text"
-              placeholder="Baza ikibazo kuri VectOS... / Ask in Kinyarwanda or English"
+              placeholder="Ask anything about VectOS (English, Kinyarwanda, French)..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}

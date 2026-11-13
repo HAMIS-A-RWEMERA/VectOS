@@ -199,8 +199,68 @@ export interface Customer {
   address?: string;
   id_number?: string;
   credit_balance: number;
+  store_credit?: number;
   order_count?: number;
   total_spent?: number;
+  total_paid?: number;
+  last_order_at?: string | null;
+  created_at?: string;
+}
+
+export interface CustomerCreditEntry {
+  id: number;
+  shop_id: number;
+  customer_id: number;
+  order_id?: number | null;
+  order_number?: string | null;
+  amount: number;
+  entry_type: 'credit_added' | 'credit_used' | 'credit_payout' | 'bulk_payment';
+  payment_method?: string | null;
+  reference_no?: string | null;
+  notes?: string | null;
+  recorded_by?: number | null;
+  recorded_by_name?: string | null;
+  created_at: string;
+}
+
+export interface CustomerStatementOrderItem {
+  id?: number;
+  product_id: number;
+  product_name: string;
+  product_unit?: string;
+  quantity: number;
+  selling_price: number;
+  subtotal: number;
+}
+
+export interface CustomerStatementOrder extends Order {
+  statement_items?: CustomerStatementOrderItem[];
+}
+
+export interface CustomerStatement {
+  customer: Customer;
+  shop: Partial<Shop>;
+  period: string;
+  periodLabel: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  summary: {
+    ordersCount: number;
+    totalOrdered: number;
+    totalPaidOnOrders: number;
+    periodDebt: number;
+    paymentsReceivedInPeriod: number;
+    creditAddedInPeriod: number;
+    creditUsedInPeriod: number;
+    currentDebtBalance: number;
+    currentStoreCredit: number;
+    lifetimeOrders: number;
+    lifetimeSpent: number;
+    lifetimePaid: number;
+  };
+  orders: CustomerStatementOrder[];
+  payments: (Payment & { order_number?: string })[];
+  creditLedger: CustomerCreditEntry[];
 }
 
 export interface PartnerShop {

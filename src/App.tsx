@@ -318,7 +318,7 @@ export const App: React.FC = () => {
           )}
 
           {activeTab === 'customers' && (
-            <CustomersView user={user} />
+            <CustomersView user={user} shop={shop} onLedgerUpdated={loadDashboardStats} />
           )}
 
           {activeTab === 'partners' && (

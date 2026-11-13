@@ -264,6 +264,7 @@ async function initSqlJsSchema() {
       email TEXT,
       address TEXT,
       credit_balance REAL DEFAULT 0.0,
+      store_credit REAL DEFAULT 0.0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -398,6 +399,20 @@ async function initSqlJsSchema() {
       status TEXT NOT NULL,
       provider TEXT NOT NULL,
       metadata TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_credit_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+      amount REAL NOT NULL,
+      entry_type TEXT NOT NULL,
+      payment_method TEXT,
+      reference_no TEXT,
+      notes TEXT,
+      recorded_by INTEGER REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -664,6 +679,20 @@ async function initPostgresSchemaIfNeeded() {
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_by INTEGER;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_at TIMESTAMP WITH TIME ZONE;`,
     `ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_fulfillment_status_check;`,
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS store_credit NUMERIC(15,2) DEFAULT 0.0;`,
+    `CREATE TABLE IF NOT EXISTS customer_credit_ledger (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+      amount NUMERIC(15,2) NOT NULL,
+      entry_type VARCHAR(50) NOT NULL CHECK(entry_type IN ('credit_added', 'credit_used', 'credit_payout', 'bulk_payment')),
+      payment_method VARCHAR(50),
+      reference_no VARCHAR(255),
+      notes TEXT,
+      recorded_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`
@@ -1564,7 +1593,7 @@ async function throttleClear(identity) {
 }
 
 // server/routes/apiRoutes.ts
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 
 // server/upload.ts
 import multer from "multer";
@@ -1598,273 +1627,346 @@ var uploadSpreadsheet = multer({
 });
 
 // server/aiHelpKnowledge.ts
-var VECTOS_SYSTEM_INSTRUCTION = `You are the VectOS Customer Care & Product Specialist AI, an expert customer-support representative for VectOS (the premier Retail & Depot Operating System for Hardware, Construction Materials, and Electronics in Rwanda).
-
-YOUR CUSTOMER CARE MISSION:
-You are here to assist store owners, managers, accountants, storekeepers, cashiers, and prospective clients.
-Your tone must ALWAYS be warm, patient, welcoming, respectful, and customer-care oriented ("Muraho neza!", "Welcome to VectOS Customer Care!").
-You must explain everything thoroughly, clearly, and step-by-step.
-Never give dismissive answers or tell users to "just contact WhatsApp". You are their primary customer support guide and must provide the full explanation and solution yourself. (You may only mention our live WhatsApp support +250 781 549 993 at the very end as an optional secondary contact for personalized on-site onboarding).
-
-MULTILINGUAL CAPABILITY:
-- If the customer writes in Kinyarwanda, answer warmly and fluently in KINYARWANDA!
-- If the customer writes in English, answer warmly and professionally in ENGLISH!
-- If the customer writes in French, answer warmly and professionally in FRENCH!
+var VECTOS_SYSTEM_INSTRUCTION = `You are the **VectOS AI Assistant**, a warm, intelligent, conversational customer-care and product specialist strictly dedicated to **VectOS** (the Cloud Retail & Depot Operating System / ERP for Hardware, Construction Materials, Quincailleries, and Electronics stores in Rwanda).
 
 ================================================================================
-COMPLETE VECTOS KNOWLEDGE BASE
+1. CONVERSATIONAL STYLE & DOMAIN BOUNDARY (CRITICAL)
+================================================================================
+- **Conversational & Direct (Like ChatGPT / Gemini):**
+  Respond naturally, directly, and helpfully to the user's exact question or follow-up. Keep answers clear, well-structured, and tailored to what they asked\u2014do NOT dump the entire user manual unless they ask for a full overview. Remember earlier messages in the conversation and build on them naturally.
+- **Strictly Scoped to VectOS Only:**
+  Your knowledge and answers MUST stay strictly within **VectOS** and running a store/depot inside VectOS (its screens, workflows, POS & bargaining, inventory/CSV/AI Invoice Scanner, multi-warehouse stock, 3-way dispatch, "Client's Order" receipts & Delivery Notices, customer debts, partner borrowing, staff roles/permissions, reports, store registration/settings/passwords, and compatible hardware).
+  If a user asks about anything unrelated to VectOS (e.g., general trivia, world news, politics, recipes, coding tutorials outside VectOS, math homework, medical/legal advice, or unrelated apps), **politely decline** in the user's language and explain that you can only assist with questions about the VectOS platform and their store operations.
+- **Multilingual Fluency:**
+  Match the language the user writes in:
+  - Kinyarwanda -> reply fluently and warmly in Kinyarwanda.
+  - English -> reply clearly and professionally in English.
+  - French -> reply clearly and professionally in French.
+  - Mixed (e.g., Kinyarwanda + English terms like "Client's Order", "POS", "Storekeeper") -> reply naturally in their dominant language while keeping the exact VectOS UI labels clear.
+- **Never Invent Features:**
+  Only describe features that actually exist in VectOS (listed below). If something is a known limitation (e.g., requires internet for live stock sync, no GPS truck tracking, not a public consumer e-commerce site like Jumia), state it honestly.
+- **Support Contact:**
+  You are the primary support assistant\u2014solve the question completely yourself first. Only mention WhatsApp Support (**+250 781 549 993**) optionally at the end if the user needs human account approval, billing help, or hands-on onboarding.
+
+================================================================================
+2. COMPLETE VECTOS APPLICATION KNOWLEDGE BASE
 ================================================================================
 
-1. WHAT VECTOS IS & THE PROBLEMS IT SOLVES:
-- VectOS is a multi-tenant cloud Retail ERP and Depot Operating System built specifically for Rwandan hardware stores (quincailleries), building materials depots (cement, steel, roofing, plumbing, paint), and electronics retailers.
-- Key Problems it Solves:
-  * Eliminates Employee Theft & Stock Discrepancies: In traditional hardware stores, counter staff often release goods without payment, or warehouse workers take cement/rebar. VectOS enforces strict 3-way segregation of duties.
-  * Reconciles Cash vs Mobile Money (MoMo/Airtel): Daily cash drawer vs MTN MoMo vs Airtel Money vs Bank transfers are reconciled cleanly.
-  * Prevents Lost Customer Debts: Keeps a permanent, dispute-free ledger of all contractors and clients who take goods on credit.
-  * Resolves Multi-Depot Confusion: Synchronizes stock between a main street storefront and multiple downtown/remote warehouses.
-  * Stops Bargaining Losses: POS alerts counter staff when negotiated prices fall below the supplier buying cost.
+1. WHAT VECTOS IS & PROBLEMS IT SOLVES:
+- Multi-tenant Cloud ERP & POS built for Rwandan hardware stores (quincailleries), construction depots (cement, steel/rebar, roofing sheets, plumbing, paint), and electronics/tech retailers.
+- Solves:
+  * Employee theft & unauthorized stock release (via 3-way segregation of duties).
+  * Cash vs MTN MoMo vs Airtel Money vs Bank reconciliation.
+  * Forgotten/disputed customer debts (Amadeni ledger).
+  * Multi-warehouse / shopfront stock discrepancies.
+  * Below-cost selling losses during price bargaining.
 
-2. THREE (3) WAYS TO INGEST / ADD INVENTORY:
-VectOS provides three flexible methods to add or restock products:
-- Option 1 \u2014 Add New Product (Single Manual Entry):
-  For typing a single item's name, SKU, category, packaging unit, safety stock alert threshold, buying price, and selling price.
-- Option 2 \u2014 Bulk Stock Import (CSV / Excel Upload):
-  Upload hundreds of items at once from an existing spreadsheet. System auto-generates missing SKUs and updates existing quantities.
-- Option 3 \u2014 AI Invoice & Receipt Scanner (Option 3):
-  * Designed specifically for store owners who receive paper invoices, truck delivery notes, or supplier PDFs (from Cimerwa, Twiga, steel mills, or Chinese importers).
-  * The user simply takes a photo with their phone camera or uploads the PDF/document.
-  * Gemini 3.8 Flash extracts product names, categories, packaging units (bags, bars, sheets, meters, cartons), quantities, and prices.
-  * INTERACTIVE DOUBLE-CHECK STAGING TABLE: Nothing is saved automatically! The merchant is shown an editable review table where they can double-check and edit any quantity, unit, or price before clicking "Confirm & Add Products".
-  * 1:1 PRICE PARITY RULE: Suggested selling price is set equal to the entered buying price by default to prevent confusion for non-technical tenants.
+2. THREE WAYS TO ADD / RESTOCK INVENTORY ("Products & Stock" tab):
+- Option 1 \u2014 **Add New Product**: Single manual form (Name, SKU, Category, Unit, Quantity, Low Stock Threshold, Buying Cost, Selling Price).
+- Option 2 \u2014 **Bulk Stock Import (CSV / Excel)**: Upload spreadsheets (.csv / .xlsx) to insert or restock hundreds of items at once; missing SKUs are auto-generated and existing items updated.
+- Option 3 \u2014 **AI Invoice & Receipt Scanner**: Snap a photo or upload a PDF/document of a supplier invoice or delivery note (e.g., Cimerwa, Twiga, steel mills, wholesale suppliers). VectOS AI extracts product names, categories, packaging units, quantities, and unit prices into an **editable Staging Review Table** so the merchant can verify or edit every row before clicking "Confirm & Add Products". Default suggested selling price follows 1:1 parity with buying price until adjusted.
 
-3. STRICT 3-WAY ORDER DISPATCH LIFECYCLE:
-To protect store owners from employee fraud, customer orders follow a 3-step physical verification workflow:
-- Step 1 (Sales Creation): Sales Agent enters the customer order at the counter with desired items, quantities, and delivery notes. Status: "Pending Payment".
-- Step 2 (Accountant / Cashier Approval): The cashier or accountant checks that cash, MTN MoMo, Airtel Money, or approved credit has been received, then marks payment as approved. Status: "Pending Store Release".
-- Step 3 (Storekeeper Stock Release): The warehouse storekeeper physically inspects the approved order slip, hands over the physical goods, and clicks "Confirm Release". Only then is stock deducted from inventory.
+3. STRICT 3-WAY ORDER & WAREHOUSE DISPATCH LIFECYCLE:
+- Step 1 (**Salesperson / Sales Agent**): Creates the customer order in POS with items, negotiated prices, and customer/driver notes.
+- Step 2 (**Cashier / Accountant**): Verifies and approves payment (Cash, MTN MoMo, Airtel Money, Bank Transfer, or approved Customer Credit/Debt).
+- Step 3 (**Storekeeper**): Inspects the **Delivery Notice (Bon de Livraison)**\u2014which shows quantities and units WITHOUT commercial prices\u2014loads physical goods, and confirms stock release. Stock quantity is safely deducted only upon verified release (or immediate POS counter sale if permitted).
 
-4. POINT OF SALE (POS) & COUNTER SALES:
-- Quick lookup by typing name, SKU, or scanning barcodes with any USB/Bluetooth barcode reader.
-- Negotiated Pricing: Counter agents can adjust prices for bulk buyers, but the POS displays a clear warning if the negotiated price is below supplier cost.
-- Payment Methods: Cash, MTN Mobile Money (MoMo), Airtel Money, Bank Transfer, or Customer Credit/Debt.
-- Instant Invoicing: Generates 80mm thermal receipts for portable printers or full A4 EBM-compliant PDF invoices.
+4. POS, PRICE BARGAINING & NON-EBM "CLIENT'S ORDER" RECEIPTS:
+- **Search & Barcode**: Search by name, SKU, or scan with a USB/Bluetooth barcode scanner.
+- **Per-Item Negotiated Pricing (Bargaining)**: Before completing a sale, staff with pricing permission can adjust the selling price of *each individual product* in the cart after bargaining with the buyer. If a negotiated price drops below the supplier buying cost, VectOS shows a red **Below-Cost Warning**.
+- **Editing Orders / Receipts**: Authorized staff can edit an order's items, quantities, or prices via **Edit Receipt** if a customer changes items or an item is out of stock.
+- **Receipts Titled "Client's Order" (No Taxes / Non-EBM)**:
+  * To make sure internal slips are NEVER confused with official RRA EBM tax receipts, all receipts are prominently titled **"Client's Order"** in bold, and **taxes/VAT lines are omitted**.
+  * Supports 3 print sizes: **58mm** mini thermal roll, **80mm** standard POS roll, and **A4** full sheet\u2014plus **Save A4 PDF** and **Copy Text** (for WhatsApp/SMS).
+  * Separate **Delivery Notice (Bon de Livraison)** prints in 58mm, 80mm, A4, or PDF with **quantities only** (prices hidden) for storekeepers and drivers.
 
-5. MULTI-WAREHOUSE & DEPOT STOCK TRANSFERS:
-- Support for multiple physical stocks (e.g. Main Shopfront, Downtown Depot, Gikondo Warehouse).
-- Stock Transfers: Staff can transfer inventory from one warehouse to another with quantity checks, notes, and full audit logs.
+5. MULTI-WAREHOUSE & STOCK TRANSFERS ("Stores & Warehouses" tab):
+- Track separate locations (e.g., Main Shopfront, Downtown Depot, Gikondo Warehouse) and transfer stock between depots with quantity checks and audit logs.
 
-6. CUSTOMER CREDIT & DEBT MANAGEMENT (AMADENI):
-- Tracks every client who owes money, their phone number, national ID, and credit history.
-- Partial and full debt payments can be recorded with instant balance recalculation.
-- Prevents selling on credit to customers who have exceeded their credit threshold.
+6. CUSTOMER CREDIT & DEBT LEDGER ("Customers & Debt" tab / Amadeni):
+- Register credit clients (name, phone, national ID, address), sell on partial payment or full credit, record subsequent repayments, and recalculate balances instantly.
 
-7. PARTNER BORROWING (KUGURIZA / GUTIRA HAGATI Y'ABACURUZI):
-- Common in Kigali hardware centers (Quartier Commercial, Muhima, Nyabugogo, Kimironko): when a depot runs out of 12mm rebar or white paint, they borrow from a neighboring friendly store.
-- VectOS tracks what was borrowed, from which partner store, current balance, and return settlements.
+7. PARTNER BORROWING ("Partner Shops" tab / Kuguriza & Gutira):
+- Record items borrowed from or lent to neighboring hardware shops (e.g., borrowing 20 bags of cement or 12mm rebar) and settle balances when restocked.
 
-8. FINANCIAL REPORTS & VALUATION:
-- Daily gross revenue, supplier costs, profit margins, and dead stock indicators.
-- Total capital tied in warehouse inventory (Stock Valuation).
-- Exportable to PDF and Excel for accountants and tax filing.
+8. FINANCIAL REPORTS & EXPORTS ("Sales & Profit Reports" tab):
+- Daily/weekly/monthly turnover, gross profit margins, stock valuation (capital tied in inventory), dead stock alerts, audit logs, and one-click PDF/Excel exports. (Buying costs and profit margins are hidden from staff without viewing permission.)
 
-9. EIGHT (8) USER ROLES & GRANULAR PERMISSIONS:
-- SuperAdmin ("Big Boss"): Platform creator with multi-tenant oversight, store activation, billing, and system health.
-- Store Manager / Owner: Complete control over store catalog, users, reports, and settings.
-- Accountant: Payment reconciliation, cashflow, gross profit analytics, and rejected order resolutions.
-- Storekeeper: Warehouse stock releases, restock receiving, physical inventory audits, and depot transfers.
-- Salesperson: Counter sales, customer orders, and catalog stock checks.
-- Cashier: Payment collection and receipt printing.
-- Platform Ops: Customer support, onboarding, and platform relations.
-- Employee: Basic order taking.
+9. USER ROLES, GRANULAR PERMISSIONS & ACCOUNT SECURITY:
+- 8 roles with customizable granular checkboxes under **Staff & Duties**: SuperAdmin, Platform Ops, Store Manager/Owner, Accountant, Storekeeper, Salesperson, Cashier, and Employee.
+- Examples of granular permissions:
+  * \`can_create_orders\`: Make sales / orders in POS.
+  * \`can_process_payments\`: Take Cash/MoMo/Bank payments.
+  * \`can_print_full_receipt\`: Print priced "Client's Order" receipts (salespeople without this permission can create orders and print Delivery Notices only).
+  * \`can_release_stock\`: Storekeeper stock release & Delivery Notice.
+  * \`can_manage_stock\` / \`can_import_export_stock\`: Add/edit products, CSV import, AI Scanner.
+  * \`can_edit_company_settings\`: Update shop name, phone, address, optional TIN, and receipt footer under **Business Info & TIN**.
+- **Changing Password**: Click the **Key icon** button in the top-right corner of the header bar anytime to change your password.
 
-10. SYSTEM LIMITATIONS & CLARIFICATIONS (WHAT VECTOS IS NOT):
-- Requires Internet: Because stock must stay synchronized in real-time across multiple counters and warehouses, an active internet connection is required (supported on 3G/4G/5G/WiFi). A progressive web app (PWA) cache allows offline viewing.
-- Not a Public B2C Marketplace: VectOS is a private B2B ERP and inventory management system for the store owner, NOT an open e-commerce platform like Amazon or Jumia where random consumers buy online.
-- Hardware Compatibility: Works in any web browser on smartphones (Android/iPhone), tablets, laptops, desktop PCs, USB/Bluetooth barcode scanners, and ESC/POS thermal receipt printers.
-- Physical Transport: Coordinates dispatch verification inside the warehouse, but does not track external delivery trucks via GPS.
-
-11. STORE REGISTRATION & ACTIVATION:
-- New tenants click "Register New Store" on the login screen.
-- After registration, the store starts in "Pending" status for security verification.
-- SuperAdmin ("Big Boss" - rwemera30@gmail.com) reviews and clicks "Accept & Activate", after which the store owner can log in immediately.`;
-function getVectOSKnowledgeResponse(question, history) {
+10. STORE REGISTRATION, APPROVALS & HARDWARE/LIMITATIONS:
+- New shops register via **"Register New Store"** on the login screen; they start as **Pending** until approved by SuperAdmin (or auto-approved if enabled).
+- **Internet & PWA**: Requires active internet (3G/4G/WiFi) for real-time multi-counter/multi-warehouse sync; installs as a PWA with offline shell fallback.
+- **Hardware**: Works on Android/iPhone phones, tablets, laptops/PCs, USB/Bluetooth barcode scanners, and 58mm/80mm thermal or A4 printers.
+- **Not a Public B2C Storefront / No GPS**: Private B2B store ERP (not a public marketplace like Jumia), and does not track external delivery trucks via GPS.`;
+function buildUserContextNote(sessionUser) {
+  if (!sessionUser) {
+    return "\n[CURRENT VISITOR CONTEXT: Not logged in (viewing the login/welcome screen). Answer questions about VectOS features, registration, onboarding, or troubleshooting login.]";
+  }
+  const roleLabel = sessionUser.job_title || sessionUser.role || "staff";
+  const shopName = sessionUser.shop_name || "Active Shop";
+  const perms = sessionUser.permissions && typeof sessionUser.permissions === "object" ? Object.entries(sessionUser.permissions).filter(([, v]) => Boolean(v)).map(([k]) => k).join(", ") : "role defaults";
+  return `
+[CURRENT LOGGED-IN USER CONTEXT: Name="${sessionUser.name || "User"}", Role="${sessionUser.role || "user"}", Title="${roleLabel}", Shop="${shopName}", EnabledPermissions="${perms}". Use this context when they ask what they can or cannot do in VectOS, without exposing raw internal field names unnecessarily.]`;
+}
+function detectLanguage(text) {
+  const q = text.toLowerCase();
+  const rwSignals = [
+    "muraho",
+    "mwaramutse",
+    "mwiriwe",
+    "bite",
+    "amakuru",
+    "ese",
+    "uko",
+    "iki",
+    "ibiki",
+    "ibicuruzwa",
+    "ububiko",
+    "amadeni",
+    "umukiriya",
+    "abakiriya",
+    "abakozi",
+    "umukozi",
+    "inshingano",
+    "uburyo",
+    "kwinjiza",
+    "gucuruza",
+    "gusohora",
+    "gutira",
+    "kuguriza",
+    "inyemezabuguzi",
+    "fagitire",
+    "amafaranga",
+    "inyungu",
+    "iduka",
+    "kuki",
+    "nshaka",
+    "mfasha",
+    "sobanura",
+    "ndabaza",
+    "cyangwa",
+    "kubera",
+    "ryari",
+    "he"
+  ];
+  const frSignals = [
+    "bonjour",
+    "salut",
+    "bonsoir",
+    "merci",
+    "comment",
+    "pourquoi",
+    "quand",
+    "est-ce",
+    "produits",
+    "stock",
+    "facture",
+    "re\xE7u",
+    "commande",
+    "dette",
+    "client",
+    "clients",
+    "employ\xE9",
+    "mot de passe",
+    "imprimer",
+    "boutique",
+    "magasin",
+    "livraison",
+    "prix"
+  ];
+  if (rwSignals.some((w) => new RegExp(`\\b${w}\\b`, "i").test(q))) return "rw";
+  if (frSignals.some((w) => new RegExp(`\\b${w}\\b`, "i").test(q))) return "fr";
+  return "en";
+}
+function getVectOSKnowledgeResponse(question, history, sessionUser) {
   const q = question.toLowerCase().trim();
-  if (/^(muraho|bite|mwaramutse|mwiriwe|hello|hi|hey|bonjour|salut)/i.test(q) && q.length < 25) {
-    return `Muraho neza! Murisanga muri serivisi y'abakiriya ya VectOS (Kigali Construction & Hardware Depot ERP).
+  const lang = detectLanguage(q);
+  const isShortFollowUp = q.length < 28 && /^(more|explain|how|why|yes|yeah|ok|okay|details|continue|and|what about|sobanura|komeza|uko bikora|comment)/i.test(q);
+  const lastTopicText = isShortFollowUp && Array.isArray(history) ? history.slice(-4).map((h) => String(h?.text || "")).join(" ").toLowerCase() : "";
+  const combined = `${q} ${lastTopicText}`.trim();
+  if (/^(muraho|bite|mwaramutse|mwiriwe|hello|hi|hey|good morning|good afternoon|good evening|bonjour|salut)\b/i.test(q) && q.length < 30) {
+    if (lang === "rw") {
+      return `Muraho neza! Murisanga muri **VectOS AI Guide**.
 
-Niteguye kubafasha gusobanukirwa ibyerekeye sisitemu yacu:
-1. Kwinjiza ibicuruzwa (Uburyo 3 burimo na AI Invoice Scanner)
-2. Gucuruza ku kounteri (POS) no kwakira MTN MoMo / Cash / Amadeni
-3. Gusohora ibicuruzwa mu bubiko nta bujura (3-Way Order Dispatch)
-4. Gucunga ububiko burenze bumwe (Multi-Warehouse & Transfers)
-5. Amadeni y'abakiriya (Customer Debt Recovery)
-6. Gutira / kuguriza ibikoresho abandi bacuruzi (Partner Borrowing)
-7. Inshingano z'abakozi 8 (User Roles & Permissions)
+Nshobora kubafasha ikintu cyose cyerekeye ikoreshwa rya VectOS:
+- Kwinjiza ibicuruzwa (Manual, Excel/CSV, cyangwa **AI Invoice Scanner**)
+- Gucuruza kuri **POS**, gucoca ibiciro ku gicuruzwa kimwe kimwe, no kwakira MoMo / Cash
+- Inyemezabuguzi za **"Client's Order"** (58mm, 80mm, A4 \u2014 nta musoro/VAT) na **Delivery Notice**
+- Amadeni y'abakiriya, gutira hagati y'amaduka, ububiko burenze bumwe, n'inshingano z'abakozi
 
-Ni iki mwifuza ko tubasobanurira birambuye uyu munsi?`;
+Mumbaze ikibazo cyose mwifuza!`;
+    }
+    if (lang === "fr") {
+      return `Bonjour ! Bienvenue sur **VectOS AI Guide**.
+
+Je peux vous aider uniquement sur tout ce qui concerne **VectOS** :
+- Ajout de stock (Manuel, CSV/Excel ou **AI Invoice Scanner**)
+- Ventes **POS**, n\xE9gociation des prix par article et paiements MoMo / Cash
+- Impression **"Client's Order"** (58mm, 80mm, A4 \u2014 sans taxes) et **Bon de Livraison**
+- Dettes clients, d\xE9p\xF4ts multiples, emprunts entre partenaires et r\xF4les du personnel
+
+Quelle est votre question ?`;
+    }
+    return `Hello${sessionUser?.name ? `, ${sessionUser.name}` : ""}! Welcome to **VectOS AI Guide**.
+
+I'm here to help with anything inside **VectOS**\u2014from counter sales and per-item price bargaining to **"Client's Order"** thermal/A4 printing, Delivery Notices, CSV or AI Invoice stock entry, customer debts, multi-warehouse transfers, and staff permissions.
+
+What would you like help with?`;
   }
-  if (q.includes("solve") || q.includes("kora iki") || q.includes("what is") || q.includes("kugirango") || q.includes("akamaro") || q.includes("why") || q.includes("solution") || q.includes("limits") || q.includes("intego") || q.includes("problem") || q.includes("ibibazo") || q.includes("pourquoi")) {
-    return `### VectOS ni iki kandi ikemura ibihe bibazo? (What VectOS Solves)
+  if (combined.includes("client's order") || combined.includes("ebm") || combined.includes("tax") || combined.includes("vat") || combined.includes("print") || combined.includes("58mm") || combined.includes("80mm") || combined.includes("thermal") || combined.includes("delivery notice") || combined.includes("bon de livraison") || combined.includes("receipt") || combined.includes("inyemezabuguzi") || combined.includes("fagitire") || combined.includes("imprimer")) {
+    if (lang === "rw") {
+      return `### Gusohora "Client's Order" na Delivery Notice muri VectOS
 
-**VectOS** ni sisitemu igezweho yo gucunga ububiko, ubucuruzi, n'amafaranga (Cloud ERP & POS) yakorewe by'umwihariko amaduka acuruza ibikoresho by'ubwubatsi (Quincaillerie / Hardware), ibikoresho by'amashanyarazi (Electronics), n'ububiko bunini (Depots) mu Rwanda.
+1. **Umutwe wa "Client's Order" & Kutagira Imisoro (Non-EBM):**
+   - Inyemezabuguzi zose muri VectOS zanditseho **"Client's Order"** mu nyuguti zikomeye kandi nta misoro (VAT/Taxes) igaragaraho, kugira ngo zititiranywa n'inyemezabuguzi zemewe za **EBM**.
+2. **Ingano 3 zo gucapa (58mm, 80mm, A4):**
+   - Fungura **Orders & Receipts**, ukande kuri komande, hanyuma uhitemo **58mm** (utugapapuro duto), **80mm**, cyangwa **A4** (cyangwa ukande **Save A4 PDF**).
+3. **Delivery Notice (Bon de Livraison):**
+   - Iyi garagaza gusa **ingano y'ibicuruzwa (Quantities)** nta biciro kugira ngo ushinzwe ububiko n'umushoferi basohore ibintu mu mutekano.
+4. **Uburenganzira (Permissions):**
+   - Niba umugurisha atemerewe gusohora inyemezabuguzi ziriho ibiciro (\`can_print_full_receipt\`), abasha gukora komande gusa no gucapa Delivery Notice.`;
+    }
+    return `### Printing **"Client's Order"** & Delivery Notices in VectOS
 
-#### 1. Ibibazo bikomeye VectOS ikemura:
-- **Guhagarika ubujura n'inyerezwa ry'ibikoresho (Zero Inventory Leakage):** Sisitemu ikoresha amategeko 3 akomeye: Umugurisha yandika komande $\\to$ Umucungamari yemeza ko wishyuwe (Cash/MoMo) $\\to$ Ushinzwe ububiko akabona gusohora ibintu mu bubiko. Nta mukozi ushobora gusohora ciment cyangwa fer \xE0 b\xE9ton atabifitiye uruhushya.
-- **Kuringaniza amafaranga ya Cash na Mobile Money (MoMo/Airtel Reconciliation):** Ongeraho kwakira MoMo, Airtel Money, Bank Transfer, cyangwa Cash buri munsi uzi neza ayinjiye kuri buri buryo.
-- **Kwirinda amadeni azimira (Customer Debt Tracking):** Amadeni yose y'abubatsi n'abakiriya yandikwa ku mazina yabo, nimero za telefoni, n'igihe bagomba kwishyurira.
-- **Guhuza ububiko burenze bumwe (Multi-Stock Depots):** Niba ufite iduka ku muhanda n'ububiko bunini ahandi (urugero: Muhima na Gikondo), uhita umenya ibiri muri buri bubiko n'ibyimurwa.
-- **Kwirinda guhomba mu gukata ibiciro (Below-cost Alert):** Iyo umugurisha agurishije ku giciro kiri munsi y'icyo mwaranguriyeho, sisitemu imuha integuza ihita imubuza guhomba.
-
-#### 2. Imbibi n'ibyo VectOS itakora (System Limits):
-- **Ikeneye murandasi (Internet Connection):** Kugira ngo ububiko buhuze neza kuri telefoni, mudasobwa, na POS zose icyarimwe, ikenera murandasi (4G/WiFi/3G).
-- **Si isoko rusange ryo kuri interineti (Not a B2C public ecommerce):** Ntabwo ari urubuga rwo kwanikaho ibicuruzwa ngo abantu bo hanze baze gutumiza nka Jumia, ahubwo ni sisitemu y'ubuyobozi bw'iduka ryawe.
-- **Ikorana n'ibikoresho byose:** Ikorana na telefone zose z'abakozi, mudasobwa, barcode scanners, na thermal printers zo gusohora inyemezabuguzi.`;
+- **Why it's titled "Client's Order" (No Taxes/VAT):** Every financial slip is prominently titled **"Client's Order"** with all tax/VAT rows removed so customers never confuse it with an official RRA **EBM** tax receipt.
+- **3 Print Sizes (58mm, 80mm, A4):** Open **Orders & Receipts** (or print right after checkout), choose **58mm**, **80mm** thermal roll, or **A4** at the top of the modal, then click **Print Receipt** (or **Save A4 PDF** / **Copy Text**).
+- **Delivery Notice (Bon de Livraison):** Switches to a quantities-only dispatch slip (hiding prices) for your Storekeeper and driver.
+- **Staff Permissions:** Staff without the *Print Official Receipts* permission can create orders or print Delivery Notices, while Cashiers/Managers handle full priced **Client's Order** prints.`;
   }
-  if (q.includes("option") || q.includes("scan") || q.includes("ai") || q.includes("invoice") || q.includes("receipt") || q.includes("injiza") || q.includes("product") || q.includes("inventory") || q.includes("excel") || q.includes("csv") || q.includes("uburyo 3") || q.includes("ajouter")) {
-    return `### Uburyo 3 bwo kwinjiza ibicuruzwa muri VectOS (3 Inventory Ingestion Options)
+  if (combined.includes("password") || combined.includes("mot de passe") || combined.includes("ijambo banga") || combined.includes("login") || combined.includes("sign in") || combined.includes("register") || combined.includes("pending") || combined.includes("approve") || combined.includes("key")) {
+    if (lang === "rw") {
+      return `### Guhindura Ijambo Banga (Password) & Kwinjira muri Konti
 
-VectOS yabashyiriyeho uburyo butatu (3) bwuzuzanya bwo kongera ibicuruzwa mu bubiko:
+- **Guhindura Password:** Kanda ku **kamenu k'urufunguzo (Key icon)** kari mu nguni yo hejuru iburyo ku mutwe wa ekran (Header) igihe cyose uri muri VectOS.
+- **Kwandikisha Iduka Rishya:** Kanda **"Register New Store"** aho binjirira (Login screen). Nyuma yo kwiyandikisha, iduka ribanza mu cyiciro cya *Pending* kugeza igihe SuperAdmin aryemeje.
+- **Niba bakubwiye ngo "Login again":** Ongera ufungure urupapuro (refresh) winjiremo bundi bushya kugira ngo konti yawe ihabwe token nshya.`;
+    }
+    return `### Passwords, Login & Store Registration
 
----
-
-#### \u{1F539} Option 1: Add New Product (Kwinjiza igicuruzwa kimwe kimwe)
-- Ukanda ahanditse **"Add New Product"**.
-- Wuzuza izina ry'igicuruzwa (urugero: *Ciment Twiga 32.5R*), ikiciro (Category), igipimo (Unit: sac, barre, t\xF4le, pcs), umubare w'ibiri mu bubiko, n'igiciro.
-- **Icyitonderwa cy'igiciro:** Igiciro cyo kugurisha (Selling Price) kigomba kungana n'icyo mwaranguriyeho (Buying Price) by'agateganyo nk'uko mwabisabye.
-
----
-
-#### \u{1F539} Option 2: Bulk Stock Import (Gukoresha Excel cyangwa CSV)
-- Ukanda ahanditse **"Bulk Stock Import (CSV/Excel)"**.
-- Ushyiramo dosiye ya Excel cyangwa CSV irimo urutonde rw'ibicuruzwa byinshi icyarimwe (urugero: ibintu 500).
-- Sisitemu ihita ibishyira mu bubiko ako kanya, ikanabitunganyiriza kode za SKU.
-
----
-
-#### \u{1F539} Option 3: AI Invoice & Receipt Scanner (Gukoresha Ifoto ya Fagitire / PDF)
-- **Uburyo butangaje ku bacuruzi badashaka kwandika:**
-  1. Kanda kuri **"AI Invoice Scanner (Option 3)"**.
-  2. Fata ifoto ya fagitire yakwandikiwe n'uruganda/ikiranguzo nka Twiga, Cimerwa, abashinwa, cyangwa ushyiremo PDF.
-  3. AI (Gemini 3.8 Flash) ihita isoma amazina y'ibicuruzwa, ingano (quantities), n'ibiciro (prices).
-  4. **Akameza ko kubanza kugenzura (Staging Review Table):** Nta kintu gihita kijya mu bubiko ako kanya! Ubanza kubona imbonerahamwe y'ibyasomwe byose ukagenzura ko umubare n'ibiciro ari ukuri, wanahinduramo icyo ushaka.
-  5. Numara kwizera ko byose ari byo, ukanda **"Confirm & Add Products"** bigahita byinjira mu bubiko bw'iduka ryawe ku buntu (zero token cost)!`;
+- **Change Password:** Click the **Key icon** in the **top-right corner** of the header bar anytime you're signed in.
+- **Register a New Store:** Click **Register New Store** on the login page. New stores start in **Pending** status until approved by the platform SuperAdmin.
+- **Staff Accounts:** Store Managers create and manage staff logins and passwords under **Staff & Duties**.`;
   }
-  if (q.includes("pos") || q.includes("curuza") || q.includes("sell") || q.includes("momo") || q.includes("cash") || q.includes("counter") || q.includes("kounteri") || q.includes("vente")) {
-    return `### Uko bacuruza ku Kounteri (POS & Counter Sales Guide)
+  if (combined.includes("bargain") || combined.includes("negotiat") || combined.includes("price") || combined.includes("edit") || combined.includes("pos") || combined.includes("curuza") || combined.includes("momo") || combined.includes("cash") || combined.includes("sell") || combined.includes("igiciro")) {
+    if (lang === "rw") {
+      return `### Gucuruza ku Kounteri (POS) & Kumvikana Ibiciro
 
-Gucururiza kuri kounteri muri VectOS byorohereza abakozi bawe gukora vuba no kwirinda amakosa:
+1. Ongera ibicuruzwa muri Cart ukoresheje izina, SKU, cyangwa **Barcode Scanner**.
+2. **Kumvikana igiciro kuri buri gicuruzwa:** Ushobora guhindura igiciro cy'igicuruzwa kimwe kimwe mbere yo kwishyura; niba giciye munsi y'igiciro cyo kurangura, sisitemu ihita igaragaza integuza y'umutuku (**Below Cost Warning**).
+3. **Kwakira Ubwishyu:** Hitamo **Cash**, **MTN MoMo**, **Airtel Money**, **Bank Transfer**, cyangwa **Customer Credit/Debt**.
+4. **Gukosora Komande:** Kanda **Edit Receipt** muri Orders & Receipts niba hari ibyo umukiriya ahinduye.`;
+    }
+    return `### POS Sales, Per-Item Bargaining & Order Editing
 
-1. **Gushakisha igicuruzwa:**
-   - Koresha akuma gasoma barcode scanner cyangwa wandike inyuguti nke z'izina ry'igicuruzwa (urugero: "ciment", "fer", "toles").
-2. **Kongera muri Cart:**
-   - Kanda ku gicuruzwa ushyiremo ingano (quantity) umukiriya yifuza.
-   - Niba ibicuruzwa bishize mu bubiko, sisitemu ihita ikubuza (Out of stock lockout).
-3. **Kuvugana igiciro (Negotiated Pricing):**
-   - Niba umukiriya aranguje ibintu byinshi, umukozi ashobora guhindura igiciro. Ariko niba akase igiciro kikagera munsi y'icyo mwakiranguyeho, sisitemu ihita imwereka **"Below Cost Warning"** y'umutuku.
-4. **Uburyo bwo kwishyura (Payment Methods):**
-   - **Cash:** Amafaranga y'inoti mu ntoki.
-   - **MTN Mobile Money (MoMo) / Airtel Money:** Kwakira amafaranga kuri telefone y'ubucuruzi.
-   - **Bank Transfer:** Kwishyurira kuri konti ya banki.
-   - **Customer Debt (Ideni):** Niba ari umwubatsi wemerewe gufata ibintu ku ideni.
-5. **Gusohora Inyemezabuguzi (Receipt Printing):**
-   - Ushobora gusohora A4 official receipt ifite TIN number n'ibirango by'iduka, cyangwa agapapuro gato ka 80mm thermal receipt.`;
+1. **Add Items Fast:** Search by product name, SKU, or scan barcodes directly into the POS cart.
+2. **Bargain / Adjust Price Per Item:** You can adjust the selling price of each individual product in the cart (or during checkout) after negotiating with the customer. VectOS flags a red **Below-Cost Warning** if a negotiated price falls below your buying cost.
+3. **Payment Options:** Accept Cash, MTN MoMo, Airtel Money, Bank Transfer, or Customer Credit/Debt (split or full).
+4. **Need to Fix an Order Later?** Authorized staff can click **Edit Receipt** inside the order modal to swap out-of-stock items or update quantities.`;
   }
-  if (q.includes("dispatch") || q.includes("sohora") || q.includes("storekeeper") || q.includes("ubujura") || q.includes("order") || q.includes("theft") || q.includes("kugenzura") || q.includes("release")) {
-    return `### Uburyo bwo Gusohora Ibintu mu Bubiko (Strict 3-Way Order Dispatch)
+  if (combined.includes("option") || combined.includes("scan") || combined.includes("invoice") || combined.includes("injiza") || combined.includes("product") || combined.includes("inventory") || combined.includes("excel") || combined.includes("csv") || combined.includes("upload") || combined.includes("import") || combined.includes("stock")) {
+    if (lang === "rw") {
+      return `### Uburyo 3 bwo Kwinjiza Ibicuruzwa muri VectOS
 
-Iri ni ryo banga rikomeye rya VectOS rihagarika ubujura n'inyerezwa ry'ibikoresho mu bubiko bw'ubwubatsi:
+Jya muri **Products & Stock**:
+1. **Add New Product:** Kwinjiza igicuruzwa kimwe kimwe (izina, SKU, ikiciro, igipimo, ingano, igiciro).
+2. **Bulk Stock Import (CSV/Excel):** Kwinjiza ibicuruzwa byinshi icyarimwe uvanye muri spreadsheet (CSV/Excel).
+3. **AI Invoice Scanner:** Fata ifoto ya fagitire y'ikiranguzo cyangwa PDF; AI isoma amazina, ingano n'ibiciro ikabishyira mu kameza ko kugenzura (**Staging Table**) mbere y'uko ukanda **Confirm & Add Products**.`;
+    }
+    return `### 3 Ways to Add & Restock Inventory in VectOS
 
-1. **Intambwe ya 1: Umugurisha (Sales Agent)**
-   - Yandika ibyo umukiriya asabye muri sisitemu, akandika n'izina rye cyangwa plaque y'imodoka itwara ibintu.
-   - Komande iba iri muri leta ya: **"Pending Payment"** (Itegereje kwishyurwa).
-2. **Intambwe ya 2: Umucungamari / Cashier (Accountant)**
-   - Areba ko amafaranga yageze kuri MoMo, Banki, cyangwa Cash mu isanduku.
-   - Yemeza ubwishyu: komande ihita igera kuri **"Pending Store Release"** (Yemejwe, itegereje gusohorwa).
-3. **Intambwe ya 3: Ushinzwe Ububiko (Storekeeper)**
-   - Areba fagitire kuri mudasobwa cyangwa telefone ye mu bubiko.
-   - Apakirira imodoka ibintu byuzuye, maze agakanda **"Confirm Release"**.
-   - Icyo gihe gusa ni bwo ibicuruzwa bigabanywa mu ibarura ry'ububiko!
-
-*Ibi bituma umugurisha adashobora kwiba umukoresha, kandi ushinzwe ububiko ntasohore ibintu bitishyuwe.*`;
+Open **Products & Stock**:
+1. **Add New Product:** Enter a single item manually (name, SKU, category, unit, quantity, low-stock threshold, buying/selling price).
+2. **Bulk Stock Import (CSV / Excel):** Upload a \`.csv\` or \`.xlsx\` file to add or restock hundreds of items at once (missing SKUs are auto-generated).
+3. **AI Invoice Scanner:** Upload a photo or PDF of a supplier invoice. VectOS AI extracts items, units, quantities, and prices into an editable **Staging Review Table** so you can double-check every row before saving.`;
   }
-  if (q.includes("deni") || q.includes("debt") || q.includes("credit") || q.includes("dette") || q.includes("wishyura") || q.includes("balance") || q.includes("amadeni")) {
-    return `### Gucunga Amadeni y'Abakiriya (Customer Debt Management)
+  if (combined.includes("dispatch") || combined.includes("sohora") || combined.includes("storekeeper") || combined.includes("ubujura") || combined.includes("theft") || combined.includes("release") || combined.includes("warehouse") || combined.includes("depot") || combined.includes("transfer")) {
+    if (lang === "rw") {
+      return `### Umutekano w'Ububiko (3-Way Dispatch) & Ububiko Burenze Bumwe
 
-Muri VectOS, guha abubatsi ibikoresho ku ideni bikorwa mu mutekano usesuye:
+- **3-Way Dispatch:** (1) Umugurisha akora komande $\\to$ (2) Cashier/Umubitsi yemeza ubwishyu $\\to$ (3) **Storekeeper** asohora ibicuruzwa akoresheje **Delivery Notice** (itagira ibiciro). Stock igabanuka ari uko Storekeeper yemeje ko bisohotse.
+- **Multi-Warehouse Transfers:** Ushobora gushyiraho ububiko bwinshi muri **Stores & Warehouses** ukimuramo ibicuruzwa hagati yabwo bifite inyandiko z'ubugenzuzi (audit logs).`;
+    }
+    return `### 3-Way Warehouse Dispatch & Multi-Depot Transfers
 
-1. **Kwandika Umukiriya w'Ideni:**
-   - Jya muri tab yitwa **"Customers & Credit"**.
-   - Shyiramo izina rye, nimero ya telefone, nimero y'indangamuntu, n'aho atuye.
-2. **Gufata Ideni ku Kounteri (POS):**
-   - Iyo mugurisha, muhitamo "Credit / Debt" nk'uburyo bwo kwishyura, mukandika izina ry'uwo mukiriya.
-   - Sisitemu ihita yandika ayo madeni kuri konti ye, ikanerekana itariki n'ibikoresho yatwaye.
-3. **Kwishyura Ideni (Debt Repayment):**
-   - Iyo umukiriya aje kwishyura (yaba yose cyangwa igice), mukanda ahanditse **"Record Payment"**.
-   - Ideni rye rihita rigabanuka mu buryo bw'ako kanya kandi mugahita muha inyemezabuguzi y'amafaranga amaze kwishyura.`;
+- **3-Way Fraud Protection:** (1) **Salesperson** creates the order $\\to$ (2) **Cashier / Accountant** verifies payment $\\to$ (3) **Storekeeper** reviews the price-free **Delivery Notice** and confirms release. Inventory is deducted only upon release.
+- **Multi-Warehouse Stock:** Under **Stores & Warehouses**, create separate shopfront/depot locations and record tracked transfers between them.`;
   }
-  if (q.includes("role") || q.includes("inshingano") || q.includes("umukozi") || q.includes("staff") || q.includes("permission") || q.includes("user") || q.includes("boss") || q.includes("ububasha")) {
-    return `### Inshingano 8 z'Abakozi muri VectOS (8 User Roles & Permissions)
+  if (combined.includes("deni") || combined.includes("debt") || combined.includes("credit") || combined.includes("amadeni")) {
+    return lang === "rw" ? `### Gucunga Amadeni y'Abakiriya (Customers & Debt)
 
-Buri mukozi w'iduka ahabwa uruhushya ruhwanye n'akazi ke kugira ngo amabanga n'amafaranga by'iduka birindwe:
+Jya muri **Customers & Debt** wandike umukiriya, nimero ye ya telefone n'indangamuntu. Iyo aguriye ku ideni muri POS, igice asigaye kwishyura kibikwa kuri konti ye, kandi ushobora kwakira ubwishyu bw'igice cyangwa bwose ukoresheje **Record Payment**.` : `### Customer Credit & Debt Tracking
 
-1. **SuperAdmin ("Big Boss" - rwemera30@gmail.com):**
-   - Umuyobozi w'ikirenga wemeza amaduka mashya (Store approvals), agenzura seriveri, akanafatira imyanzuro sisitemu yose.
-2. **Platform Operations (platform_ops):**
-   - Abakozi bashinzwe gufasha abakiriya (customer support), kubafasha kumenyera sisitemu, no kubakemurira ibibazo bya tekiniki.
-3. **Store Manager / Nyiriduka (manager):**
-   - Afite ububasha bwose mu iduka rye: kureba ibiciro by'ibiranguzo, inyungu y'iduka, kongeramo abakozi, no guhindura amakuru y'ubucuruzi.
-4. **Accountant / Umubitsi (accountant):**
-   - Ashinzwe kureba raporo z'amafaranga, kwemeza ubwishyu bwa MoMo na Banki, no gukemura ibibazo by'amafaranga.
-5. **Storekeeper / Ushinzwe Ububiko (storekeeper):**
-   - Asinya ko yakiriye ibiranguzo bishya, asohora ibicuruzwa byishyuwe, akanafatanya n'abandi mu kubarura ibiri mu bubiko.
-6. **Salesperson / Umugurisha (salesperson):**
-   - Aciririkanya n'abakiriya ku kounteri, akora komande, akareba ibihari mu bubiko (ariko ntabona ibiciro by'ikiranguzo).
-7. **Cashier / Umucungamari (cashier):**
-   - Yakira amafaranga kuri kounteri agasohora inyemezabuguzi (thermal receipt).
-8. **Employee / Umukozi usanzwe (employee):**
-   - Afata komande z'ibanze atabanje guhindura ibiciro.`;
+Under **Customers & Debt**, register credit clients with phone/ID details. When selling on partial or full credit in POS, VectOS tracks the balance automatically and lets you record partial or full **Record Payment** installments anytime.`;
   }
-  if (q.includes("tira") || q.includes("borrow") || q.includes("partner") || q.includes("muguriza") || q.includes("iduka rindi") || q.includes("pr\xEAter")) {
-    return `### Gutira no Kuguriza hagati y'Abacuruzi (Partner Borrowing)
+  if (combined.includes("tira") || combined.includes("borrow") || combined.includes("partner") || combined.includes("muguriza")) {
+    return lang === "rw" ? `### Gutira no Kuguriza Hagati y'Amaduka (Partner Shops)
 
-Ibi bikunze kubaho mu masoko y'ubwubatsi mu Rwanda (urugero: mu Mujyi rwagati, Muhima, Kimironko, Nyabugogo): iyo umukiriya asabye ibintu utagifite mu bubiko, utira mu iduka rya mugenzi wawe.
+Muri tab ya **Partner Shops**, wandikamo iduka ry'umufatanyabikorwa, ibyo mwatiranyije (urugero: imifuka ya ciment cyangwa fer \xE0 b\xE9ton), hanyuma mwabishyura ukakanda **Settle Balance**.` : `### Partner Shop Borrowing
 
-1. **Kwandika iduka ry'umufatanyabikorwa:**
-   - Jya muri tab yitwa **"Partners"**.
-   - Shyiramo izina ry'iduka mutirana n'aho rikorera.
-2. **Kwandika ibyo mutiye:**
-   - Iyo utiye ibikoresho (urugero: imifuka 20 ya ciment), ubyandika muri sisitemu.
-3. **Gusubiza ibyo mwatiye (Settlement):**
-   - Iyo wamaze kubona ibiranguzo bishya ukamusubiza ibye, ukanda **"Settle Balance"** muri sisitemu, bikabarurwa neza nta mwiryane.`;
+In **Partner Shops**, register neighboring partner depots, log items borrowed or lent when out of stock, and settle balances once returned or restocked.`;
   }
-  if (q.includes("raporo") || q.includes("report") || q.includes("profit") || q.includes("nyungu") || q.includes("amafaranga") || q.includes("valuation") || q.includes("chiffre")) {
-    return `### Raporo z'Ubukungu n'Inyungu (Financial Reports & Analytics)
+  if (combined.includes("role") || combined.includes("inshingano") || combined.includes("umukozi") || combined.includes("staff") || combined.includes("permission")) {
+    return lang === "rw" ? `### Inshingano 8 z'Abakozi (Staff & Duties)
 
-VectOS iguha ishusho nyakuri y'uburyo ubucuruzi bwawe buhagaze buri segonda:
+VectOS ifite inshingano 8 (**SuperAdmin, Platform Ops, Manager, Accountant, Storekeeper, Salesperson, Cashier, Employee**) kandi Manager ashobora gukanda checkbox ku burenganzira bwihariye bwa buri mukozi (urugero: gukora komande, kwakira amafaranga, gusohora Receipt, cyangwa guhindura stock).` : `### 8 Staff Roles & Granular Permissions
 
-- **Today's Gross Sales:** Amafaranga yose yinjiye uyu munsi muri rusange.
-- **Gross Profit Margin:** Inyungu nyakuri ubonye uyu munsi ugereranyije n'ibiciro waranguriyeho.
-- **Tied Stock Valuation:** Agaciro k'amafaranga yose afunze mu bubiko bwawe (ibicuruzwa byose bihari x ibiciro waguzeho).
-- **Dead Stock Alert:** Ibikoresho bimaze igihe mu bubiko bitagurishwa ngo ubimenye ubihindurire uburyo bwo kubigurisha.
-- **Export to PDF & Excel:** Ushobora gukuramo raporo z'ukwezi cyangwa z'umwaka ukaziha abacungamari bawe cyangwa ubuyobozi bw'imisoro.`;
+Under **Staff & Duties**, Managers assign one of 8 roles (**SuperAdmin, Platform Ops, Manager, Accountant, Storekeeper, Salesperson, Cashier, Employee**) and customize checkboxes per staff member\u2014such as creating orders, taking payments, printing priced **Client's Order** receipts, releasing warehouse stock, or managing inventory.`;
   }
-  return `### Muraho neza! Murisanga muri serivisi y'abakiriya ya VectOS ERP
+  if (combined.includes("raporo") || combined.includes("report") || combined.includes("profit") || combined.includes("nyungu") || combined.includes("valuation")) {
+    return lang === "rw" ? `### Raporo z'Inyungu n'Ububiko (Sales & Profit Reports)
 
-Niteguye kubaha ibisobanuro birambuye ku buryo VectOS ikora n'uko yafasha iduka ryanyu:
+Muri **Sales & Profit Reports**, ubona amafaranga yinjiye, inyungu nyakuri (Gross Profit), agaciro k'ibiri mu bubiko (Stock Valuation), ibicuruzwa bitinda kugurwa, hamwe na PDF/Excel exports.` : `### Sales, Profit & Valuation Reports
 
-1. **Kwinjiza ibicuruzwa mu bubiko (Uburyo 3):**
-   - *Option 1:* Add New Product (Kwandika kimwe kimwe n'amaboko).
-   - *Option 2:* Bulk Stock Import (Kwinjiza byinshi icyarimwe ukoresheje Excel/CSV).
-   - *Option 3:* AI Invoice Scanner (Gufata ifoto ya fagitire/PDF, AI ikabisoma, ukabanza kubigenzura ku kameza mbere yo kubyemeza).
-2. **Gucururiza ku Kounteri (POS):**
-   - Shakisha mu buryo bwihuse, koresha barcode scanner, akira MTN MoMo / Airtel Money / Cash / Amadeni.
-3. **Umutekano w'Ububiko (3-Way Dispatch):**
-   - Umugurisha arandika $\\to$ Umucungamari aremeza ko wishyuwe $\\to$ Ushinzwe ububiko akabona gusohora ibintu.
-4. **Gucunga Amadeni (Customer Debt Ledger):**
-   - Kwandika abakiriya bafashe ibikoresho ku ideni no kwakira ubwishyu bwabo igice ku kindi.
-5. **Gucunga ububiko burenze bumwe (Multi-Warehouse Transfers).**
+Under **Sales & Profit Reports**, track daily/weekly/monthly turnover, gross profit margins, stock valuation, dead-stock indicators, audit logs, and download PDF or Excel reports.`;
+  }
+  if (combined.includes("solve") || combined.includes("kora iki") || combined.includes("what is") || combined.includes("about vectos") || combined.includes("limit") || combined.includes("offline") || combined.includes("internet") || combined.includes("ecommerce")) {
+    return lang === "rw" ? `### VectOS ni iki kandi ikemura iki?
 
-Mubajije ikibazo cyihariye ku kintu mushaka gusobanukirwa, mbafasha by'umwihariko mu Kinyarwanda cyangwa mu Cyongereza!`;
+**VectOS** ni sisitemu yo gucunga iduka ry'ubwubatsi cyangwa electronics mu Rwanda (POS, ububiko bwinshi, 3-way dispatch ihagarika ubujura, amadeni, AI Invoice Scanner, na raporo).
+
+**Imbibi:** Ikeneye murandasi kugira ngo ububiko buhuze ako kanya, ntabwo ari isoko rusange nka Jumia, kandi ntikurikirana imodoka kuri GPS.` : `### What VectOS Does & System Scope
+
+**VectOS** is a Cloud ERP & POS built for Rwandan hardware/construction depots and tech shops\u2014preventing stock theft via 3-way dispatch, tracking MoMo/Cash/Debts, syncing multi-warehouse stock, scanning supplier invoices with AI, and printing 58mm/80mm/A4 **"Client's Order"** slips.
+
+**Boundaries:** Requires internet for live multi-user sync, is a private B2B store system (not a public marketplace like Jumia), and does not include GPS truck tracking.`;
+  }
+  if (lang === "rw") {
+    return `Muraho! Ndi umufasha wa AI wihariye kuri **VectOS ERP** gusa.
+
+Niba ikibazo cyawe cyerekeye VectOS, nshobora kugufasha kuri:
+- **POS & Ibiciro:** Kugurisha, gucoca ibiciro ku gicuruzwa, no kwakira MoMo / Cash / Ideni
+- **Inyemezabuguzi:** Gucapa **"Client's Order"** (58mm / 80mm / A4) cyangwa **Delivery Notice**
+- **Ububiko:** Kwinjiza ibicuruzwa (Manual, CSV/Excel, **AI Invoice Scanner**), cyangwa kwimura stock
+- **Abakozi & Konti:** Inshingano z'abakozi, uburenganzira, cyangwa guhindura password
+
+Mumbwire neza icyo mushaka gusobanukirwa muri VectOS mbafashe ako kanya!`;
+  }
+  if (lang === "fr") {
+    return `Bonjour ! Je suis l'assistant IA d\xE9di\xE9 exclusivement \xE0 **VectOS ERP**.
+
+Je peux r\xE9pondre \xE0 toutes vos questions concernant **VectOS** : ventes POS et n\xE9gociation des prix, impression **"Client's Order"** (58mm/80mm/A4 sans taxes) et **Bon de Livraison**, ajout de stock (Manuel, CSV/Excel, Scanner IA), dettes clients, multi-d\xE9p\xF4ts et permissions du personnel.
+
+Comment puis-je vous aider dans VectOS ?`;
+  }
+  return `I'm the **VectOS AI Assistant**, and my expertise is focused strictly on helping you use **VectOS** for your store and depot operations.
+
+I couldn't connect to the live conversational engine just now or your question fell outside the quick offline topics\u2014try asking specifically about:
+- **POS & Bargaining:** Adjusting per-item prices, MoMo/Cash payments, or editing orders
+- **Receipts & Dispatch:** Printing **"Client's Order"** (58mm, 80mm, A4 \u2014 no taxes) or **Delivery Notices**
+- **Inventory:** Single entry, CSV/Excel import, **AI Invoice Scanner**, or warehouse transfers
+- **Accounts & Security:** Staff roles/permissions, changing your password (top-right Key icon), or customer debts
+
+What part of **VectOS** can I walk you through?`;
 }
 
 // server/routes/apiRoutes.ts
@@ -2327,7 +2429,7 @@ router.post("/auth/change-password", requireAuth, async (req, res) => {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: "Current password and new password are required." });
   }
-  if (newPassword.trim().length < 6) {
+  if (String(newPassword).trim().length < 6) {
     return res.status(400).json({ error: "New password must be at least 6 characters long." });
   }
   try {
@@ -2335,17 +2437,22 @@ router.post("/auth/change-password", requireAuth, async (req, res) => {
     if (!dbUser) {
       return res.status(404).json({ error: "User account not found." });
     }
-    const match = await bcrypt2.compare(currentPassword, dbUser.password);
+    if (!dbUser.password) {
+      return res.status(400).json({ error: "Password sign-in is not configured for this account." });
+    }
+    const match = await bcrypt2.compare(String(currentPassword), dbUser.password);
     if (!match) {
       return res.status(400).json({ error: "Current password is incorrect." });
     }
-    const hashed = await bcrypt2.hash(newPassword.trim(), 10);
+    const hashed = await bcrypt2.hash(String(newPassword).trim(), 10);
     await execute("UPDATE users SET password = ?, force_password_change = 0 WHERE id = ?", [hashed, user.id]);
     await logApiAudit(req, "PASSWORD_CHANGED", `User ${user.name} (${user.email}) successfully changed their account password.`, user.shop_id || 1);
     if (req.session.user) {
       req.session.user.force_password_change = 0;
     }
-    res.json({ success: true, message: "Password updated successfully." });
+    await saveSession(req);
+    const token = createAuthToken(req.session.user);
+    res.json({ success: true, message: "Password updated successfully.", token });
   } catch (err) {
     console.error("Change password error:", err);
     res.status(500).json({ error: "Failed to update password." });
@@ -2797,7 +2904,7 @@ CRITICAL EXTRACTION RULES:
 ${rawText ? `Additional pasted invoice text/context: ${rawText}` : ""}`;
     parts.push({ text: promptText });
     const response = await ai.models.generateContent({
-      model: "gemini-3.8-flash",
+      model: "gemini-4-hydrogen",
       contents: parts,
       config: {
         responseMimeType: "application/json",
@@ -3430,6 +3537,8 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
     items,
     payment_method,
     paid_amount,
+    use_store_credit,
+    store_credit_amount,
     notes,
     payment_reference,
     release_immediately
@@ -3505,18 +3614,53 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
           fulfillment_source: item.fulfillment_source || "Store"
         });
       }
-      let paid = 0;
-      let debt = totalAmount;
-      let paymentStatus = "pending";
+      let storeCreditApplied = 0;
+      let cashPaid = 0;
       if (canProcessPayments) {
-        paid = paid_amount !== void 0 ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) : totalAmount;
-        debt = Math.max(0, totalAmount - paid);
-        paymentStatus = debt === 0 ? "paid" : paid > 0 ? "partial" : "debt";
-      } else {
-        paid = 0;
-        debt = totalAmount;
-        paymentStatus = payment_method === "debt_credit" ? "debt" : "pending";
+        const wantsStoreCredit = Boolean(use_store_credit) || store_credit_amount !== void 0 && Number(store_credit_amount) > 0;
+        if (wantsStoreCredit && finalCustomerId) {
+          const custCreditRow = await queryOne(
+            "SELECT COALESCE(store_credit, 0) as store_credit FROM customers WHERE id = ? AND shop_id = ?",
+            [finalCustomerId, shopId]
+          );
+          const availableCredit = Math.max(0, Number(custCreditRow?.store_credit || 0));
+          let requestedCredit = availableCredit;
+          if (store_credit_amount !== void 0 && store_credit_amount !== null) {
+            requestedCredit = Number(store_credit_amount);
+            if (isNaN(requestedCredit) || requestedCredit < 0) {
+              const err = new Error("Invalid store credit amount.");
+              err.statusCode = 400;
+              throw err;
+            }
+            if (requestedCredit > availableCredit) {
+              const err = new Error(`Insufficient store credit balance. Available: RWF ${availableCredit.toLocaleString()}.`);
+              err.statusCode = 400;
+              throw err;
+            }
+          }
+          storeCreditApplied = Math.min(totalAmount, requestedCredit);
+          if (storeCreditApplied > 0) {
+            const creditUpdate = await execute(
+              `UPDATE customers SET store_credit = COALESCE(store_credit, 0) - ? WHERE id = ? AND shop_id = ? AND COALESCE(store_credit, 0) >= ?`,
+              [storeCreditApplied, finalCustomerId, shopId, storeCreditApplied]
+            );
+            if (creditUpdate.changes === 0) {
+              const err = new Error("Insufficient customer store credit balance.");
+              err.statusCode = 400;
+              throw err;
+            }
+          }
+        }
+        const remainingAfterCredit = Math.max(0, totalAmount - storeCreditApplied);
+        if (payment_method === "debt_credit") {
+          cashPaid = 0;
+        } else {
+          cashPaid = paid_amount !== void 0 ? Math.min(remainingAfterCredit, Math.max(0, Number(paid_amount))) : remainingAfterCredit;
+        }
       }
+      const paid = storeCreditApplied + cashPaid;
+      const debt = Math.max(0, totalAmount - paid);
+      const paymentStatus = canProcessPayments ? debt === 0 ? "paid" : paid > 0 ? "partial" : "debt" : payment_method === "debt_credit" ? "debt" : "pending";
       const releaseNow = Boolean(release_immediately) && canReleaseStock;
       const fulfillmentStatus = releaseNow ? "approved" : "pending_store";
       const itemStatus = releaseNow ? "approved" : "pending_store";
@@ -3569,16 +3713,42 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
           [shopId, pi.product_id, -pi.quantity, `Sale for Order ${orderNumber}`, currentUserId]
         );
       }
-      if (paid > 0) {
+      if (cashPaid > 0) {
         await execute(
           `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
            VALUES (?, ?, ?, ?, ?, ?)`,
           [
             shopId,
             orderId,
-            paid,
+            cashPaid,
             payment_method || "cash",
             payment_reference || null,
+            currentUserId
+          ]
+        );
+      }
+      if (storeCreditApplied > 0 && finalCustomerId) {
+        await execute(
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
+           VALUES (?, ?, ?, 'debt_credit', ?, ?)`,
+          [
+            shopId,
+            orderId,
+            storeCreditApplied,
+            "Store Credit Offset",
+            currentUserId
+          ]
+        );
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, order_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, ?, 'credit_used', 'debt_credit', ?, ?, ?)`,
+          [
+            shopId,
+            finalCustomerId,
+            orderId,
+            storeCreditApplied,
+            orderNumber,
+            `Deducted RWF ${storeCreditApplied.toLocaleString()} store credit on Order #${orderNumber}`,
             currentUserId
           ]
         );
@@ -3589,12 +3759,12 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
           [debt, finalCustomerId, shopId]
         );
       }
-      return { orderId, orderNumber, totalAmount, paid, debt, releaseNow };
+      return { orderId, orderNumber, totalAmount, paid, cashPaid, storeCreditApplied, debt, releaseNow };
     });
     await logApiAudit(
       req,
       "ORDER_CREATED",
-      `Staff ${currentUser?.name || "Staff"} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? "RWF " + result.paid.toLocaleString() + " paid" : "Awaiting Payment"}${result.releaseNow ? ", Stock released immediately" : ""})`
+      `Staff ${currentUser?.name || "Staff"} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? "RWF " + result.paid.toLocaleString() + " paid" : "Awaiting Payment"}${result.storeCreditApplied > 0 ? `, includes RWF ${result.storeCreditApplied.toLocaleString()} store credit offset` : ""}${result.releaseNow ? ", Stock released immediately" : ""})`
     );
     const createdOrder = await queryOne(`
       SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
@@ -3621,7 +3791,7 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
         (it) => canViewBuying ? it : { ...it, buying_price: null, profit: null }
       );
     }
-    res.json({ success: true, order: createdOrder });
+    res.json({ success: true, order: createdOrder, store_credit_applied: result.storeCreditApplied });
   } catch (err) {
     console.error("Order creation error:", err);
     res.status(err.statusCode || 400).json({ error: err.message || "Failed to place order" });
@@ -3981,25 +4151,458 @@ router.post("/orders/:id/void", requireAuth, requireTenant, requirePermission("c
 router.get("/customers", requireAuth, requireTenant, async (req, res) => {
   const shopId = res.locals.shopId;
   const search = (req.query.q || "").trim().toLowerCase();
+  const sort = (req.query.sort || "debt").trim().toLowerCase();
   try {
     let sql = `
-      SELECT c.*, 
-        (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id) as order_count,
-        (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id) as total_spent
+      SELECT c.*,
+        COALESCE(c.store_credit, 0) as store_credit,
+        (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as order_count,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_spent,
+        (SELECT COALESCE(SUM(paid_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_paid,
+        (SELECT MAX(created_at) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as last_order_at
       FROM customers c
       WHERE c.shop_id = ?
     `;
     const params = [shopId];
     if (search) {
-      sql += ` AND (LOWER(c.name) LIKE ? OR LOWER(c.phone) LIKE ? OR LOWER(c.email) LIKE ?)`;
+      sql += ` AND (LOWER(c.name) LIKE ? OR LOWER(c.phone) LIKE ? OR LOWER(COALESCE(c.email, '')) LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
-    sql += ` ORDER BY c.credit_balance DESC, c.name ASC`;
+    if (sort === "top_spent") {
+      sql += ` ORDER BY total_spent DESC, order_count DESC, c.name ASC`;
+    } else if (sort === "most_orders") {
+      sql += ` ORDER BY order_count DESC, total_spent DESC, c.name ASC`;
+    } else if (sort === "store_credit") {
+      sql += ` ORDER BY store_credit DESC, total_spent DESC, c.name ASC`;
+    } else if (sort === "name") {
+      sql += ` ORDER BY c.name ASC`;
+    } else {
+      sql += ` ORDER BY c.credit_balance DESC, total_spent DESC, c.name ASC`;
+    }
     const customers = await queryAll(sql, params);
     res.json({ customers });
   } catch (err) {
     console.error("Customers API error:", err);
     res.status(500).json({ error: "Failed to fetch customers" });
+  }
+});
+router.get("/customers/:id/statement", requireAuth, requireTenant, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const customerId = Number(req.params.id);
+  const period = (req.query.period || "all").toLowerCase();
+  const startDateParam = (req.query.startDate || "").trim();
+  const endDateParam = (req.query.endDate || "").trim();
+  if (!customerId || isNaN(customerId)) {
+    return res.status(400).json({ error: "Valid customer ID is required." });
+  }
+  try {
+    const customer = await queryOne(
+      `SELECT c.*, COALESCE(c.store_credit, 0) as store_credit FROM customers c WHERE c.id = ? AND c.shop_id = ?`,
+      [customerId, shopId]
+    );
+    if (!customer) {
+      return res.status(404).json({ error: "Customer not found in this store." });
+    }
+    const shop = await queryOne(
+      `SELECT id, name, owner_name, phone, email, location, tin_number, receipt_footer_text FROM shops WHERE id = ?`,
+      [shopId]
+    );
+    const formatBoundary = (d) => isPostgres() ? d.toISOString() : d.toISOString().slice(0, 19).replace("T", " ");
+    const now = /* @__PURE__ */ new Date();
+    let startIso = null;
+    let endIso = null;
+    let periodLabel = "All Time";
+    if (period === "day" || period === "today" || period === "daily") {
+      const d = new Date(now);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = formatBoundary(d);
+      periodLabel = "Today";
+    } else if (period === "week" || period === "weekly") {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - 7);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = formatBoundary(d);
+      periodLabel = "Last 7 Days";
+    } else if (period === "month" || period === "monthly") {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - 30);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = formatBoundary(d);
+      periodLabel = "Last 30 Days";
+    } else if (startDateParam || endDateParam) {
+      if (startDateParam) {
+        const s = new Date(startDateParam);
+        if (!isNaN(s.getTime())) startIso = formatBoundary(s);
+      }
+      if (endDateParam) {
+        const e = endDateParam.includes("T") ? new Date(endDateParam) : /* @__PURE__ */ new Date(`${endDateParam}T23:59:59.999Z`);
+        if (!isNaN(e.getTime())) endIso = formatBoundary(e);
+      }
+      periodLabel = `${startDateParam || "Start"} to ${endDateParam || "Today"}`;
+    }
+    let ordersSql = `
+      SELECT o.*, u.name as salesperson_name,
+             p_user.name as payment_approved_by_name,
+             s_user.name as stock_released_by_name
+      FROM orders o
+      LEFT JOIN users u ON o.salesperson_id = u.id
+      LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+      LEFT JOIN users s_user ON o.stock_released_by = s_user.id
+      WHERE o.customer_id = ? AND o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+    `;
+    const orderParams = [customerId, shopId];
+    if (startIso) {
+      ordersSql += ` AND o.created_at >= ?`;
+      orderParams.push(startIso);
+    }
+    if (endIso) {
+      ordersSql += ` AND o.created_at <= ?`;
+      orderParams.push(endIso);
+    }
+    ordersSql += ` ORDER BY o.created_at DESC, o.id DESC`;
+    const orders = await queryAll(ordersSql, orderParams);
+    if (orders.length > 0) {
+      const orderIds = orders.map((o) => Number(o.id));
+      const placeholders = orderIds.map(() => "?").join(", ");
+      const items = await queryAll(
+        `SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.selling_price, oi.subtotal,
+                p.name as product_name, p.unit as product_unit
+         FROM order_items oi
+         LEFT JOIN products p ON oi.product_id = p.id
+         WHERE oi.order_id IN (${placeholders})
+         ORDER BY oi.id ASC`,
+        orderIds
+      );
+      const itemsByOrder = /* @__PURE__ */ new Map();
+      for (const it of items) {
+        const oid = Number(it.order_id);
+        if (!itemsByOrder.has(oid)) itemsByOrder.set(oid, []);
+        itemsByOrder.get(oid).push(it);
+      }
+      for (const o of orders) {
+        o.statement_items = itemsByOrder.get(Number(o.id)) || [];
+      }
+    }
+    let paymentsSql = `
+      SELECT p.*, o.order_number, u.name as recorded_by_name
+      FROM payments p
+      INNER JOIN orders o ON p.order_id = o.id
+      LEFT JOIN users u ON p.recorded_by = u.id
+      WHERE o.customer_id = ? AND o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+    `;
+    const payParams = [customerId, shopId];
+    if (startIso) {
+      paymentsSql += ` AND p.created_at >= ?`;
+      payParams.push(startIso);
+    }
+    if (endIso) {
+      paymentsSql += ` AND p.created_at <= ?`;
+      payParams.push(endIso);
+    }
+    paymentsSql += ` ORDER BY p.created_at DESC, p.id DESC`;
+    const payments = await queryAll(paymentsSql, payParams);
+    let ledgerSql = `
+      SELECT l.*, o.order_number, u.name as recorded_by_name
+      FROM customer_credit_ledger l
+      LEFT JOIN orders o ON l.order_id = o.id
+      LEFT JOIN users u ON l.recorded_by = u.id
+      WHERE l.customer_id = ? AND l.shop_id = ?
+    `;
+    const ledgerParams = [customerId, shopId];
+    if (startIso) {
+      ledgerSql += ` AND l.created_at >= ?`;
+      ledgerParams.push(startIso);
+    }
+    if (endIso) {
+      ledgerSql += ` AND l.created_at <= ?`;
+      ledgerParams.push(endIso);
+    }
+    ledgerSql += ` ORDER BY l.created_at DESC, l.id DESC`;
+    const creditLedger = await queryAll(ledgerSql, ledgerParams);
+    const lifetimeStats = await queryOne(
+      `SELECT COUNT(*) as lifetime_orders,
+              COALESCE(SUM(total_amount), 0) as lifetime_spent,
+              COALESCE(SUM(paid_amount), 0) as lifetime_paid,
+              COALESCE(SUM(debt_amount), 0) as lifetime_debt
+       FROM orders
+       WHERE customer_id = ? AND shop_id = ? AND fulfillment_status != 'cancelled'`,
+      [customerId, shopId]
+    );
+    const totalOrdered = orders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+    const totalPaidOnOrders = orders.reduce((s, o) => s + Number(o.paid_amount || 0), 0);
+    const periodDebt = orders.reduce((s, o) => s + Number(o.debt_amount || 0), 0);
+    const paymentsReceivedInPeriod = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const creditAddedInPeriod = creditLedger.filter((e) => e.entry_type === "credit_added").reduce((s, e) => s + Number(e.amount || 0), 0);
+    const creditUsedInPeriod = creditLedger.filter((e) => e.entry_type === "credit_used" || e.entry_type === "credit_payout").reduce((s, e) => s + Number(e.amount || 0), 0);
+    res.json({
+      customer,
+      shop: shop || {},
+      period,
+      periodLabel,
+      startDate: startIso,
+      endDate: endIso,
+      summary: {
+        ordersCount: orders.length,
+        totalOrdered,
+        totalPaidOnOrders,
+        periodDebt,
+        paymentsReceivedInPeriod,
+        creditAddedInPeriod,
+        creditUsedInPeriod,
+        currentDebtBalance: Number(customer.credit_balance || 0),
+        currentStoreCredit: Number(customer.store_credit || 0),
+        lifetimeOrders: Number(lifetimeStats?.lifetime_orders || 0),
+        lifetimeSpent: Number(lifetimeStats?.lifetime_spent || 0),
+        lifetimePaid: Number(lifetimeStats?.lifetime_paid || 0)
+      },
+      orders,
+      payments,
+      creditLedger
+    });
+  } catch (err) {
+    console.error("Customer statement error:", err);
+    res.status(500).json({ error: "Failed to generate customer statement." });
+  }
+});
+router.post("/customers/:id/settle-debt", requireAuth, requireTenant, requirePermission("can_process_payments"), async (req, res) => {
+  const shopId = res.locals.shopId;
+  const customerId = Number(req.params.id);
+  const { amount, payment_method, reference_no, notes, excess_to_store_credit } = req.body || {};
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || "Cashier";
+  const payTotal = Number(amount);
+  if (!customerId || isNaN(customerId)) {
+    return res.status(400).json({ error: "Valid customer ID is required." });
+  }
+  if (isNaN(payTotal) || payTotal <= 0) {
+    return res.status(400).json({ error: "Valid payment amount greater than 0 is required." });
+  }
+  const allowedMethods = /* @__PURE__ */ new Set(["cash", "momo", "bank_transfer"]);
+  const safeMethod = allowedMethods.has(String(payment_method || "").toLowerCase()) ? String(payment_method).toLowerCase() : "cash";
+  try {
+    const result = await withTransaction(async () => {
+      const customer = await queryOne(
+        "SELECT * FROM customers WHERE id = ? AND shop_id = ?",
+        [customerId, shopId]
+      );
+      if (!customer) {
+        const err = new Error("Customer not found in this store.");
+        err.statusCode = 404;
+        throw err;
+      }
+      const unpaidOrders = await queryAll(
+        `SELECT * FROM orders
+         WHERE customer_id = ? AND shop_id = ? AND debt_amount > 0 AND fulfillment_status != 'cancelled'
+         ORDER BY created_at ASC, id ASC`,
+        [customerId, shopId]
+      );
+      if (unpaidOrders.length === 0 && excess_to_store_credit === false) {
+        const err = new Error("This customer has no unpaid debt receipts to settle.");
+        err.statusCode = 400;
+        throw err;
+      }
+      let remaining = payTotal;
+      let appliedToDebt = 0;
+      const settledOrders = [];
+      const refText = reference_no ? `${String(reference_no).trim()} (Bulk)` : "Bulk Debt Settlement";
+      for (const order of unpaidOrders) {
+        if (remaining <= 0) break;
+        const orderDebt = Number(order.debt_amount || 0);
+        if (orderDebt <= 0) continue;
+        const payForOrder = Math.min(remaining, orderDebt);
+        const newPaid = Number(order.paid_amount || 0) + payForOrder;
+        const newDebt = Math.max(0, Number(order.total_amount || 0) - newPaid);
+        const newPaymentStatus = newDebt === 0 ? "paid" : "partial";
+        await execute(
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [shopId, order.id, payForOrder, safeMethod, refText, currentUserId]
+        );
+        await execute(
+          `UPDATE orders
+           SET paid_amount = ?, debt_amount = ?, payment_status = ?, payment_approved_by = ?, payment_approved_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND shop_id = ?`,
+          [newPaid, newDebt, newPaymentStatus, currentUserId, order.id, shopId]
+        );
+        remaining -= payForOrder;
+        appliedToDebt += payForOrder;
+        settledOrders.push({
+          order_id: order.id,
+          order_number: order.order_number,
+          applied_amount: payForOrder,
+          previous_debt: orderDebt,
+          remaining_debt: newDebt,
+          new_payment_status: newPaymentStatus
+        });
+      }
+      const actualDebtRow = await queryOne(
+        `SELECT COALESCE(SUM(debt_amount), 0) as total_debt
+         FROM orders
+         WHERE customer_id = ? AND shop_id = ? AND fulfillment_status != 'cancelled' AND debt_amount > 0`,
+        [customerId, shopId]
+      );
+      const remainingDebt = Math.max(0, Number(actualDebtRow?.total_debt || 0));
+      await execute(
+        `UPDATE customers SET credit_balance = ? WHERE id = ? AND shop_id = ?`,
+        [remainingDebt, customerId, shopId]
+      );
+      let addedToStoreCredit = 0;
+      if (remaining > 0 && excess_to_store_credit !== false) {
+        addedToStoreCredit = remaining;
+        await execute(
+          `UPDATE customers SET store_credit = COALESCE(store_credit, 0) + ? WHERE id = ? AND shop_id = ?`,
+          [addedToStoreCredit, customerId, shopId]
+        );
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            addedToStoreCredit,
+            safeMethod,
+            reference_no || null,
+            notes ? `${String(notes).trim()} (Excess payment moved to store credit)` : "Excess from bulk debt settlement added as store credit owed to client",
+            currentUserId
+          ]
+        );
+      }
+      if (appliedToDebt > 0) {
+        const orderRefs = settledOrders.map((s) => s.order_number).join(", ");
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'bulk_payment', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            appliedToDebt,
+            safeMethod,
+            reference_no || null,
+            notes ? `${String(notes).trim()} | Settled across: ${orderRefs}` : `Bulk payment applied across ${settledOrders.length} receipt(s): ${orderRefs}`,
+            currentUserId
+          ]
+        );
+      }
+      const updatedCustomer = await queryOne(
+        `SELECT c.*, COALESCE(c.store_credit, 0) as store_credit,
+          (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as order_count,
+          (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_spent
+         FROM customers c WHERE c.id = ? AND c.shop_id = ?`,
+        [customerId, shopId]
+      );
+      return {
+        customer: updatedCustomer,
+        appliedToDebt,
+        addedToStoreCredit,
+        remainingDebt,
+        settledOrders
+      };
+    });
+    await logApiAudit(
+      req,
+      "BULK_DEBT_SETTLED",
+      `Staff ${currentUserName} settled RWF ${result.appliedToDebt.toLocaleString()} across ${result.settledOrders.length} receipt(s) for ${result.customer?.name || "Customer #" + customerId}. Remaining debt: RWF ${result.remainingDebt.toLocaleString()}${result.addedToStoreCredit > 0 ? `. Excess RWF ${result.addedToStoreCredit.toLocaleString()} added to store credit.` : ""}`
+    );
+    res.json({
+      success: true,
+      message: `Settled RWF ${result.appliedToDebt.toLocaleString()} across ${result.settledOrders.length} receipt(s). Remaining debt: RWF ${result.remainingDebt.toLocaleString()}.`,
+      ...result
+    });
+  } catch (err) {
+    console.error("Bulk debt settlement error:", err);
+    res.status(err.statusCode || 500).json({ error: err.message || "Failed to settle customer debt." });
+  }
+});
+router.post("/customers/:id/store-credit", requireAuth, requireTenant, requirePermission("can_process_payments"), async (req, res) => {
+  const shopId = res.locals.shopId;
+  const customerId = Number(req.params.id);
+  const { action, amount, payment_method, reference_no, notes } = req.body || {};
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || "Cashier";
+  const amt = Number(amount);
+  if (!customerId || isNaN(customerId)) {
+    return res.status(400).json({ error: "Valid customer ID is required." });
+  }
+  if (action !== "add" && action !== "payout") {
+    return res.status(400).json({ error: 'Action must be "add" or "payout".' });
+  }
+  if (isNaN(amt) || amt <= 0) {
+    return res.status(400).json({ error: "Valid amount greater than 0 is required." });
+  }
+  try {
+    const updatedCustomer = await withTransaction(async () => {
+      const customer = await queryOne(
+        "SELECT * FROM customers WHERE id = ? AND shop_id = ?",
+        [customerId, shopId]
+      );
+      if (!customer) {
+        const err = new Error("Customer not found in this store.");
+        err.statusCode = 404;
+        throw err;
+      }
+      if (action === "add") {
+        await execute(
+          `UPDATE customers SET store_credit = COALESCE(store_credit, 0) + ? WHERE id = ? AND shop_id = ?`,
+          [amt, customerId, shopId]
+        );
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            amt,
+            payment_method || "cash",
+            reference_no || null,
+            notes ? String(notes).trim() : "Store credit / advance deposit recorded (owed to client)",
+            currentUserId
+          ]
+        );
+      } else {
+        const payoutUpdate = await execute(
+          `UPDATE customers SET store_credit = COALESCE(store_credit, 0) - ? WHERE id = ? AND shop_id = ? AND COALESCE(store_credit, 0) >= ?`,
+          [amt, customerId, shopId, amt]
+        );
+        if (payoutUpdate.changes === 0) {
+          const err = new Error("Insufficient store credit balance to pay out that amount.");
+          err.statusCode = 400;
+          throw err;
+        }
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_payout', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            amt,
+            payment_method || "cash",
+            reference_no || null,
+            notes ? String(notes).trim() : "Paid back customer store credit balance",
+            currentUserId
+          ]
+        );
+      }
+      return await queryOne(
+        `SELECT c.*, COALESCE(c.store_credit, 0) as store_credit,
+          (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as order_count,
+          (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_spent
+         FROM customers c WHERE c.id = ? AND c.shop_id = ?`,
+        [customerId, shopId]
+      );
+    });
+    await logApiAudit(
+      req,
+      action === "add" ? "STORE_CREDIT_ADDED" : "STORE_CREDIT_PAID_OUT",
+      `Staff ${currentUserName} ${action === "add" ? "recorded RWF " + amt.toLocaleString() + " store credit owed to" : "paid out RWF " + amt.toLocaleString() + " store credit for"} ${updatedCustomer?.name || "Customer #" + customerId}. New balance: RWF ${Number(updatedCustomer?.store_credit || 0).toLocaleString()}`
+    );
+    res.json({
+      success: true,
+      message: action === "add" ? `Added RWF ${amt.toLocaleString()} store credit owed to ${updatedCustomer?.name}.` : `Paid out RWF ${amt.toLocaleString()} from store credit for ${updatedCustomer?.name}.`,
+      customer: updatedCustomer
+    });
+  } catch (err) {
+    console.error("Store credit adjustment error:", err);
+    res.status(err.statusCode || 500).json({ error: err.message || "Failed to update customer store credit." });
   }
 });
 router.post("/customers", requireAuth, requireTenant, requirePermission("can_manage_customers"), async (req, res) => {
@@ -4010,8 +4613,8 @@ router.post("/customers", requireAuth, requireTenant, requirePermission("can_man
   }
   try {
     const result = await execute(
-      `INSERT INTO customers (shop_id, name, phone, email, address, id_number, credit_balance)
-       VALUES (?, ?, ?, ?, ?, ?, 0.0)`,
+      `INSERT INTO customers (shop_id, name, phone, email, address, id_number, credit_balance, store_credit)
+       VALUES (?, ?, ?, ?, ?, ?, 0.0, 0.0)`,
       [
         shopId,
         name.trim(),
@@ -4022,7 +4625,7 @@ router.post("/customers", requireAuth, requireTenant, requirePermission("can_man
       ]
     );
     await logApiAudit(req, "CUSTOMER_CREATED", `Added customer ${name}`);
-    const created = await queryOne("SELECT * FROM customers WHERE id = ? AND shop_id = ?", [result.lastInsertId, shopId]);
+    const created = await queryOne("SELECT *, COALESCE(store_credit, 0) as store_credit FROM customers WHERE id = ? AND shop_id = ?", [result.lastInsertId, shopId]);
     res.json({ success: true, customer: created });
   } catch (err) {
     console.error("Create customer error:", err);
@@ -4050,7 +4653,7 @@ router.put("/customers/:id", requireAuth, requireTenant, requirePermission("can_
         shopId
       ]
     );
-    const updated = await queryOne("SELECT * FROM customers WHERE id = ? AND shop_id = ?", [customerId, shopId]);
+    const updated = await queryOne("SELECT *, COALESCE(store_credit, 0) as store_credit FROM customers WHERE id = ? AND shop_id = ?", [customerId, shopId]);
     res.json({ success: true, customer: updated });
   } catch (err) {
     console.error("Update customer error:", err);
@@ -4135,6 +4738,7 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
   try {
     const hashedPassword = await bcrypt2.hash(password, 10);
     const p = { ...req.body, ...permissions || {} };
+    const isOwnerOrManagerRole = assignedRole === "manager" || assignedRole === "superadmin";
     const result = await execute(
       `INSERT INTO users (
         shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status,
@@ -4167,7 +4771,7 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
         p.can_manage_customers !== void 0 ? p.can_manage_customers ? 1 : 0 : 1,
         p.can_manage_partners ? 1 : 0,
         p.can_void_orders ? 1 : 0,
-        p.can_edit_company_settings ? 1 : 0,
+        isOwnerOrManagerRole || p.can_edit_company_settings ? 1 : 0,
         p.can_view_audit_trail ? 1 : 0,
         p.can_reset_passwords ? 1 : 0,
         p.can_view_all_tenants !== void 0 ? p.can_view_all_tenants ? 1 : 0 : assignedRole === "platform_ops" ? 1 : 0,
@@ -4252,8 +4856,13 @@ router.put("/users/:id", requireAuth, requireTenant, requireManager, async (req,
       "can_view_all_tenants",
       "can_manage_subscriptions"
     ];
+    const effectiveRole = role && (currentUser.role === "superadmin" || role !== "superadmin") ? String(role).toLowerCase() : existing.role;
+    const isOwnerOrManagerRole = effectiveRole === "manager" || effectiveRole === "superadmin";
     for (const pk of permKeys) {
-      if (p[pk] !== void 0) {
+      if (pk === "can_edit_company_settings" && isOwnerOrManagerRole) {
+        updates.push(`${pk} = ?`);
+        params.push(1);
+      } else if (p[pk] !== void 0) {
         updates.push(`${pk} = ?`);
         params.push(p[pk] ? 1 : 0);
       }
@@ -4362,17 +4971,39 @@ router.post("/shops", requireAuth, requireSuperAdmin, async (req, res) => {
     res.status(500).json({ error: "Failed to register shop. Ensure store code and email are unique." });
   }
 });
-router.put("/shops/:id", requireAuth, requireManager, async (req, res) => {
+router.put("/shops/:id", requireAuth, requirePermission("can_edit_company_settings"), async (req, res) => {
   const shopId = Number(req.params.id);
   const user = req.session.user;
-  if (user.role !== "superadmin" && user.shop_id !== shopId) {
+  if (user.role !== "superadmin" && Number(user.shop_id) !== shopId) {
     return res.status(403).json({ error: "Permission denied: Cannot edit settings for another store." });
   }
   const { name, owner_name, phone, email, location, tin_number, receipt_footer_text, status, subscription_plan } = req.body;
+  if (name !== void 0 && !String(name).trim()) {
+    return res.status(400).json({ error: "Business / shop name cannot be empty." });
+  }
+  if (phone !== void 0 && !String(phone).trim()) {
+    return res.status(400).json({ error: "Business phone number cannot be empty." });
+  }
+  if (email !== void 0 && !String(email).trim()) {
+    return res.status(400).json({ error: "Business email address cannot be empty." });
+  }
   try {
     const existing = await queryOne("SELECT * FROM shops WHERE id = ?", [shopId]);
     if (!existing) {
       return res.status(404).json({ error: "Shop tenant not found" });
+    }
+    const cleanName = name !== void 0 ? String(name).trim() : existing.name;
+    const cleanOwner = owner_name !== void 0 ? String(owner_name).trim() : existing.owner_name;
+    const cleanPhone = phone !== void 0 ? String(phone).trim() : existing.phone;
+    const cleanEmail = email !== void 0 ? String(email).trim().toLowerCase() : existing.email;
+    const cleanLocation = location !== void 0 ? String(location).trim() : existing.location;
+    const cleanTin = tin_number !== void 0 ? String(tin_number).trim() || null : existing.tin_number;
+    const cleanFooter = receipt_footer_text !== void 0 ? String(receipt_footer_text).trim() || null : existing.receipt_footer_text;
+    if (cleanEmail && cleanEmail !== existing.email) {
+      const duplicateEmail = await queryOne("SELECT id FROM shops WHERE LOWER(TRIM(email)) = ? AND id != ?", [cleanEmail, shopId]);
+      if (duplicateEmail) {
+        return res.status(400).json({ error: "Another shop is already using that email address." });
+      }
     }
     const newStatus = user.role === "superadmin" && status ? status : existing.status;
     const newPlan = user.role === "superadmin" && subscription_plan ? subscription_plan : existing.subscription_plan;
@@ -4381,13 +5012,13 @@ router.put("/shops/:id", requireAuth, requireManager, async (req, res) => {
        SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?
        WHERE id = ?`,
       [
-        name || existing.name,
-        owner_name || existing.owner_name,
-        phone || existing.phone,
-        email || existing.email,
-        location || existing.location,
-        tin_number !== void 0 ? tin_number : existing.tin_number,
-        receipt_footer_text !== void 0 ? receipt_footer_text : existing.receipt_footer_text,
+        cleanName,
+        cleanOwner || existing.owner_name,
+        cleanPhone,
+        cleanEmail,
+        cleanLocation || existing.location,
+        cleanTin,
+        cleanFooter,
         newStatus,
         newPlan,
         shopId
@@ -4398,9 +5029,15 @@ router.put("/shops/:id", requireAuth, requireManager, async (req, res) => {
     } else if (newStatus === "suspended") {
       await execute("UPDATE users SET activation_status = 'suspended' WHERE shop_id = ? AND role != 'superadmin'", [shopId]);
     }
-    await logApiAudit(req, "SHOP_SETTINGS_UPDATED", `Updated store settings for #${shopId}`, shopId);
+    let token;
+    if (req.session.user && Number(req.session.user.shop_id) === shopId) {
+      req.session.user.shop_name = cleanName;
+      await saveSession(req);
+      token = createAuthToken(req.session.user);
+    }
+    await logApiAudit(req, "SHOP_SETTINGS_UPDATED", `Updated store settings for "${cleanName}" (#${shopId})`, shopId);
     const updated = await queryOne("SELECT * FROM shops WHERE id = ?", [shopId]);
-    res.json({ success: true, shop: updated });
+    res.json({ success: true, shop: updated, ...token ? { token } : {} });
   } catch (err) {
     console.error("Update shop error:", err);
     res.status(500).json({ error: "Failed to update store settings" });
@@ -4689,47 +5326,151 @@ router.post("/backup/restore", requireAuth, requireTenant, requireManager, async
     res.status(400).json({ error: "Restoration failed: " + err.message });
   }
 });
-router.post("/ai/help", async (req, res) => {
-  const { question, history } = req.body;
-  if (!question || typeof question !== "string") {
-    return res.status(400).json({ error: "Question is required" });
-  }
-  const cleanQuestion = question.trim().slice(0, 800);
-  const geminiApiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || "").trim();
-  if (geminiApiKey) {
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: geminiApiKey,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build"
-          }
-        }
-      });
-      const chatContents = [];
-      if (Array.isArray(history)) {
-        for (const h of history.slice(-6)) {
-          if (h && (h.role === "user" || h.role === "model")) {
-            chatContents.push({ role: h.role, parts: [{ text: String(h.text || "") }] });
-          }
-        }
-      }
-      chatContents.push({ role: "user", parts: [{ text: cleanQuestion }] });
-      const aiRes = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: chatContents,
-        config: {
-          systemInstruction: VECTOS_SYSTEM_INSTRUCTION
-        }
-      });
-      if (aiRes.text && aiRes.text.trim().length > 15) {
-        return res.json({ success: true, reply: aiRes.text.trim() });
-      }
-    } catch (err) {
-      console.warn("Gemini 3.8 Flash live call note (falling back to built-in Customer Care Knowledge Engine):", err?.message || err);
+var PRESET_HELP_QUESTIONS = /* @__PURE__ */ new Set([
+  "what does vectos solve?",
+  "how do i add products (ai scanner / csv)?",
+  "how does client's order & delivery notice work?",
+  "how do i negotiate item prices in pos?",
+  "3-way order dispatch & storekeeper",
+  "amadeni y'abakiriya (customer debt)",
+  "inshingano 8 z'abakozi (staff roles)",
+  "how do i change my password?",
+  // Legacy preset strings for cached clients
+  "vectos ikora iki & ikemura ibihe bibazo?",
+  "uburyo 3 bwo kwinjiza ibicuruzwa (ai scanner)",
+  "gucuruza & kwakira momo (pos sales)",
+  "gusohora ibintu mu bubiko (3-way dispatch)",
+  "ububiko burenze bumwe (multi-warehouse)",
+  "imbibi z'ubushobozi bwa sisitemu (system limits)"
+]);
+var AI_FAQ_CACHE = /* @__PURE__ */ new Map();
+var AI_RATE_BUCKETS = /* @__PURE__ */ new Map();
+var AI_CACHE_TTL_MS = 30 * 60 * 1e3;
+var AI_RATE_WINDOW_MS = 5 * 60 * 1e3;
+var AI_MAX_LIVE_CALLS_PER_WINDOW = 20;
+var AI_MAX_TOTAL_BURST_PER_MIN = 45;
+function getClientBucketKey(req) {
+  const userId = req.session?.user?.id;
+  if (userId) return `u:${userId}`;
+  const fwd = req.headers["x-forwarded-for"];
+  const ip = Array.isArray(fwd) ? fwd[0] : fwd ? String(fwd).split(",")[0].trim() : req.ip || "unknown";
+  return `ip:${ip}`;
+}
+function checkAiRateLimit(bucketKey) {
+  const now = Date.now();
+  if (AI_RATE_BUCKETS.size > 2e3) {
+    for (const [k, ts] of AI_RATE_BUCKETS.entries()) {
+      const recent = ts.filter((t) => now - t < AI_RATE_WINDOW_MS);
+      if (recent.length === 0) AI_RATE_BUCKETS.delete(k);
+      else AI_RATE_BUCKETS.set(k, recent);
     }
   }
-  const reply = getVectOSKnowledgeResponse(cleanQuestion, history);
+  const existing = (AI_RATE_BUCKETS.get(bucketKey) || []).filter((t) => now - t < AI_RATE_WINDOW_MS);
+  const lastMinuteCount = existing.filter((t) => now - t < 60 * 1e3).length;
+  if (lastMinuteCount >= AI_MAX_TOTAL_BURST_PER_MIN) {
+    AI_RATE_BUCKETS.set(bucketKey, existing);
+    return { allowRequest: false, allowLiveGemini: false };
+  }
+  const allowLiveGemini = existing.length < AI_MAX_LIVE_CALLS_PER_WINDOW;
+  existing.push(now);
+  AI_RATE_BUCKETS.set(bucketKey, existing);
+  return { allowRequest: true, allowLiveGemini };
+}
+router.post("/ai/help", async (req, res) => {
+  const { question, history } = req.body;
+  if (!question || typeof question !== "string" || !question.trim()) {
+    return res.status(400).json({ error: "Question is required" });
+  }
+  const cleanQuestion = question.trim().slice(0, 1200);
+  const normalizedQ = cleanQuestion.toLowerCase().replace(/\s+/g, " ");
+  const sessionUser = req.session?.user;
+  const bucketKey = getClientBucketKey(req);
+  const rate = checkAiRateLimit(bucketKey);
+  if (!rate.allowRequest) {
+    return res.status(429).json({
+      error: "Too many requests in a short time. Please wait a minute before asking another question."
+    });
+  }
+  const sanitizedHistory = [];
+  if (Array.isArray(history)) {
+    for (const h of history.slice(-16)) {
+      if (!h || h.role !== "user" && h.role !== "model") continue;
+      const text = String(h.text || "").trim();
+      if (!text) continue;
+      if (sanitizedHistory.length === 0 && h.role === "model") continue;
+      const last = sanitizedHistory[sanitizedHistory.length - 1];
+      if (last && last.role === h.role) {
+        last.parts[0].text += `
+
+${text}`;
+      } else {
+        sanitizedHistory.push({ role: h.role, parts: [{ text }] });
+      }
+    }
+    while (sanitizedHistory.length > 0 && sanitizedHistory[sanitizedHistory.length - 1].role === "user") {
+      sanitizedHistory.pop();
+    }
+  }
+  const isSimpleGreeting = sanitizedHistory.length === 0 && /^(muraho|bite|mwaramutse|mwiriwe|hello|hi|hey|good morning|good afternoon|good evening|bonjour|salut)\b/i.test(normalizedQ) && normalizedQ.length < 30;
+  if (PRESET_HELP_QUESTIONS.has(normalizedQ) || isSimpleGreeting) {
+    const reply2 = getVectOSKnowledgeResponse(cleanQuestion, history, sessionUser);
+    return res.json({ success: true, reply: reply2 });
+  }
+  const cacheKey = `${sessionUser?.role || "guest"}:${normalizedQ}`;
+  if (sanitizedHistory.length === 0) {
+    const cached = AI_FAQ_CACHE.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json({ success: true, reply: cached.reply });
+    }
+  }
+  const geminiApiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || "").trim();
+  if (geminiApiKey && rate.allowLiveGemini) {
+    const ai = new GoogleGenAI({
+      apiKey: geminiApiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build"
+        }
+      }
+    });
+    const systemInstruction = VECTOS_SYSTEM_INSTRUCTION + buildUserContextNote(sessionUser);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const chat = ai.chats.create({
+          model: "gemini-4-hydrogen",
+          history: sanitizedHistory,
+          config: {
+            systemInstruction,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
+          }
+        });
+        const aiRes = await chat.sendMessage({ message: cleanQuestion });
+        const replyText = aiRes.text?.trim();
+        if (replyText) {
+          if (sanitizedHistory.length === 0) {
+            if (AI_FAQ_CACHE.size >= 200) {
+              const oldestKey = AI_FAQ_CACHE.keys().next().value;
+              if (oldestKey) AI_FAQ_CACHE.delete(oldestKey);
+            }
+            AI_FAQ_CACHE.set(cacheKey, {
+              reply: replyText,
+              expiresAt: Date.now() + AI_CACHE_TTL_MS
+            });
+          }
+          return res.json({ success: true, reply: replyText });
+        }
+      } catch (err) {
+        const msg = err?.message || String(err);
+        console.warn(`VectOS AI Help Gemini attempt ${attempt + 1} note:`, msg);
+        if (attempt === 0 && !/API_KEY_INVALID|PERMISSION_DENIED|NOT_FOUND/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 350));
+          continue;
+        }
+        break;
+      }
+    }
+  }
+  const reply = getVectOSKnowledgeResponse(cleanQuestion, history, sessionUser);
   return res.json({ success: true, reply });
 });
 var apiRoutes_default = router;

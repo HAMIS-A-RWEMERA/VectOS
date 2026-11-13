@@ -13,9 +13,9 @@ import {
   refreshSessionUserFromDb
 } from '../auth';
 import { throttleCheck, throttleFail, throttleClear } from '../security';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 import { upload } from '../upload';
-import { VECTOS_SYSTEM_INSTRUCTION, getVectOSKnowledgeResponse } from '../aiHelpKnowledge';
+import { VECTOS_SYSTEM_INSTRUCTION, buildUserContextNote, getVectOSKnowledgeResponse } from '../aiHelpKnowledge';
 
 const router = Router();
 
@@ -1169,7 +1169,7 @@ ${rawText ? `Additional pasted invoice text/context: ${rawText}` : ''}`;
     parts.push({ text: promptText });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: parts,
       config: {
         responseMimeType: 'application/json',
@@ -1938,6 +1938,8 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
     items,
     payment_method,
     paid_amount,
+    use_store_credit,
+    store_credit_amount,
     notes,
     payment_reference,
     release_immediately
@@ -2029,20 +2031,60 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         });
       }
 
-      let paid = 0;
-      let debt = totalAmount;
-      let paymentStatus: string = 'pending';
+      let storeCreditApplied = 0;
+      let cashPaid = 0;
 
       if (canProcessPayments) {
-        paid = paid_amount !== undefined ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) : totalAmount;
-        debt = Math.max(0, totalAmount - paid);
-        paymentStatus = debt === 0 ? 'paid' : (paid > 0 ? 'partial' : 'debt');
-      } else {
-        // Order-only staff cannot accept or mark cash/MoMo as paid
-        paid = 0;
-        debt = totalAmount;
-        paymentStatus = payment_method === 'debt_credit' ? 'debt' : 'pending';
+        const wantsStoreCredit = Boolean(use_store_credit) || (store_credit_amount !== undefined && Number(store_credit_amount) > 0);
+        if (wantsStoreCredit && finalCustomerId) {
+          const custCreditRow = await queryOne<{ store_credit: number }>(
+            'SELECT COALESCE(store_credit, 0) as store_credit FROM customers WHERE id = ? AND shop_id = ?',
+            [finalCustomerId, shopId]
+          );
+          const availableCredit = Math.max(0, Number(custCreditRow?.store_credit || 0));
+          let requestedCredit = availableCredit;
+          if (store_credit_amount !== undefined && store_credit_amount !== null) {
+            requestedCredit = Number(store_credit_amount);
+            if (isNaN(requestedCredit) || requestedCredit < 0) {
+              const err: any = new Error('Invalid store credit amount.');
+              err.statusCode = 400;
+              throw err;
+            }
+            if (requestedCredit > availableCredit) {
+              const err: any = new Error(`Insufficient store credit balance. Available: RWF ${availableCredit.toLocaleString()}.`);
+              err.statusCode = 400;
+              throw err;
+            }
+          }
+          storeCreditApplied = Math.min(totalAmount, requestedCredit);
+          if (storeCreditApplied > 0) {
+            const creditUpdate = await execute(
+              `UPDATE customers SET store_credit = COALESCE(store_credit, 0) - ? WHERE id = ? AND shop_id = ? AND COALESCE(store_credit, 0) >= ?`,
+              [storeCreditApplied, finalCustomerId, shopId, storeCreditApplied]
+            );
+            if (creditUpdate.changes === 0) {
+              const err: any = new Error('Insufficient customer store credit balance.');
+              err.statusCode = 400;
+              throw err;
+            }
+          }
+        }
+
+        const remainingAfterCredit = Math.max(0, totalAmount - storeCreditApplied);
+        if (payment_method === 'debt_credit') {
+          cashPaid = 0;
+        } else {
+          cashPaid = paid_amount !== undefined
+            ? Math.min(remainingAfterCredit, Math.max(0, Number(paid_amount)))
+            : remainingAfterCredit;
+        }
       }
+
+      const paid = storeCreditApplied + cashPaid;
+      const debt = Math.max(0, totalAmount - paid);
+      const paymentStatus: string = canProcessPayments
+        ? (debt === 0 ? 'paid' : (paid > 0 ? 'partial' : 'debt'))
+        : (payment_method === 'debt_credit' ? 'debt' : 'pending');
 
       const releaseNow = Boolean(release_immediately) && canReleaseStock;
       const fulfillmentStatus = releaseNow ? 'approved' : 'pending_store';
@@ -2107,17 +2149,45 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         );
       }
 
-      // 5. Insert Payment Record (only if canProcessPayments and paid > 0)
-      if (paid > 0) {
+      // 5. Insert Payment Records (cash/MoMo/bank + optional Store Credit Offset)
+      if (cashPaid > 0) {
         await execute(
           `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
            VALUES (?, ?, ?, ?, ?, ?)`,
           [
             shopId,
             orderId,
-            paid,
+            cashPaid,
             payment_method || 'cash',
             payment_reference || null,
+            currentUserId
+          ]
+        );
+      }
+
+      if (storeCreditApplied > 0 && finalCustomerId) {
+        await execute(
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
+           VALUES (?, ?, ?, 'debt_credit', ?, ?)`,
+          [
+            shopId,
+            orderId,
+            storeCreditApplied,
+            'Store Credit Offset',
+            currentUserId
+          ]
+        );
+
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, order_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, ?, 'credit_used', 'debt_credit', ?, ?, ?)`,
+          [
+            shopId,
+            finalCustomerId,
+            orderId,
+            storeCreditApplied,
+            orderNumber,
+            `Deducted RWF ${storeCreditApplied.toLocaleString()} store credit on Order #${orderNumber}`,
             currentUserId
           ]
         );
@@ -2131,13 +2201,13 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         );
       }
 
-      return { orderId, orderNumber, totalAmount, paid, debt, releaseNow };
+      return { orderId, orderNumber, totalAmount, paid, cashPaid, storeCreditApplied, debt, releaseNow };
     });
 
     await logApiAudit(
       req,
       'ORDER_CREATED',
-      `Staff ${currentUser?.name || 'Staff'} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? 'RWF ' + result.paid.toLocaleString() + ' paid' : 'Awaiting Payment'}${result.releaseNow ? ', Stock released immediately' : ''})`
+      `Staff ${currentUser?.name || 'Staff'} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? 'RWF ' + result.paid.toLocaleString() + ' paid' : 'Awaiting Payment'}${result.storeCreditApplied > 0 ? `, includes RWF ${result.storeCreditApplied.toLocaleString()} store credit offset` : ''}${result.releaseNow ? ', Stock released immediately' : ''})`
     );
 
     const createdOrder = await queryOne(`
@@ -2168,7 +2238,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
       );
     }
 
-    res.json({ success: true, order: createdOrder });
+    res.json({ success: true, order: createdOrder, store_credit_applied: result.storeCreditApplied });
   } catch (err: any) {
     console.error('Order creation error:', err);
     res.status(err.statusCode || 400).json({ error: err.message || 'Failed to place order' });
@@ -2607,29 +2677,517 @@ router.post('/orders/:id/void', requireAuth, requireTenant, requirePermission('c
 router.get('/customers', requireAuth, requireTenant, async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const search = (req.query.q as string || '').trim().toLowerCase();
+  const sort = (req.query.sort as string || 'debt').trim().toLowerCase();
 
   try {
     let sql = `
-      SELECT c.*, 
-        (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id) as order_count,
-        (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id) as total_spent
+      SELECT c.*,
+        COALESCE(c.store_credit, 0) as store_credit,
+        (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as order_count,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_spent,
+        (SELECT COALESCE(SUM(paid_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_paid,
+        (SELECT MAX(created_at) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as last_order_at
       FROM customers c
       WHERE c.shop_id = ?
     `;
     const params: any[] = [shopId];
 
     if (search) {
-      sql += ` AND (LOWER(c.name) LIKE ? OR LOWER(c.phone) LIKE ? OR LOWER(c.email) LIKE ?)`;
+      sql += ` AND (LOWER(c.name) LIKE ? OR LOWER(c.phone) LIKE ? OR LOWER(COALESCE(c.email, '')) LIKE ?)`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    sql += ` ORDER BY c.credit_balance DESC, c.name ASC`;
+    if (sort === 'top_spent') {
+      sql += ` ORDER BY total_spent DESC, order_count DESC, c.name ASC`;
+    } else if (sort === 'most_orders') {
+      sql += ` ORDER BY order_count DESC, total_spent DESC, c.name ASC`;
+    } else if (sort === 'store_credit') {
+      sql += ` ORDER BY store_credit DESC, total_spent DESC, c.name ASC`;
+    } else if (sort === 'name') {
+      sql += ` ORDER BY c.name ASC`;
+    } else {
+      sql += ` ORDER BY c.credit_balance DESC, total_spent DESC, c.name ASC`;
+    }
     const customers = await queryAll(sql, params);
 
     res.json({ customers });
   } catch (err: any) {
     console.error('Customers API error:', err);
     res.status(500).json({ error: 'Failed to fetch customers' });
+  }
+});
+
+// Get Customer Statement (Orders, Items, Payments & Credit Ledger filtered by timeframe)
+router.get('/customers/:id/statement', requireAuth, requireTenant, async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const customerId = Number(req.params.id);
+  const period = (req.query.period as string || 'all').toLowerCase();
+  const startDateParam = (req.query.startDate as string || '').trim();
+  const endDateParam = (req.query.endDate as string || '').trim();
+
+  if (!customerId || isNaN(customerId)) {
+    return res.status(400).json({ error: 'Valid customer ID is required.' });
+  }
+
+  try {
+    const customer = await queryOne<any>(
+      `SELECT c.*, COALESCE(c.store_credit, 0) as store_credit FROM customers c WHERE c.id = ? AND c.shop_id = ?`,
+      [customerId, shopId]
+    );
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found in this store.' });
+    }
+
+    const shop = await queryOne<any>(
+      `SELECT id, name, owner_name, phone, email, location, tin_number, receipt_footer_text FROM shops WHERE id = ?`,
+      [shopId]
+    );
+
+    const formatBoundary = (d: Date) =>
+      isPostgres() ? d.toISOString() : d.toISOString().slice(0, 19).replace('T', ' ');
+
+    const now = new Date();
+    let startIso: string | null = null;
+    let endIso: string | null = null;
+    let periodLabel = 'All Time';
+
+    if (period === 'day' || period === 'today' || period === 'daily') {
+      const d = new Date(now);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = formatBoundary(d);
+      periodLabel = 'Today';
+    } else if (period === 'week' || period === 'weekly') {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - 7);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = formatBoundary(d);
+      periodLabel = 'Last 7 Days';
+    } else if (period === 'month' || period === 'monthly') {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - 30);
+      d.setUTCHours(0, 0, 0, 0);
+      startIso = formatBoundary(d);
+      periodLabel = 'Last 30 Days';
+    } else if (startDateParam || endDateParam) {
+      if (startDateParam) {
+        const s = new Date(startDateParam);
+        if (!isNaN(s.getTime())) startIso = formatBoundary(s);
+      }
+      if (endDateParam) {
+        const e = endDateParam.includes('T') ? new Date(endDateParam) : new Date(`${endDateParam}T23:59:59.999Z`);
+        if (!isNaN(e.getTime())) endIso = formatBoundary(e);
+      }
+      periodLabel = `${startDateParam || 'Start'} to ${endDateParam || 'Today'}`;
+    }
+
+    let ordersSql = `
+      SELECT o.*, u.name as salesperson_name,
+             p_user.name as payment_approved_by_name,
+             s_user.name as stock_released_by_name
+      FROM orders o
+      LEFT JOIN users u ON o.salesperson_id = u.id
+      LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+      LEFT JOIN users s_user ON o.stock_released_by = s_user.id
+      WHERE o.customer_id = ? AND o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+    `;
+    const orderParams: any[] = [customerId, shopId];
+    if (startIso) {
+      ordersSql += ` AND o.created_at >= ?`;
+      orderParams.push(startIso);
+    }
+    if (endIso) {
+      ordersSql += ` AND o.created_at <= ?`;
+      orderParams.push(endIso);
+    }
+    ordersSql += ` ORDER BY o.created_at DESC, o.id DESC`;
+
+    const orders = await queryAll<any>(ordersSql, orderParams);
+
+    if (orders.length > 0) {
+      const orderIds = orders.map((o) => Number(o.id));
+      const placeholders = orderIds.map(() => '?').join(', ');
+      const items = await queryAll<any>(
+        `SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.selling_price, oi.subtotal,
+                p.name as product_name, p.unit as product_unit
+         FROM order_items oi
+         LEFT JOIN products p ON oi.product_id = p.id
+         WHERE oi.order_id IN (${placeholders})
+         ORDER BY oi.id ASC`,
+        orderIds
+      );
+      const itemsByOrder = new Map<number, any[]>();
+      for (const it of items) {
+        const oid = Number(it.order_id);
+        if (!itemsByOrder.has(oid)) itemsByOrder.set(oid, []);
+        itemsByOrder.get(oid)!.push(it);
+      }
+      for (const o of orders) {
+        o.statement_items = itemsByOrder.get(Number(o.id)) || [];
+      }
+    }
+
+    let paymentsSql = `
+      SELECT p.*, o.order_number, u.name as recorded_by_name
+      FROM payments p
+      INNER JOIN orders o ON p.order_id = o.id
+      LEFT JOIN users u ON p.recorded_by = u.id
+      WHERE o.customer_id = ? AND o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+    `;
+    const payParams: any[] = [customerId, shopId];
+    if (startIso) {
+      paymentsSql += ` AND p.created_at >= ?`;
+      payParams.push(startIso);
+    }
+    if (endIso) {
+      paymentsSql += ` AND p.created_at <= ?`;
+      payParams.push(endIso);
+    }
+    paymentsSql += ` ORDER BY p.created_at DESC, p.id DESC`;
+    const payments = await queryAll<any>(paymentsSql, payParams);
+
+    let ledgerSql = `
+      SELECT l.*, o.order_number, u.name as recorded_by_name
+      FROM customer_credit_ledger l
+      LEFT JOIN orders o ON l.order_id = o.id
+      LEFT JOIN users u ON l.recorded_by = u.id
+      WHERE l.customer_id = ? AND l.shop_id = ?
+    `;
+    const ledgerParams: any[] = [customerId, shopId];
+    if (startIso) {
+      ledgerSql += ` AND l.created_at >= ?`;
+      ledgerParams.push(startIso);
+    }
+    if (endIso) {
+      ledgerSql += ` AND l.created_at <= ?`;
+      ledgerParams.push(endIso);
+    }
+    ledgerSql += ` ORDER BY l.created_at DESC, l.id DESC`;
+    const creditLedger = await queryAll<any>(ledgerSql, ledgerParams);
+
+    const lifetimeStats = await queryOne<any>(
+      `SELECT COUNT(*) as lifetime_orders,
+              COALESCE(SUM(total_amount), 0) as lifetime_spent,
+              COALESCE(SUM(paid_amount), 0) as lifetime_paid,
+              COALESCE(SUM(debt_amount), 0) as lifetime_debt
+       FROM orders
+       WHERE customer_id = ? AND shop_id = ? AND fulfillment_status != 'cancelled'`,
+      [customerId, shopId]
+    );
+
+    const totalOrdered = orders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+    const totalPaidOnOrders = orders.reduce((s, o) => s + Number(o.paid_amount || 0), 0);
+    const periodDebt = orders.reduce((s, o) => s + Number(o.debt_amount || 0), 0);
+    const paymentsReceivedInPeriod = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const creditAddedInPeriod = creditLedger
+      .filter((e) => e.entry_type === 'credit_added')
+      .reduce((s, e) => s + Number(e.amount || 0), 0);
+    const creditUsedInPeriod = creditLedger
+      .filter((e) => e.entry_type === 'credit_used' || e.entry_type === 'credit_payout')
+      .reduce((s, e) => s + Number(e.amount || 0), 0);
+
+    res.json({
+      customer,
+      shop: shop || {},
+      period,
+      periodLabel,
+      startDate: startIso,
+      endDate: endIso,
+      summary: {
+        ordersCount: orders.length,
+        totalOrdered,
+        totalPaidOnOrders,
+        periodDebt,
+        paymentsReceivedInPeriod,
+        creditAddedInPeriod,
+        creditUsedInPeriod,
+        currentDebtBalance: Number(customer.credit_balance || 0),
+        currentStoreCredit: Number(customer.store_credit || 0),
+        lifetimeOrders: Number(lifetimeStats?.lifetime_orders || 0),
+        lifetimeSpent: Number(lifetimeStats?.lifetime_spent || 0),
+        lifetimePaid: Number(lifetimeStats?.lifetime_paid || 0),
+      },
+      orders,
+      payments,
+      creditLedger,
+    });
+  } catch (err: any) {
+    console.error('Customer statement error:', err);
+    res.status(500).json({ error: 'Failed to generate customer statement.' });
+  }
+});
+
+// Bulk FIFO Debt Settlement across multiple customer receipts
+router.post('/customers/:id/settle-debt', requireAuth, requireTenant, requirePermission('can_process_payments'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const customerId = Number(req.params.id);
+  const { amount, payment_method, reference_no, notes, excess_to_store_credit } = req.body || {};
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || 'Cashier';
+
+  const payTotal = Number(amount);
+  if (!customerId || isNaN(customerId)) {
+    return res.status(400).json({ error: 'Valid customer ID is required.' });
+  }
+  if (isNaN(payTotal) || payTotal <= 0) {
+    return res.status(400).json({ error: 'Valid payment amount greater than 0 is required.' });
+  }
+
+  const allowedMethods = new Set(['cash', 'momo', 'bank_transfer']);
+  const safeMethod = allowedMethods.has(String(payment_method || '').toLowerCase())
+    ? String(payment_method).toLowerCase()
+    : 'cash';
+
+  try {
+    const result = await withTransaction(async () => {
+      const customer = await queryOne<any>(
+        'SELECT * FROM customers WHERE id = ? AND shop_id = ?',
+        [customerId, shopId]
+      );
+      if (!customer) {
+        const err: any = new Error('Customer not found in this store.');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const unpaidOrders = await queryAll<any>(
+        `SELECT * FROM orders
+         WHERE customer_id = ? AND shop_id = ? AND debt_amount > 0 AND fulfillment_status != 'cancelled'
+         ORDER BY created_at ASC, id ASC`,
+        [customerId, shopId]
+      );
+
+      if (unpaidOrders.length === 0 && excess_to_store_credit === false) {
+        const err: any = new Error('This customer has no unpaid debt receipts to settle.');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      let remaining = payTotal;
+      let appliedToDebt = 0;
+      const settledOrders: any[] = [];
+      const refText = reference_no ? `${String(reference_no).trim()} (Bulk)` : 'Bulk Debt Settlement';
+
+      for (const order of unpaidOrders) {
+        if (remaining <= 0) break;
+        const orderDebt = Number(order.debt_amount || 0);
+        if (orderDebt <= 0) continue;
+
+        const payForOrder = Math.min(remaining, orderDebt);
+        const newPaid = Number(order.paid_amount || 0) + payForOrder;
+        const newDebt = Math.max(0, Number(order.total_amount || 0) - newPaid);
+        const newPaymentStatus = newDebt === 0 ? 'paid' : 'partial';
+
+        await execute(
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [shopId, order.id, payForOrder, safeMethod, refText, currentUserId]
+        );
+
+        await execute(
+          `UPDATE orders
+           SET paid_amount = ?, debt_amount = ?, payment_status = ?, payment_approved_by = ?, payment_approved_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND shop_id = ?`,
+          [newPaid, newDebt, newPaymentStatus, currentUserId, order.id, shopId]
+        );
+
+        remaining -= payForOrder;
+        appliedToDebt += payForOrder;
+        settledOrders.push({
+          order_id: order.id,
+          order_number: order.order_number,
+          applied_amount: payForOrder,
+          previous_debt: orderDebt,
+          remaining_debt: newDebt,
+          new_payment_status: newPaymentStatus,
+        });
+      }
+
+      // Reconcile customer's credit_balance accurately from active orders
+      const actualDebtRow = await queryOne<{ total_debt: number }>(
+        `SELECT COALESCE(SUM(debt_amount), 0) as total_debt
+         FROM orders
+         WHERE customer_id = ? AND shop_id = ? AND fulfillment_status != 'cancelled' AND debt_amount > 0`,
+        [customerId, shopId]
+      );
+      const remainingDebt = Math.max(0, Number(actualDebtRow?.total_debt || 0));
+
+      await execute(
+        `UPDATE customers SET credit_balance = ? WHERE id = ? AND shop_id = ?`,
+        [remainingDebt, customerId, shopId]
+      );
+
+      let addedToStoreCredit = 0;
+      if (remaining > 0 && excess_to_store_credit !== false) {
+        addedToStoreCredit = remaining;
+        await execute(
+          `UPDATE customers SET store_credit = COALESCE(store_credit, 0) + ? WHERE id = ? AND shop_id = ?`,
+          [addedToStoreCredit, customerId, shopId]
+        );
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            addedToStoreCredit,
+            safeMethod,
+            reference_no || null,
+            notes ? `${String(notes).trim()} (Excess payment moved to store credit)` : 'Excess from bulk debt settlement added as store credit owed to client',
+            currentUserId
+          ]
+        );
+      }
+
+      if (appliedToDebt > 0) {
+        const orderRefs = settledOrders.map((s) => s.order_number).join(', ');
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'bulk_payment', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            appliedToDebt,
+            safeMethod,
+            reference_no || null,
+            notes ? `${String(notes).trim()} | Settled across: ${orderRefs}` : `Bulk payment applied across ${settledOrders.length} receipt(s): ${orderRefs}`,
+            currentUserId
+          ]
+        );
+      }
+
+      const updatedCustomer = await queryOne<any>(
+        `SELECT c.*, COALESCE(c.store_credit, 0) as store_credit,
+          (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as order_count,
+          (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_spent
+         FROM customers c WHERE c.id = ? AND c.shop_id = ?`,
+        [customerId, shopId]
+      );
+
+      return {
+        customer: updatedCustomer,
+        appliedToDebt,
+        addedToStoreCredit,
+        remainingDebt,
+        settledOrders
+      };
+    });
+
+    await logApiAudit(
+      req,
+      'BULK_DEBT_SETTLED',
+      `Staff ${currentUserName} settled RWF ${result.appliedToDebt.toLocaleString()} across ${result.settledOrders.length} receipt(s) for ${result.customer?.name || 'Customer #' + customerId}. Remaining debt: RWF ${result.remainingDebt.toLocaleString()}${result.addedToStoreCredit > 0 ? `. Excess RWF ${result.addedToStoreCredit.toLocaleString()} added to store credit.` : ''}`
+    );
+
+    res.json({
+      success: true,
+      message: `Settled RWF ${result.appliedToDebt.toLocaleString()} across ${result.settledOrders.length} receipt(s). Remaining debt: RWF ${result.remainingDebt.toLocaleString()}.`,
+      ...result
+    });
+  } catch (err: any) {
+    console.error('Bulk debt settlement error:', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to settle customer debt.' });
+  }
+});
+
+// Add or Pay Out Customer Store Credit (Money We Owe Client)
+router.post('/customers/:id/store-credit', requireAuth, requireTenant, requirePermission('can_process_payments'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const customerId = Number(req.params.id);
+  const { action, amount, payment_method, reference_no, notes } = req.body || {};
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || 'Cashier';
+
+  const amt = Number(amount);
+  if (!customerId || isNaN(customerId)) {
+    return res.status(400).json({ error: 'Valid customer ID is required.' });
+  }
+  if (action !== 'add' && action !== 'payout') {
+    return res.status(400).json({ error: 'Action must be "add" or "payout".' });
+  }
+  if (isNaN(amt) || amt <= 0) {
+    return res.status(400).json({ error: 'Valid amount greater than 0 is required.' });
+  }
+
+  try {
+    const updatedCustomer = await withTransaction(async () => {
+      const customer = await queryOne<any>(
+        'SELECT * FROM customers WHERE id = ? AND shop_id = ?',
+        [customerId, shopId]
+      );
+      if (!customer) {
+        const err: any = new Error('Customer not found in this store.');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      if (action === 'add') {
+        await execute(
+          `UPDATE customers SET store_credit = COALESCE(store_credit, 0) + ? WHERE id = ? AND shop_id = ?`,
+          [amt, customerId, shopId]
+        );
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            amt,
+            payment_method || 'cash',
+            reference_no || null,
+            notes ? String(notes).trim() : 'Store credit / advance deposit recorded (owed to client)',
+            currentUserId
+          ]
+        );
+      } else {
+        const payoutUpdate = await execute(
+          `UPDATE customers SET store_credit = COALESCE(store_credit, 0) - ? WHERE id = ? AND shop_id = ? AND COALESCE(store_credit, 0) >= ?`,
+          [amt, customerId, shopId, amt]
+        );
+        if (payoutUpdate.changes === 0) {
+          const err: any = new Error('Insufficient store credit balance to pay out that amount.');
+          err.statusCode = 400;
+          throw err;
+        }
+        await execute(
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_payout', ?, ?, ?, ?)`,
+          [
+            shopId,
+            customerId,
+            amt,
+            payment_method || 'cash',
+            reference_no || null,
+            notes ? String(notes).trim() : 'Paid back customer store credit balance',
+            currentUserId
+          ]
+        );
+      }
+
+      return await queryOne<any>(
+        `SELECT c.*, COALESCE(c.store_credit, 0) as store_credit,
+          (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as order_count,
+          (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.customer_id = c.id AND o.shop_id = c.shop_id AND o.fulfillment_status != 'cancelled') as total_spent
+         FROM customers c WHERE c.id = ? AND c.shop_id = ?`,
+        [customerId, shopId]
+      );
+    });
+
+    await logApiAudit(
+      req,
+      action === 'add' ? 'STORE_CREDIT_ADDED' : 'STORE_CREDIT_PAID_OUT',
+      `Staff ${currentUserName} ${action === 'add' ? 'recorded RWF ' + amt.toLocaleString() + ' store credit owed to' : 'paid out RWF ' + amt.toLocaleString() + ' store credit for'} ${updatedCustomer?.name || 'Customer #' + customerId}. New balance: RWF ${Number(updatedCustomer?.store_credit || 0).toLocaleString()}`
+    );
+
+    res.json({
+      success: true,
+      message: action === 'add'
+        ? `Added RWF ${amt.toLocaleString()} store credit owed to ${updatedCustomer?.name}.`
+        : `Paid out RWF ${amt.toLocaleString()} from store credit for ${updatedCustomer?.name}.`,
+      customer: updatedCustomer
+    });
+  } catch (err: any) {
+    console.error('Store credit adjustment error:', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update customer store credit.' });
   }
 });
 
@@ -2644,8 +3202,8 @@ router.post('/customers', requireAuth, requireTenant, requirePermission('can_man
 
   try {
     const result = await execute(
-      `INSERT INTO customers (shop_id, name, phone, email, address, id_number, credit_balance)
-       VALUES (?, ?, ?, ?, ?, ?, 0.0)`,
+      `INSERT INTO customers (shop_id, name, phone, email, address, id_number, credit_balance, store_credit)
+       VALUES (?, ?, ?, ?, ?, ?, 0.0, 0.0)`,
       [
         shopId,
         name.trim(),
@@ -2657,7 +3215,7 @@ router.post('/customers', requireAuth, requireTenant, requirePermission('can_man
     );
 
     await logApiAudit(req, 'CUSTOMER_CREATED', `Added customer ${name}`);
-    const created = await queryOne('SELECT * FROM customers WHERE id = ? AND shop_id = ?', [result.lastInsertId, shopId]);
+    const created = await queryOne('SELECT *, COALESCE(store_credit, 0) as store_credit FROM customers WHERE id = ? AND shop_id = ?', [result.lastInsertId, shopId]);
     res.json({ success: true, customer: created });
   } catch (err: any) {
     console.error('Create customer error:', err);
@@ -2690,7 +3248,7 @@ router.put('/customers/:id', requireAuth, requireTenant, requirePermission('can_
       ]
     );
 
-    const updated = await queryOne('SELECT * FROM customers WHERE id = ? AND shop_id = ?', [customerId, shopId]);
+    const updated = await queryOne('SELECT *, COALESCE(store_credit, 0) as store_credit FROM customers WHERE id = ? AND shop_id = ?', [customerId, shopId]);
     res.json({ success: true, customer: updated });
   } catch (err: any) {
     console.error('Update customer error:', err);
@@ -3491,56 +4049,175 @@ router.post('/backup/restore', requireAuth, requireTenant, requireManager, async
 // 12. VECTOS AI HELP ASSISTANT (CUSTOMER CARE & KNOWLEDGE ENGINE)
 // ============================================================================
 
+const PRESET_HELP_QUESTIONS = new Set([
+  'what does vectos solve?',
+  'how do i add products (ai scanner / csv)?',
+  "how does client's order & delivery notice work?",
+  'how do i negotiate item prices in pos?',
+  '3-way order dispatch & storekeeper',
+  "amadeni y'abakiriya (customer debt)",
+  "inshingano 8 z'abakozi (staff roles)",
+  'how do i change my password?',
+  // Legacy preset strings for cached clients
+  'vectos ikora iki & ikemura ibihe bibazo?',
+  'uburyo 3 bwo kwinjiza ibicuruzwa (ai scanner)',
+  'gucuruza & kwakira momo (pos sales)',
+  'gusohora ibintu mu bubiko (3-way dispatch)',
+  'ububiko burenze bumwe (multi-warehouse)',
+  "imbibi z'ubushobozi bwa sisitemu (system limits)"
+]);
+
+const AI_FAQ_CACHE = new Map<string, { reply: string; expiresAt: number }>();
+const AI_RATE_BUCKETS = new Map<string, number[]>();
+const AI_CACHE_TTL_MS = 30 * 60 * 1000;
+const AI_RATE_WINDOW_MS = 5 * 60 * 1000;
+const AI_MAX_LIVE_CALLS_PER_WINDOW = 20;
+const AI_MAX_TOTAL_BURST_PER_MIN = 45;
+
+function getClientBucketKey(req: Request): string {
+  const userId = req.session?.user?.id;
+  if (userId) return `u:${userId}`;
+  const fwd = req.headers['x-forwarded-for'];
+  const ip = Array.isArray(fwd) ? fwd[0] : (fwd ? String(fwd).split(',')[0].trim() : req.ip || 'unknown');
+  return `ip:${ip}`;
+}
+
+function checkAiRateLimit(bucketKey: string): { allowRequest: boolean; allowLiveGemini: boolean } {
+  const now = Date.now();
+  if (AI_RATE_BUCKETS.size > 2000) {
+    for (const [k, ts] of AI_RATE_BUCKETS.entries()) {
+      const recent = ts.filter((t) => now - t < AI_RATE_WINDOW_MS);
+      if (recent.length === 0) AI_RATE_BUCKETS.delete(k);
+      else AI_RATE_BUCKETS.set(k, recent);
+    }
+  }
+  const existing = (AI_RATE_BUCKETS.get(bucketKey) || []).filter((t) => now - t < AI_RATE_WINDOW_MS);
+  const lastMinuteCount = existing.filter((t) => now - t < 60 * 1000).length;
+  if (lastMinuteCount >= AI_MAX_TOTAL_BURST_PER_MIN) {
+    AI_RATE_BUCKETS.set(bucketKey, existing);
+    return { allowRequest: false, allowLiveGemini: false };
+  }
+  const allowLiveGemini = existing.length < AI_MAX_LIVE_CALLS_PER_WINDOW;
+  existing.push(now);
+  AI_RATE_BUCKETS.set(bucketKey, existing);
+  return { allowRequest: true, allowLiveGemini };
+}
+
 router.post('/ai/help', async (req: Request, res: Response) => {
   const { question, history } = req.body;
-  if (!question || typeof question !== 'string') {
+  if (!question || typeof question !== 'string' || !question.trim()) {
     return res.status(400).json({ error: 'Question is required' });
   }
 
-  const cleanQuestion = question.trim().slice(0, 800);
-  const geminiApiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || '').trim();
+  const cleanQuestion = question.trim().slice(0, 1200);
+  const normalizedQ = cleanQuestion.toLowerCase().replace(/\s+/g, ' ');
+  const sessionUser = req.session?.user;
+  const bucketKey = getClientBucketKey(req);
+  const rate = checkAiRateLimit(bucketKey);
 
-  // Try live Gemini 3.8 Flash model if API key is present
-  if (geminiApiKey) {
-    try {
-      const ai = new GoogleGenAI({
-        apiKey: geminiApiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
-        }
-      });
+  if (!rate.allowRequest) {
+    return res.status(429).json({
+      error: 'Too many requests in a short time. Please wait a minute before asking another question.'
+    });
+  }
 
-      const chatContents: any[] = [];
-      if (Array.isArray(history)) {
-        for (const h of history.slice(-6)) {
-          if (h && (h.role === 'user' || h.role === 'model')) {
-            chatContents.push({ role: h.role, parts: [{ text: String(h.text || '') }] });
-          }
-        }
+  // Sanitize multi-turn history: Gemini requires alternating user -> model turns starting with 'user'
+  const sanitizedHistory: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
+  if (Array.isArray(history)) {
+    for (const h of history.slice(-16)) {
+      if (!h || (h.role !== 'user' && h.role !== 'model')) continue;
+      const text = String(h.text || '').trim();
+      if (!text) continue;
+      // Drop leading model greeting(s) before the first user turn
+      if (sanitizedHistory.length === 0 && h.role === 'model') continue;
+      const last = sanitizedHistory[sanitizedHistory.length - 1];
+      if (last && last.role === h.role) {
+        last.parts[0].text += `\n\n${text}`;
+      } else {
+        sanitizedHistory.push({ role: h.role, parts: [{ text }] });
       }
-      chatContents.push({ role: 'user', parts: [{ text: cleanQuestion }] });
-
-      const aiRes = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: chatContents,
-        config: {
-          systemInstruction: VECTOS_SYSTEM_INSTRUCTION,
-        }
-      });
-
-      if (aiRes.text && aiRes.text.trim().length > 15) {
-        return res.json({ success: true, reply: aiRes.text.trim() });
-      }
-    } catch (err: any) {
-      console.warn('Gemini 3.8 Flash live call note (falling back to built-in Customer Care Knowledge Engine):', err?.message || err);
+    }
+    // Chat history passed to ai.chats.create should end with a 'model' turn before sendMessage()
+    while (sanitizedHistory.length > 0 && sanitizedHistory[sanitizedHistory.length - 1].role === 'user') {
+      sanitizedHistory.pop();
     }
   }
 
-  // Built-in Encyclopedic Customer Care Knowledge Engine
-  // Delivers instant, comprehensive, empathetic, customer-oriented answers even if Gemini API key is absent or offline
-  const reply = getVectOSKnowledgeResponse(cleanQuestion, history);
+  // 1. Zero-Token Shortcut for preset Suggested Quick Questions & simple greetings
+  const isSimpleGreeting =
+    sanitizedHistory.length === 0 &&
+    /^(muraho|bite|mwaramutse|mwiriwe|hello|hi|hey|good morning|good afternoon|good evening|bonjour|salut)\b/i.test(normalizedQ) &&
+    normalizedQ.length < 30;
+
+  if (PRESET_HELP_QUESTIONS.has(normalizedQ) || isSimpleGreeting) {
+    const reply = getVectOSKnowledgeResponse(cleanQuestion, history, sessionUser);
+    return res.json({ success: true, reply });
+  }
+
+  // 2. Bounded In-Memory Cache for identical single-turn questions
+  const cacheKey = `${sessionUser?.role || 'guest'}:${normalizedQ}`;
+  if (sanitizedHistory.length === 0) {
+    const cached = AI_FAQ_CACHE.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json({ success: true, reply: cached.reply });
+    }
+  }
+
+  const geminiApiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || '').trim();
+
+  if (geminiApiKey && rate.allowLiveGemini) {
+    const ai = new GoogleGenAI({
+      apiKey: geminiApiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+
+    const systemInstruction = VECTOS_SYSTEM_INSTRUCTION + buildUserContextNote(sessionUser);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const chat = ai.chats.create({
+          model: 'gemini-4-hydrogen',
+          history: sanitizedHistory,
+          config: {
+            systemInstruction,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          }
+        });
+
+        const aiRes = await chat.sendMessage({ message: cleanQuestion });
+        const replyText = aiRes.text?.trim();
+        if (replyText) {
+          if (sanitizedHistory.length === 0) {
+            if (AI_FAQ_CACHE.size >= 200) {
+              const oldestKey = AI_FAQ_CACHE.keys().next().value;
+              if (oldestKey) AI_FAQ_CACHE.delete(oldestKey);
+            }
+            AI_FAQ_CACHE.set(cacheKey, {
+              reply: replyText,
+              expiresAt: Date.now() + AI_CACHE_TTL_MS
+            });
+          }
+          return res.json({ success: true, reply: replyText });
+        }
+      } catch (err: any) {
+        const msg = err?.message || String(err);
+        console.warn(`VectOS AI Help Gemini attempt ${attempt + 1} note:`, msg);
+        // Retry once on transient network/5xx/429 errors
+        if (attempt === 0 && !/API_KEY_INVALID|PERMISSION_DENIED|NOT_FOUND/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 350));
+          continue;
+        }
+        break;
+      }
+    }
+  }
+
+  // 3. Fallback Knowledge Engine when rate-limited, offline, or API key unavailable
+  const reply = getVectOSKnowledgeResponse(cleanQuestion, history, sessionUser);
   return res.json({ success: true, reply });
 });
 

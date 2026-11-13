@@ -286,6 +286,7 @@ async function initSqlJsSchema(): Promise<void> {
       email TEXT,
       address TEXT,
       credit_balance REAL DEFAULT 0.0,
+      store_credit REAL DEFAULT 0.0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -420,6 +421,20 @@ async function initSqlJsSchema(): Promise<void> {
       status TEXT NOT NULL,
       provider TEXT NOT NULL,
       metadata TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS customer_credit_ledger (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+      amount REAL NOT NULL,
+      entry_type TEXT NOT NULL,
+      payment_method TEXT,
+      reference_no TEXT,
+      notes TEXT,
+      recorded_by INTEGER REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -710,6 +725,20 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_by INTEGER;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_at TIMESTAMP WITH TIME ZONE;`,
     `ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_fulfillment_status_check;`,
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS store_credit NUMERIC(15,2) DEFAULT 0.0;`,
+    `CREATE TABLE IF NOT EXISTS customer_credit_ledger (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+      amount NUMERIC(15,2) NOT NULL,
+      entry_type VARCHAR(50) NOT NULL CHECK(entry_type IN ('credit_added', 'credit_used', 'credit_payout', 'bulk_payment')),
+      payment_method VARCHAR(50),
+      reference_no VARCHAR(255),
+      notes TEXT,
+      recorded_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`

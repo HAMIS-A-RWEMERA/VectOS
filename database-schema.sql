@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS customers (
   email VARCHAR(255),
   address TEXT,
   credit_balance NUMERIC(15,2) DEFAULT 0.0,
+  store_credit NUMERIC(15,2) DEFAULT 0.0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -227,6 +228,21 @@ CREATE TABLE IF NOT EXISTS "session" (
 );
 
 CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+
+-- 15. CUSTOMER CREDIT LEDGER (Bulk payments & store credit owed to clients)
+CREATE TABLE IF NOT EXISTS customer_credit_ledger (
+  id SERIAL PRIMARY KEY,
+  shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  amount NUMERIC(15,2) NOT NULL,
+  entry_type VARCHAR(50) NOT NULL CHECK(entry_type IN ('credit_added', 'credit_used', 'credit_payout', 'bulk_payment')),
+  payment_method VARCHAR(50),
+  reference_no VARCHAR(255),
+  notes TEXT,
+  recorded_by INTEGER REFERENCES users(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Unique constraints for multi-tenant data integrity
 CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;
