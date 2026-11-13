@@ -45,6 +45,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [installed, setInstalled] = useState(false);
+  const [showInstallHint, setShowInstallHint] = useState(false);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -66,7 +67,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) {
-      alert('To install on your mobile device:\n\n• On iPhone/iPad (Safari): Tap the Share button (square with arrow) and select "Add to Home Screen".\n• On Android (Chrome): Tap the three dots menu and select "Install app" or "Add to Home Screen".');
+      setShowInstallHint((prev) => !prev);
       return;
     }
     deferredPrompt.prompt();
@@ -74,6 +75,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
     if (outcome === 'accepted') {
       setIsInstallable(false);
       setInstalled(true);
+      setShowInstallHint(false);
     }
     setDeferredPrompt(null);
   };
@@ -138,7 +140,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
 
       if ((res as any).pendingApproval) {
         setSuccessMsg(
-          '🎉 Store registered successfully! Your account is queued for review by Platform SuperAdmin (Big Boss - rwemera30@gmail.com). You will receive full access once approved.'
+          'Store registered successfully! Your account is waiting for approval by the Platform Administrator (rwemera30@gmail.com). You will receive full access once approved.'
         );
         setRegStoreName('');
         setRegOwnerName('');
@@ -166,8 +168,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 mx-auto flex items-center justify-center shadow-xl shadow-amber-500/20 text-slate-950 font-black text-2xl">
             V
           </div>
-          <h2 className="text-xl font-bold text-white font-display">VectOS Retail ERP</h2>
-          <p className="text-xs text-slate-400">Operating System for Hardware & Electronics Depots • Rwanda</p>
+          <h2 className="text-xl font-bold text-white font-display">VectOS Store Manager</h2>
+          <p className="text-xs text-slate-400">Sales, Stock & Receipts for Hardware & Electronics Shops</p>
         </div>
 
         {/* Tab Toggle: Sign In vs Register Store */}
@@ -250,7 +252,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 mt-4 cursor-pointer disabled:opacity-50"
             >
-              <span>{loading ? 'Authenticating...' : 'Sign In to Store'}</span>
+              <span>{loading ? 'Signing in...' : 'Sign In to Store'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -410,15 +412,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
         </div>
 
         {/* PWA / Download & Add to Home Screen Option */}
-        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 pt-1">
-          <button
-            type="button"
-            onClick={handleInstallClick}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
-          >
-            <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-            <span>{installed ? '✓ App Installed' : 'Install / Add to Home Screen'}</span>
-          </button>
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400">
+            <button
+              type="button"
+              onClick={handleInstallClick}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-amber-400" />
+              <span>{installed ? '✓ App Installed' : 'Install / Add to Home Screen'}</span>
+            </button>
+          </div>
+          {showInstallHint && (
+            <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 space-y-1">
+              <p className="font-semibold text-amber-300">How to add this shop app to your phone:</p>
+              <p>• <strong>iPhone / iPad (Safari):</strong> Tap the Share icon and choose &ldquo;Add to Home Screen&rdquo;.</p>
+              <p>• <strong>Android (Chrome):</strong> Tap the three-dot menu and choose &ldquo;Install app&rdquo; or &ldquo;Add to Home Screen&rdquo;.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

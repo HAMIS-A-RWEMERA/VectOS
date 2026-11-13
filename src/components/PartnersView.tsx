@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PartnerShop, User } from '../types';
 import { api } from '../services/api';
+import { hasPermission } from '../utils/permissions';
 import { 
   Handshake, 
   Plus, 
@@ -81,27 +82,29 @@ export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Partner Hardware Network & Borrowing
+              Partner Shops
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {partners.length} Partner Stores
+              {partners.length} Partner Shops
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Cross-store borrowing and consignment fulfillment with neighboring Kigali hardware retailers.
+            Neighboring shops you borrow stock from or share items with when out of stock.
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setModalError('');
-            setIsAddModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Partner Hardware</span>
-        </button>
+        {hasPermission(user, 'can_manage_partners') && (
+          <button
+            onClick={() => {
+              setModalError('');
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Partner Shop</span>
+          </button>
+        )}
       </div>
 
       {/* Partners Grid */}
@@ -161,7 +164,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Add Peer Partner Hardware Store</h3>
+              <h3 className="text-base font-bold text-white">Add Partner Shop</h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 

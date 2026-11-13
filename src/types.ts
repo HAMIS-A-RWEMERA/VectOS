@@ -69,7 +69,7 @@ export interface Product {
   barcode?: string | null;
   category: string;
   unit: string;
-  buying_price: number;
+  buying_price: number | null;
   selling_price?: number;
   quantity: number;
   low_stock_threshold: number;
@@ -115,10 +115,10 @@ export interface OrderItem {
   product_sku?: string;
   product_unit?: string;
   quantity: number;
-  buying_price: number;
+  buying_price: number | null;
   selling_price: number;
   subtotal: number;
-  profit: number;
+  profit: number | null;
   fulfillment_source?: string;
   item_status?: 'pending_store' | 'approved' | 'rejected' | 'partner_fulfilled' | 'unavailable';
   rejection_reason?: string;
@@ -150,8 +150,8 @@ export interface Order {
   total_amount: number;
   paid_amount: number;
   debt_amount: number;
-  payment_status: 'paid' | 'partial' | 'unpaid';
-  fulfillment_status: 'pending_store' | 'approved' | 'dispatched' | 'completed' | 'rejected';
+  payment_status: 'pending' | 'paid' | 'partial' | 'debt' | 'unpaid';
+  fulfillment_status: 'pending_store' | 'approved' | 'dispatched' | 'completed' | 'rejected' | 'cancelled';
   status?: string;
   notes?: string;
   created_at: string;
@@ -218,6 +218,8 @@ export interface DashboardStats {
   customerCount: number;
   totalReceivables: number;
   lowStockCount: number;
+  pendingPaymentCount?: number;
+  pendingStoreCount?: number;
   lowStockProducts: Product[];
   recentOrders: Order[];
   stockLocations: StockLocation[];
@@ -226,8 +228,8 @@ export interface DashboardStats {
 }
 
 export interface ReportSummary {
-  categorySales: { category: string; revenue: number; profit: number; units_sold: number }[];
-  topSellingProducts: { name: string; sku: string; category: string; total_units_sold: number; total_revenue: number; total_profit: number }[];
+  categorySales: { category: string; revenue: number; profit: number | null; units_sold: number }[];
+  topSellingProducts: { name: string; sku: string; category: string; total_units_sold: number; total_revenue: number; total_profit: number | null }[];
   salespersonPerformance: { name: string; email: string; total_orders: number; total_sales: number }[];
   auditLogs: { id: number; action: string; details: string; ip_address: string; created_at: string; user_name?: string; user_role?: string }[];
 }

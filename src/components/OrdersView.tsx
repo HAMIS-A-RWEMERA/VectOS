@@ -19,9 +19,11 @@ import {
   Building,
   Plus,
   Download,
-  Edit3
+  Edit3,
+  Ban
 } from 'lucide-react';
 import { EditOrderModal } from './EditOrderModal';
+import { hasPermission } from '../utils/permissions';
 
 interface OrdersViewProps {
   user: User | null;
@@ -69,6 +71,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [releaseSelection, setReleaseSelection] = useState<Record<number, { checked: boolean; releaseQty: number }>>({});
   const [isReleasingItems, setIsReleasingItems] = useState(false);
   const [isReleaseConfirmOpen, setIsReleaseConfirmOpen] = useState(false);
+  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [isVoiding, setIsVoiding] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const handledInitialOrderRef = useRef<number | null>(null);
   const handledInitialEditRef = useRef<number | null>(null);
@@ -99,6 +104,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   };
 
   const handleToggleReleaseItem = (itemId: number) => {
+    if (!canReleaseStock || selectedOrder?.fulfillment_status === 'cancelled') return;
     setReleaseSelection(prev => {
       const current = prev[itemId] || { checked: true, releaseQty: 1 };
       return {
@@ -190,9 +196,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     await executeSelectiveRelease(updateReceipt);
   };
 
-  const canProcessPayments = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_process_payments);
-  const canReleaseStock = user?.role === 'storekeeper' || user?.role === 'manager' || user?.role === 'superadmin' || Boolean(user?.can_release_stock);
-  const canPrintReceipt = user?.role === 'accountant' || user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'cashier' || Boolean(user?.can_print_full_receipt);
+  const canCreateOrders = hasPermission(user, 'can_create_orders');
+  const canProcessPayments = hasPermission(user, 'can_process_payments');
+  const canReleaseStock = hasPermission(user, 'can_release_stock');
+  const canPrintReceipt = hasPermission(user, 'can_print_full_receipt');
+  const canPrintDeliveryNote = hasPermission(user, 'can_print_delivery_note');
+  const canVoidOrders = hasPermission(user, 'can_void_orders');
+  const canEditAnyOrder = canCreateOrders || canProcessPayments;
 
   useEffect(() => {
     if (user) {
@@ -201,7 +211,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         handleViewOrder(selectedOrder.id);
       }
     }
-  }, [user, statusFilter, period, refreshTrigger]);
+  }, [user, period, refreshTrigger]);
 
   useEffect(() => {
     if (initialSelectedOrderId && handledInitialOrderRef.current !== initialSelectedOrderId) {
@@ -213,19 +223,21 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   useEffect(() => {
     if (initialEditOrderId && handledInitialEditRef.current !== initialEditOrderId) {
       handledInitialEditRef.current = initialEditOrderId;
-      api.getOrderDetail(initialEditOrderId).then(res => {
-        if (res && res.order) {
-          setEditingOrder({ ...res.order, items: res.items || [] });
-        }
-      }).catch(err => console.error('Auto-edit load error:', err));
+      if (canEditAnyOrder) {
+        api.getOrderDetail(initialEditOrderId).then(res => {
+          if (res && res.order && res.order.fulfillment_status !== 'cancelled') {
+            setEditingOrder({ ...res.order, items: res.items || [] });
+          }
+        }).catch(err => console.error('Auto-edit load error:', err));
+      }
     }
-  }, [initialEditOrderId]);
+  }, [initialEditOrderId, canEditAnyOrder]);
 
   const fetchOrders = async () => {
     try {
       setLoading(true);
       const res = await api.getOrders({
-        status: statusFilter,
+        status: 'all',
         period,
         limit: 1000
       });
@@ -331,9 +343,45 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     }
   };
 
+  const handleVoidOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrder) return;
+    try {
+      setIsVoiding(true);
+      setActionFeedback(null);
+      const res = await api.voidOrder(selectedOrder.id, voidReason.trim());
+      setIsVoidModalOpen(false);
+      setVoidReason('');
+      if (res && res.order) {
+        handleOrderUpdated(res.order);
+        setActionFeedback({ type: 'success', message: res.message || `Order #${selectedOrder.order_number} cancelled and stock restored.` });
+      }
+    } catch (err: any) {
+      setIsVoidModalOpen(false);
+      setActionFeedback({ type: 'error', message: err.message || 'Failed to cancel order.' });
+    } finally {
+      setIsVoiding(false);
+    }
+  };
+
   const formatRwf = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
+  const queueCounts = {
+    all: orders.length,
+    waiting_payment: orders.filter(o => Number(o.debt_amount || 0) > 0 && o.fulfillment_status !== 'cancelled').length,
+    pending_store: orders.filter(o => o.fulfillment_status === 'pending_store').length,
+    released: orders.filter(o => o.fulfillment_status === 'approved' || o.fulfillment_status === 'dispatched').length,
+    completed: orders.filter(o => o.fulfillment_status === 'completed').length,
+    cancelled: orders.filter(o => o.fulfillment_status === 'cancelled').length,
+  };
+
   const filteredOrders = orders.filter((ord) => {
+    if (statusFilter === 'waiting_payment' && !(Number(ord.debt_amount || 0) > 0 && ord.fulfillment_status !== 'cancelled')) return false;
+    if (statusFilter === 'pending_store' && ord.fulfillment_status !== 'pending_store') return false;
+    if (statusFilter === 'released' && !(ord.fulfillment_status === 'approved' || ord.fulfillment_status === 'dispatched')) return false;
+    if (statusFilter === 'completed' && ord.fulfillment_status !== 'completed') return false;
+    if (statusFilter === 'cancelled' && ord.fulfillment_status !== 'cancelled') return false;
+
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
     return (
@@ -350,14 +398,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Orders, Invoices & Transactions
+              Orders & Receipts
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {filteredOrders.length} Records ({getPeriodLabel(period)})
+              {filteredOrders.length} Orders ({getPeriodLabel(period)})
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Complete lifecycle management: POS counter orders, warehouse approvals, and credit settlements.
+            Track customer orders, confirm payments, release items from the store, or edit receipts.
           </p>
         </div>
 
@@ -391,7 +439,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/20 border border-rose-500/30 transition"
           >
             <FileText className="w-4 h-4 text-white" />
-            <span>Export Transactions PDF</span>
+            <span>Download Orders PDF</span>
           </button>
         </div>
       </div>
@@ -413,22 +461,32 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           {/* Status Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto text-xs">
             {[
-              { id: 'all', label: 'All' },
-              { id: 'pending_store', label: 'Store Verification' },
-              { id: 'approved', label: 'Approved' },
-              { id: 'dispatched', label: 'Dispatched' },
-              { id: 'completed', label: 'Completed' },
+              { id: 'all', label: 'All', count: queueCounts.all },
+              { id: 'waiting_payment', label: 'Waiting Payment', count: queueCounts.waiting_payment },
+              { id: 'pending_store', label: 'Waiting Store', count: queueCounts.pending_store },
+              { id: 'released', label: 'Released', count: queueCounts.released },
+              { id: 'completed', label: 'Completed', count: queueCounts.completed },
+              { id: 'cancelled', label: 'Cancelled', count: queueCounts.cancelled },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setStatusFilter(tab.id)}
-                className={`px-3 py-1.5 rounded-xl whitespace-nowrap font-medium transition ${
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap font-medium transition flex items-center gap-1.5 ${
                   statusFilter === tab.id
                     ? 'bg-amber-500 text-slate-950 font-bold'
                     : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
                 }`}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                {tab.count > 0 && (
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                    statusFilter === tab.id
+                      ? 'bg-slate-950/20 text-slate-950'
+                      : 'bg-slate-800 text-slate-300'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -441,13 +499,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
               <tr>
-                <th className="py-3 px-4 font-semibold">Order Number</th>
+                <th className="py-3 px-4 font-semibold">Order #</th>
                 <th className="py-3 px-4 font-semibold">Date & Time</th>
-                <th className="py-3 px-4 font-semibold">Customer Details</th>
-                <th className="py-3 px-4 font-semibold">Total Cost</th>
-                <th className="py-3 px-4 font-semibold">Paid / Debt</th>
+                <th className="py-3 px-4 font-semibold">Customer</th>
+                <th className="py-3 px-4 font-semibold">Total</th>
+                <th className="py-3 px-4 font-semibold">Paid / Balance</th>
                 <th className="py-3 px-4 font-semibold">Payment</th>
-                <th className="py-3 px-4 font-semibold">Fulfillment Status</th>
+                <th className="py-3 px-4 font-semibold">Store Status</th>
                 <th className="py-3 px-4 font-semibold text-right">Actions</th>
               </tr>
             </thead>
@@ -491,28 +549,26 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         onClick={() => handleViewOrder(ord.id)}
                         className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-[11px] font-semibold border border-slate-700 transition"
                       >
-                        Inspect
+                        Open
                       </button>
-                      <button
-                        onClick={() => setEditingOrder(ord)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-300 text-[11px] font-semibold border border-slate-700 transition flex items-center gap-1"
-                        title="Edit Receipt / Order items (quantities, replace out-of-stock items)"
-                      >
-                        <Edit3 className="w-3 h-3 text-amber-400" />
-                        <span>Edit</span>
-                      </button>
-                      {canPrintReceipt ? (
+                      {canEditAnyOrder && ord.fulfillment_status !== 'cancelled' && (
+                        <button
+                          onClick={() => setEditingOrder(ord)}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-300 text-[11px] font-semibold border border-slate-700 transition flex items-center gap-1"
+                          title="Edit Receipt / Order items (quantities, replace out-of-stock items)"
+                        >
+                          <Edit3 className="w-3 h-3 text-amber-400" />
+                          <span>Edit</span>
+                        </button>
+                      )}
+                      {(canPrintReceipt || canPrintDeliveryNote) && (
                         <button
                           onClick={() => onPrintReceipt(ord)}
                           className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-                          title="Print Thermal POS Receipt (58mm/80mm)"
+                          title={canPrintReceipt ? 'Print Receipt / Delivery Note' : 'Print Delivery Note'}
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 italic px-1">
-                          No print
-                        </span>
                       )}
                     </div>
                   </td>
@@ -540,21 +596,36 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <span className="text-[11px] uppercase font-mono tracking-wider text-slate-400">
-                  Order Inspection Dossier
+                  Order Details
                 </span>
                 <h2 className="text-xl font-bold text-white font-mono mt-0.5">
                   {selectedOrder.order_number}
                 </h2>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setEditingOrder(selectedOrder)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-black text-xs transition shadow-md shadow-amber-500/20 active:scale-95"
-                  title="Edit items, change quantities, replace products, or modify prices"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>Edit Receipt & Items</span>
-                </button>
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                {canEditAnyOrder && selectedOrder.fulfillment_status !== 'cancelled' && (
+                  <button
+                    onClick={() => setEditingOrder(selectedOrder)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-black text-xs transition shadow-md shadow-amber-500/20 active:scale-95"
+                    title="Edit items, change quantities, replace products, or modify prices"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit Receipt & Items</span>
+                  </button>
+                )}
+                {canVoidOrders && selectedOrder.fulfillment_status !== 'cancelled' && (
+                  <button
+                    onClick={() => {
+                      setVoidReason('');
+                      setIsVoidModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-bold text-xs transition"
+                    title="Cancel order and return all stock"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Cancel Order</span>
+                  </button>
+                )}
                 <button
                   onClick={() => exportSingleOrderPdf({ order: selectedOrder, items: orderItems, payments: orderPayments, shop })}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-red-600/20 to-rose-600/20 hover:from-red-600/30 hover:to-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs transition shadow-sm"
@@ -563,11 +634,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <FileText className="w-3.5 h-3.5 text-rose-400" />
                   <span>Invoice PDF</span>
                 </button>
-                {canPrintReceipt && (
+                {(canPrintReceipt || canPrintDeliveryNote) && (
                   <button
                     onClick={() => onPrintReceipt(selectedOrder)}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-                    title="Print Thermal POS Receipt (58mm/80mm)"
+                    title={canPrintReceipt ? 'Print Thermal Receipt / Delivery Note' : 'Print Delivery Note'}
                   >
                     <Printer className="w-4 h-4" />
                   </button>
@@ -607,68 +678,141 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
             {/* Status & Quick Action Pipeline */}
             <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Current Fulfillment State:</span>
-                <span className="font-bold text-amber-400 uppercase tracking-wider font-mono">
-                  {selectedOrder.fulfillment_status.replace('_', ' ')}
-                </span>
-              </div>
+              {/* 3-Step Plain-Language Order Progress Bar */}
+              {selectedOrder.fulfillment_status === 'cancelled' ? (
+                <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-2">
+                  <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>This order was cancelled and all items were returned to stock.</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                    <p className="text-[10px] font-bold uppercase text-emerald-400">1. Ordered</p>
+                    <p className="font-semibold text-white mt-0.5 truncate">{selectedOrder.salesperson_name || 'Staff'}</p>
+                  </div>
+                  <div className={`p-2.5 rounded-xl border ${
+                    selectedOrder.payment_status === 'paid'
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : selectedOrder.payment_status === 'partial'
+                      ? 'bg-amber-500/10 border-amber-500/30'
+                      : 'bg-rose-500/10 border-rose-500/30'
+                  }`}>
+                    <p className={`text-[10px] font-bold uppercase ${
+                      selectedOrder.payment_status === 'paid'
+                        ? 'text-emerald-400'
+                        : selectedOrder.payment_status === 'partial'
+                        ? 'text-amber-400'
+                        : 'text-rose-400'
+                    }`}>
+                      2. Payment
+                    </p>
+                    <p className="font-semibold text-white mt-0.5 truncate">
+                      {selectedOrder.payment_status === 'paid'
+                        ? 'Paid'
+                        : selectedOrder.payment_status === 'partial'
+                        ? 'Partial'
+                        : selectedOrder.payment_status === 'debt'
+                        ? 'Credit'
+                        : 'Waiting Payment'}
+                    </p>
+                  </div>
+                  <div className={`p-2.5 rounded-xl border ${
+                    selectedOrder.fulfillment_status === 'pending_store'
+                      ? 'bg-amber-500/10 border-amber-500/30'
+                      : 'bg-emerald-500/10 border-emerald-500/30'
+                  }`}>
+                    <p className={`text-[10px] font-bold uppercase ${
+                      selectedOrder.fulfillment_status === 'pending_store'
+                        ? 'text-amber-400'
+                        : 'text-emerald-400'
+                    }`}>
+                      3. Store Release
+                    </p>
+                    <p className="font-semibold text-white mt-0.5 truncate">
+                      {selectedOrder.fulfillment_status === 'pending_store'
+                        ? 'Waiting Store'
+                        : selectedOrder.fulfillment_status === 'approved'
+                        ? 'Released'
+                        : selectedOrder.fulfillment_status === 'dispatched'
+                        ? 'Dispatched'
+                        : 'Completed'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Status Action Buttons */}
-              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
-                {(selectedOrder.fulfillment_status === 'pending_store' || selectedOrder.fulfillment_status === 'approved') && canReleaseStock && (
-                  <button
-                    onClick={() => handleExecuteSelectiveRelease(true)}
-                    disabled={isReleasingItems || isSubmitting}
-                    className="flex-1 py-2 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
-                    title="Release ticked items from warehouse and automatically adjust receipt and stock"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>
-                      {isReleasingItems ? 'Releasing Stock...' : 'Release Checked Products & Update Receipt'}
-                    </span>
-                  </button>
-                )}
+              {selectedOrder.fulfillment_status !== 'cancelled' && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800">
+                  {Number(selectedOrder.debt_amount || 0) > 0 && canProcessPayments && (
+                    <button
+                      onClick={() => {
+                        setPayAmount(String(selectedOrder.debt_amount));
+                        setPayRef('');
+                        setModalError('');
+                        setIsPaymentModalOpen(true);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-1.5 active:scale-95"
+                    >
+                      <DollarSign className="w-4 h-4" />
+                      <span>Confirm Payment ({formatRwf(selectedOrder.debt_amount)})</span>
+                    </button>
+                  )}
 
-                {selectedOrder.fulfillment_status === 'pending_store' && !canReleaseStock && (
-                  <div className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>Awaiting Storekeeper stock verification. Sales staff cannot release physical warehouse stock.</span>
-                  </div>
-                )}
+                  {(selectedOrder.fulfillment_status === 'pending_store' || selectedOrder.fulfillment_status === 'approved') && canReleaseStock && (
+                    <button
+                      onClick={() => handleExecuteSelectiveRelease(true)}
+                      disabled={isReleasingItems || isSubmitting}
+                      className="flex-1 py-2 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
+                      title="Release ticked items from warehouse and automatically adjust receipt and stock"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>
+                        {isReleasingItems ? 'Releasing Stock...' : 'Release Checked Products & Update Receipt'}
+                      </span>
+                    </button>
+                  )}
 
-                {selectedOrder.fulfillment_status === 'approved' && canReleaseStock && (
-                  <button
-                    onClick={() => handleUpdateStatus('dispatched')}
-                    disabled={isSubmitting}
-                    className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
-                  >
-                    <Truck className="w-4 h-4" />
-                    <span>Mark Dispatched</span>
-                  </button>
-                )}
+                  {selectedOrder.fulfillment_status === 'pending_store' && !canReleaseStock && (
+                    <div className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Waiting for Storekeeper to check and release items.</span>
+                    </div>
+                  )}
 
-                {selectedOrder.fulfillment_status === 'dispatched' && canReleaseStock && (
-                  <button
-                    onClick={() => handleUpdateStatus('completed')}
-                    disabled={isSubmitting}
-                    className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Mark Order Completed</span>
-                  </button>
-                )}
+                  {selectedOrder.fulfillment_status === 'approved' && canReleaseStock && (
+                    <button
+                      onClick={() => handleUpdateStatus('dispatched')}
+                      disabled={isSubmitting}
+                      className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
+                    >
+                      <Truck className="w-4 h-4" />
+                      <span>Mark Dispatched</span>
+                    </button>
+                  )}
 
-                {canPrintReceipt && (
-                  <button
-                    onClick={() => onPrintReceipt(selectedOrder)}
-                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 flex items-center gap-1.5"
-                  >
-                    <Printer className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Print 58/80mm Thermal Receipt</span>
-                  </button>
-                )}
-              </div>
+                  {selectedOrder.fulfillment_status === 'dispatched' && canReleaseStock && (
+                    <button
+                      onClick={() => handleUpdateStatus('completed')}
+                      disabled={isSubmitting}
+                      className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Mark Order Completed</span>
+                    </button>
+                  )}
+
+                  {(canPrintReceipt || canPrintDeliveryNote) && (
+                    <button
+                      onClick={() => onPrintReceipt(selectedOrder)}
+                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 flex items-center gap-1.5"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{canPrintReceipt ? 'Print Receipt' : 'Print Delivery Note'}</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Financial Summary */}
@@ -714,11 +858,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 )}
               </div>
 
-              {/* Immutable Chain-of-Custody Signatures */}
               <div className="p-4 rounded-xl bg-gradient-to-br from-slate-900 via-[#141A25] to-slate-900 border border-slate-800 space-y-2 text-xs">
-                <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center justify-between">
-                  <span>Audit Signatures</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 font-mono">ENFORCED</span>
+                <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                  Staff Who Handled This Order
                 </p>
                 
                 <div className="space-y-1 text-slate-300">
@@ -728,23 +870,23 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </div>
 
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Payment Approved By:</span>
+                    <span className="text-slate-400">Payment Confirmed By:</span>
                     <span className="font-semibold text-emerald-300">
                       {selectedOrder.payment_approved_by_name ? (
                         `${selectedOrder.payment_approved_by_name}`
                       ) : (
-                        <span className="text-slate-400 italic">Pending Cashier</span>
+                        <span className="text-slate-400 italic">Waiting for Cashier</span>
                       )}
                     </span>
                   </div>
 
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Stock Released By:</span>
+                    <span className="text-slate-400">Items Released By:</span>
                     <span className="font-semibold text-blue-300">
                       {selectedOrder.stock_released_by_name ? (
                         `${selectedOrder.stock_released_by_name}`
                       ) : (
-                        <span className="text-slate-400 italic">Pending Warehouse</span>
+                        <span className="text-slate-400 italic">Waiting for Storekeeper</span>
                       )}
                     </span>
                   </div>
@@ -759,14 +901,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
                       <Truck className="w-4 h-4 text-amber-400" />
-                      Warehouse Stock Release Checklist
+                      Items to Release from Store
                     </h3>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
                       {orderItems.filter(it => releaseSelection[it.id]?.checked).length} of {orderItems.length} Checked
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Tick each product physically available in warehouse. Unchecked items will be removed and auto-adjust the receipt.
+                    Tick each item that is available in the store. Unchecked items will be removed and the receipt updates automatically.
                   </p>
                 </div>
 
@@ -791,29 +933,42 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     </div>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => setEditingOrder(selectedOrder)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 transition active:scale-95"
-                    title="Edit line items, add replacement products, or adjust prices"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>Edit Receipt</span>
-                  </button>
+                  {canEditAnyOrder && selectedOrder.fulfillment_status !== 'cancelled' && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingOrder(selectedOrder)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 transition active:scale-95"
+                      title="Edit line items, add replacement products, or adjust prices"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Receipt</span>
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {Number(selectedOrder.debt_amount || 0) > 0 &&
+                selectedOrder.payment_status !== 'debt' &&
+                selectedOrder.fulfillment_status !== 'cancelled' && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    Notice: This order has <strong>{formatRwf(selectedOrder.debt_amount)}</strong> unpaid. Confirm payment with Cashier or approved credit before handing over goods.
+                  </span>
+                </div>
+              )}
 
               <div className="rounded-xl border border-slate-800 overflow-hidden bg-slate-950/50">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[10px] uppercase tracking-wider">
                     <tr>
                       <th className="p-2.5 text-center w-12">Release</th>
-                      <th className="p-2.5">Product & SKU</th>
+                      <th className="p-2.5">Product</th>
                       <th className="p-2.5 text-center">Ordered</th>
                       <th className="p-2.5 text-center">Release Qty</th>
                       <th className="p-2.5 text-right">Price</th>
                       <th className="p-2.5 text-right">Subtotal</th>
-                      <th className="p-2.5 text-center">Release Status</th>
+                      <th className="p-2.5 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-sans">
@@ -838,9 +993,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             <input
                               type="checkbox"
                               checked={isChecked}
+                              disabled={!canReleaseStock || selectedOrder.fulfillment_status === 'cancelled'}
                               onChange={() => handleToggleReleaseItem(item.id)}
-                              className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-amber-500 cursor-pointer accent-amber-500"
-                              title={isChecked ? 'Untick if item is out of stock / not released' : 'Tick to release this item'}
+                              className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-amber-500 cursor-pointer accent-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={
+                                !canReleaseStock
+                                  ? 'Only Storekeeper / authorized staff can release stock'
+                                  : isChecked
+                                  ? 'Untick if item is out of stock / not released'
+                                  : 'Tick to release this item'
+                              }
                             />
                           </td>
 
@@ -848,7 +1010,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           <td className="p-2.5">
                             <p className="font-bold text-slate-100">{item.product_name || `Item #${item.product_id}`}</p>
                             <p className="text-[10px] text-slate-400 font-mono">
-                              {item.product_sku ? `SKU: ${item.product_sku} • ` : ''}{item.product_unit || 'pcs'}
+                              {item.product_sku ? `Code: ${item.product_sku} • ` : ''}{item.product_unit || 'pcs'}
                             </p>
                           </td>
 
@@ -931,7 +1093,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   </p>
                 </div>
 
-                {canReleaseStock && (
+                {canReleaseStock && selectedOrder.fulfillment_status !== 'cancelled' && (
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -950,7 +1112,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             {/* Payment Transactions & Record Payment Button */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Payment Log</h3>
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Payment History</h3>
                 {selectedOrder.debt_amount > 0 && canProcessPayments && (
                   <button
                     onClick={() => {
@@ -961,7 +1123,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     }}
                     className="flex items-center gap-1 text-xs font-bold text-amber-400 hover:underline"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Record Settlement
+                    <Plus className="w-3.5 h-3.5" /> Add Payment
                   </button>
                 )}
               </div>
@@ -1138,11 +1300,66 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
       )}
 
+      {/* Cancel / Void Order Confirmation Modal */}
+      {isVoidModalOpen && selectedOrder && (
+        <div className="fixed inset-0 z-[95] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-rose-500/40 shadow-2xl p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-black text-white">Cancel Order {selectedOrder.order_number}?</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  All products in this order will be returned to store stock and any unpaid balance on the customer account will be cleared.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsVoidModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleVoidOrder} className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-300">Reason for Cancelling (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Customer changed mind / duplicate order"
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  className="w-full mt-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsVoidModalOpen(false)}
+                  disabled={isVoiding}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300"
+                >
+                  Keep Order
+                </button>
+                <button
+                  type="submit"
+                  disabled={isVoiding}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/30 disabled:opacity-50"
+                >
+                  {isVoiding ? 'Cancelling...' : 'Confirm Cancel Order'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Edit Order & Receipt Modal */}
       {editingOrder && (
         <EditOrderModal
           isOpen={Boolean(editingOrder)}
           order={editingOrder}
+          user={user}
           onClose={() => setEditingOrder(null)}
           onOrderUpdated={handleOrderUpdated}
         />

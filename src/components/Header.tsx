@@ -81,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
                   Rwanda
                 </span>
               </div>
-              <p className="hidden sm:block text-xs text-slate-400 font-medium">Hardware & Electronics Depot OS</p>
+              <p className="hidden sm:block text-xs text-slate-400 font-medium">Hardware & Electronics Store</p>
             </div>
           </div>
 
@@ -111,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({
               {showShopMenu && (
                 <div className="absolute left-0 mt-2 w-64 rounded-xl bg-[#161B22] border border-slate-700 shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95">
                   <div className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
-                    Switch Store Context
+                    Switch Active Shop
                   </div>
                   {availableShops.map((s) => (
                     <button
@@ -169,8 +169,8 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
           >
             <ShoppingBag className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">POS Counter</span>
-            <span className="sm:hidden">POS</span>
+            <span className="hidden sm:inline">Make a Sale</span>
+            <span className="sm:hidden">Sell</span>
           </button>
 
           {/* Theme Toggle Button */}
@@ -188,17 +188,17 @@ export const Header: React.FC<HeaderProps> = ({
               {user.role === 'superadmin' ? (
                 <>
                   <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-amber-400">Big Boss</span>
+                  <span className="text-amber-400">Platform Owner</span>
                 </>
               ) : user.role === 'platform_ops' ? (
                 <>
                   <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="text-indigo-300">VectOS Staff</span>
+                  <span className="text-indigo-300">Support Staff</span>
                 </>
               ) : (
                 <>
                   <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{user.job_title || (user.role === 'manager' ? 'Store Owner' : user.role)}</span>
+                  <span>{user.job_title || (user.role === 'manager' ? 'Store Manager' : user.role)}</span>
                 </>
               )}
             </div>

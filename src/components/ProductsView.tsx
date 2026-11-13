@@ -3,6 +3,7 @@ import { Product, User, StockLocation } from '../types';
 import { api } from '../services/api';
 import { BulkImportModal } from './BulkImportModal';
 import { AiInvoiceScannerModal } from './AiInvoiceScannerModal';
+import { hasPermission } from '../utils/permissions';
 import { 
   Package, 
   Plus, 
@@ -61,9 +62,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canManageStock = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.role === 'platform_ops' || user?.can_manage_stock;
-  const canBulkImport = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper' || user?.role === 'accountant' || user?.role === 'platform_ops' || user?.can_import_export_stock;
-  const canViewBuyingPrices = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'accountant' || user?.role === 'platform_ops' || user?.can_view_buying_prices;
+  const canManageStock = hasPermission(user, 'can_manage_stock');
+  const canBulkImport = hasPermission(user, 'can_import_export_stock');
+  const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices');
 
   useEffect(() => {
     if (user) {
@@ -133,14 +134,17 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
 
   const handleOpenEdit = (p: Product) => {
     setCurrentProduct(p);
+    const sellVal = p.selling_price && Number(p.selling_price) > 0
+      ? Number(p.selling_price)
+      : Number(p.buying_price || 0);
     setFormData({
       name: p.name,
       sku: p.sku,
       barcode: p.barcode || '',
       category: p.category,
       unit: p.unit,
-      buying_price: p.buying_price,
-      selling_price: p.buying_price > 0 ? p.buying_price : (p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : 0),
+      ...(canViewBuyingPrices ? { buying_price: Number(p.buying_price || 0) } : {}),
+      selling_price: sellVal,
       quantity: p.quantity,
       low_stock_threshold: p.low_stock_threshold,
       description: p.description || ''
@@ -161,7 +165,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
   const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.sku) {
-      setModalError('Product Name and SKU are required.');
+      setModalError('Product Name and Item Code are required.');
       return;
     }
     try {
@@ -207,7 +211,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
     }
   };
 
-  const formatRwf = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
+  const formatRwf = (val?: number | null) => `RWF ${Math.round(Number(val || 0)).toLocaleString()}`;
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-7xl mx-auto">
@@ -216,27 +220,27 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Inventory & Products
+              Products & Stock
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700">
               {products.length} Items Listed
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Manage construction supplies, electrical gear, safety stock levels, and buying prices.
+            Add items you sell, set selling prices, update stock counts, and track low-stock warnings.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
-          {canBulkImport && (
+          {canManageStock && (
             <button
               onClick={() => setIsAiScanOpen(true)}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs shadow-md transition transform active:scale-95"
-              title="Scan paper invoices, delivery receipts, or PDFs with AI"
+              title="Scan paper supplier invoices or receipts to add stock automatically"
             >
               <Sparkles className="w-4 h-4 text-indigo-400" />
-              <span className="hidden sm:inline">AI Invoice Scanner (Option 3)</span>
-              <span className="sm:hidden">AI Scan</span>
+              <span className="hidden sm:inline">Scan Supplier Invoice</span>
+              <span className="sm:hidden">Scan Invoice</span>
             </button>
           )}
 
@@ -244,11 +248,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
             <button
               onClick={() => setIsBulkImportOpen(true)}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs shadow-md transition transform active:scale-95"
-              title="Bulk import products from CSV or Excel table"
+              title="Upload products from an Excel or CSV file"
             >
               <FileSpreadsheet className="w-4 h-4 text-amber-400" />
-              <span className="hidden sm:inline">Bulk Stock Import (CSV/Excel)</span>
-              <span className="sm:hidden">Bulk Import</span>
+              <span className="hidden sm:inline">Upload Excel / CSV</span>
+              <span className="sm:hidden">Upload List</span>
             </button>
           )}
 
@@ -272,7 +276,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by product name, SKU code, or barcode..."
+              placeholder="Search by product name, item code, or barcode..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
@@ -325,21 +329,23 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
               <tr>
-                <th className="py-3 px-4 font-semibold">SKU / Code</th>
+                <th className="py-3 px-4 font-semibold">Item Code</th>
                 <th className="py-3 px-4 font-semibold">Product Name & Category</th>
                 <th className="py-3 px-4 font-semibold">Unit</th>
                 {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">Buying Cost</th>}
-                <th className="py-3 px-4 font-semibold">Suggested Selling</th>
+                <th className="py-3 px-4 font-semibold">Selling Price</th>
                 <th className="py-3 px-4 font-semibold">In Stock</th>
                 <th className="py-3 px-4 font-semibold">Status</th>
-                <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                {canManageStock && <th className="py-3 px-4 font-semibold text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filteredProducts.map((p) => {
                 const isOutOfStock = p.quantity <= 0;
                 const isLowStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
-                const sellingPrice = p.buying_price > 0 ? p.buying_price : (p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : 0);
+                const sellingPrice = p.selling_price && Number(p.selling_price) > 0
+                  ? Number(p.selling_price)
+                  : Number(p.buying_price || 0);
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-800/40 transition">
@@ -369,9 +375,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {canManageStock && (
+                    {canManageStock && (
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => handleOpenAdjust(p)}
                             className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-[11px] font-semibold border border-slate-700 transition"
@@ -379,15 +385,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                           >
                             Adjust
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleOpenEdit(p)}
-                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold border border-slate-700 transition"
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </td>
+                          <button
+                            onClick={() => handleOpenEdit(p)}
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold border border-slate-700 transition"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -438,7 +444,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">SKU Code *</label>
+                  <label className="text-xs font-semibold text-slate-300">Item Code *</label>
                   <input
                     type="text"
                     required
@@ -481,29 +487,31 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-slate-300">Buying Cost (RWF)</label>
-                  <input
-                    type="number"
-                    value={formData.buying_price}
-                    onChange={(e) => {
-                      const newBuy = Number(e.target.value);
-                      setFormData((prev) => ({
-                        ...prev,
-                        buying_price: newBuy,
-                        selling_price: newBuy
-                      }));
-                    }}
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
-                  />
-                </div>
+                {canViewBuyingPrices && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300">Buying Cost (RWF)</label>
+                    <input
+                      type="number"
+                      value={formData.buying_price ?? ''}
+                      onChange={(e) => {
+                        const newBuy = Number(e.target.value);
+                        setFormData((prev) => ({
+                          ...prev,
+                          buying_price: newBuy,
+                          selling_price: prev.selling_price ? prev.selling_price : newBuy
+                        }));
+                      }}
+                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className="text-xs font-semibold text-slate-300">Selling Price (RWF)</label>
                   <input
                     type="number"
                     value={formData.selling_price || ''}
-                    placeholder="Suggested: Equals buying cost"
+                    placeholder="Enter retail price"
                     onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
                   />
@@ -520,7 +528,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Low Stock Alert Threshold</label>
+                  <label className="text-xs font-semibold text-slate-300">Low Stock Warning Level</label>
                   <input
                     type="number"
                     value={formData.low_stock_threshold}
@@ -602,19 +610,19 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user }) => {
                   onChange={(e) => setAdjustType(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                 >
-                  <option value="purchase_restock">Supplier Shipment / Purchase Restock (+)</option>
+                  <option value="purchase_restock">New Supplier Delivery / Restock (+)</option>
                   <option value="customer_return">Customer Return (+)</option>
-                  <option value="inventory_audit">Inventory Audit Correction (+/-)</option>
-                  <option value="damaged_written_off">Damaged / Broken Goods Write-off (-)</option>
-                  <option value="theft_loss">Theft / Shrinkage Loss (-)</option>
+                  <option value="inventory_audit">Stock Count Fix (+/-)</option>
+                  <option value="damaged_written_off">Damaged / Broken Items (-)</option>
+                  <option value="theft_loss">Missing / Lost Items (-)</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Internal Audit Notes</label>
+                <label className="text-xs font-semibold text-slate-300">Notes (Optional)</label>
                 <textarea
                   rows={2}
-                  placeholder="e.g. Received shipment from Kigali Central Depot, Invoice #INV-88"
+                  placeholder="e.g. Received new cement bags from supplier"
                   value={adjustNotes}
                   onChange={(e) => setAdjustNotes(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"

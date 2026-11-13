@@ -136,6 +136,89 @@ export function extractTokenUser(req: Request): any | null {
   return verifyAuthToken(rawToken);
 }
 
+export const ALL_USER_PERMISSION_KEYS: UserPermission[] = [
+  'can_create_orders',
+  'can_process_payments',
+  'can_release_stock',
+  'can_manage_stock',
+  'can_import_export_stock',
+  'can_partner_borrow',
+  'can_view_reports',
+  'can_view_buying_prices',
+  'can_give_discounts',
+  'can_manage_users',
+  'can_print_full_receipt',
+  'can_print_delivery_note',
+  'can_manage_customers',
+  'can_manage_partners',
+  'can_void_orders',
+  'can_view_audit_trail',
+  'can_reset_passwords',
+  'can_view_all_tenants',
+  'can_manage_subscriptions',
+  'can_edit_company_settings'
+];
+
+export function hasUserPermission(user: any, permission: UserPermission): boolean {
+  if (!user) return false;
+  if (user.role === 'superadmin' || user.role === 'manager' || user.email === 'rwemera30@gmail.com') {
+    return true;
+  }
+  const val = user[permission];
+  return val === true || Number(val) === 1;
+}
+
+/**
+ * Reloads the latest role, status, and granular permission flags from the database
+ * into req.session.user so temporary duty edits by a manager take effect immediately
+ * without requiring the staff member to log out and back in.
+ */
+export async function refreshSessionUserFromDb(req: Request): Promise<any | null> {
+  if (!req.session?.user?.id) return null;
+  const userId = Number(req.session.user.id);
+  const freshUser = await queryOne<any>(
+    `SELECT u.*, s.name as shop_name, s.status as shop_status
+     FROM users u
+     LEFT JOIN shops s ON u.shop_id = s.id
+     WHERE u.id = ?`,
+    [userId]
+  );
+  if (!freshUser) return null;
+
+  // Preserve active shop_id override when superadmin switched tenant context
+  const currentSession = req.session.user;
+  const effectiveShopId = (freshUser.role === 'superadmin' || freshUser.email === 'rwemera30@gmail.com') && currentSession.shop_id
+    ? currentSession.shop_id
+    : freshUser.shop_id;
+
+  const updatedSessionUser: any = {
+    ...currentSession,
+    id: freshUser.id,
+    shop_id: effectiveShopId,
+    stock_id: freshUser.stock_id,
+    shop_name: currentSession.shop_name || freshUser.shop_name,
+    shop_status: freshUser.shop_status || currentSession.shop_status,
+    name: freshUser.name,
+    email: freshUser.email,
+    role: freshUser.role,
+    job_title: freshUser.job_title,
+    phone: freshUser.phone,
+    is_active: freshUser.is_active,
+    force_password_change: freshUser.force_password_change,
+    activation_status: freshUser.activation_status,
+    activation_note: freshUser.activation_note
+  };
+
+  for (const pk of ALL_USER_PERMISSION_KEYS) {
+    if (freshUser[pk] !== undefined) {
+      updatedSessionUser[pk] = freshUser[pk];
+    }
+  }
+
+  req.session.user = updatedSessionUser;
+  return updatedSessionUser;
+}
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   // 1. Check Authorization Bearer header or x-auth-token first (immune to Brave Shields, cookie partitioning & Vercel cold starts)
   if (!req.session?.user) {
@@ -170,10 +253,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   try {
     const userId = Number(sessionUser.id);
-    // Real-time verification for cascading suspension & activation status
+    // Real-time verification for cascading suspension, activation status & live permissions
     const dbCheck = await queryOne(`
       SELECT 
-        u.id, u.is_active, u.activation_status, u.role, u.shop_id,
+        u.*,
         s.status as shop_status, s.name as shop_name,
         (SELECT is_active FROM users WHERE shop_id = u.shop_id AND role = 'manager' LIMIT 1) as manager_active
       FROM users u
@@ -242,6 +325,24 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
         'The manager account for this depot is currently deactivated, which has temporarily locked all staff access. Please contact VectOS Platform Support.'
       );
     }
+
+    // Keep req.session.user synchronized with fresh role & granular permissions from DB
+    const syncedUser: any = {
+      ...req.session.user,
+      role: dbCheck.role,
+      job_title: dbCheck.job_title,
+      shop_id: dbCheck.shop_id,
+      stock_id: dbCheck.stock_id,
+      is_active: dbCheck.is_active,
+      activation_status: dbCheck.activation_status,
+      force_password_change: dbCheck.force_password_change
+    };
+    for (const pk of ALL_USER_PERMISSION_KEYS) {
+      if (dbCheck[pk] !== undefined) {
+        syncedUser[pk] = dbCheck[pk];
+      }
+    }
+    req.session.user = syncedUser;
 
     return next();
   } catch (err: any) {
@@ -312,7 +413,7 @@ export function requireManager(req: Request, res: Response, next: NextFunction) 
 }
 
 export function requirePermission(permission: UserPermission) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.session?.user) {
       const tokenUser = extractTokenUser(req);
       if (tokenUser) {
@@ -325,47 +426,51 @@ export function requirePermission(permission: UserPermission) {
       return handleAuthFailure(req, res, 401, 'Authentication Required', 'Please log in to continue.', '/login');
     }
 
-    const user = req.session.user;
-
-    // SuperAdmin, Store Managers, and Big Boss have full permissions
-    if (user.role === 'superadmin' || user.role === 'manager' || user.email === 'rwemera30@gmail.com') {
-      return next();
+    // Refresh permissions from DB if requireAuth hasn't already done so in this request
+    try {
+      const fresh = await refreshSessionUserFromDb(req);
+      if (fresh) {
+        req.session.user = fresh;
+      }
+    } catch {
+      // Fallback gracefully to existing session user
     }
 
-    // Check specific granular permission flag
-    if (Boolean(user[permission]) || Number(user[permission]) === 1) {
+    const user = req.session.user;
+
+    if (hasUserPermission(user, permission)) {
       return next();
     }
 
     const humanNames: Record<UserPermission, string> = {
-      can_create_orders: 'Create Orders & Negotiate Selling Prices',
-      can_process_payments: 'Process & Confirm Payments / Receivables',
-      can_release_stock: 'Storekeeper Dispatch & Stock Release',
-      can_manage_stock: 'Manage Inventory & Stock Movements',
-      can_import_export_stock: 'Bulk Excel/CSV Import & Stock Export',
-      can_partner_borrow: 'Resolve Rejected Items & Partner Shop Sourcing',
-      can_view_reports: 'Financial Reports & Profit Analytics',
-      can_view_buying_prices: 'View Purchase Costs & Wholesale Profit Margins',
-      can_give_discounts: 'Authorize Special Client Discounts & Custom Rates',
-      can_manage_users: 'Manage Staff Roles & Security Checklists',
-      can_print_full_receipt: 'Print Financial Receipts (with Prices)',
-      can_print_delivery_note: 'Print Stock Delivery Notes (Quantities Only)',
-      can_manage_customers: 'Manage Customer Profiles & Credit Balances',
-      can_manage_partners: 'Manage Partner Shops & Sourcing Accounts',
-      can_void_orders: 'Void / Cancel Sales Orders & Invoices',
-      can_view_audit_trail: 'View Internal Audit & Approvals Trail',
-      can_reset_passwords: 'Reset User Passwords & Override Credentials',
-      can_view_all_tenants: 'View Cross-Tenant Platform Overview',
-      can_manage_subscriptions: 'Manage Store Billing & Subscription Modules',
-      can_edit_company_settings: 'Edit Company Profile & TIN Configuration'
+      can_create_orders: 'Create Orders & Sales',
+      can_process_payments: 'Accept & Confirm Payments',
+      can_release_stock: 'Confirm & Release Physical Stock',
+      can_manage_stock: 'Add, Edit & Adjust Stock',
+      can_import_export_stock: 'Bulk Excel/CSV Import & Export',
+      can_partner_borrow: 'Partner Shop Borrowing',
+      can_view_reports: 'View Financial Reports & Profit Analytics',
+      can_view_buying_prices: 'View Wholesale Cost & Profit Margins',
+      can_give_discounts: 'Change Prices / Give Customer Discounts',
+      can_manage_users: 'Manage Staff Accounts & Duties',
+      can_print_full_receipt: 'Print Official Receipts (with Prices)',
+      can_print_delivery_note: 'Print Store Delivery Notes (Quantities Only)',
+      can_manage_customers: 'Manage Customers & Credit Accounts',
+      can_manage_partners: 'Manage Partner Shops',
+      can_void_orders: 'Cancel / Void Orders',
+      can_view_audit_trail: 'View Activity & Approval History',
+      can_reset_passwords: 'Reset Employee Passwords',
+      can_view_all_tenants: 'View All Store Branches',
+      can_manage_subscriptions: 'Manage Store Billing & Subscriptions',
+      can_edit_company_settings: 'Edit Store Profile & Tax Info'
     };
 
     return handleAuthFailure(
       req,
       res,
       403,
-      '403 Specific Permission Required',
-      `Your account does not currently have permission to: "${humanNames[permission]}". Please ask your store manager to tick this capability in your user profile.`
+      'Permission Required',
+      `Your account does not currently have permission to: "${humanNames[permission]}". Ask your store manager to enable this duty in Staff & Roles.`
     );
   };
 }

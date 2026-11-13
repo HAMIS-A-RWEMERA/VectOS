@@ -8,7 +8,9 @@ import {
   requireSuperAdmin, 
   requireManager, 
   requirePermission,
-  createAuthToken
+  createAuthToken,
+  hasUserPermission,
+  refreshSessionUserFromDb
 } from '../auth';
 import { throttleCheck, throttleFail, throttleClear } from '../security';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -110,7 +112,16 @@ router.get('/auth/me', async (req: Request, res: Response) => {
     });
   }
 
-  const user = req.session.user;
+  let user = req.session.user;
+  try {
+    const fresh = await refreshSessionUserFromDb(req);
+    if (fresh) {
+      user = fresh;
+    }
+  } catch (err) {
+    console.warn('Session refresh note in /auth/me:', err);
+  }
+
   let shop = null;
   const shopId = user.shop_id || (user.role === 'superadmin' ? 1 : null);
 
@@ -710,6 +721,16 @@ router.get('/dashboard/stats', requireAuth, requireTenant, async (req: Request, 
 
     const recentDaysTrend = await queryAll(recentTrendSql, [shopId]);
 
+    const pendingCountsRow = await queryOne(
+      `SELECT 
+         SUM(CASE WHEN debt_amount > 0 AND fulfillment_status != 'cancelled' THEN 1 ELSE 0 END) as pending_payment_count,
+         SUM(CASE WHEN fulfillment_status = 'pending_store' THEN 1 ELSE 0 END) as pending_store_count
+       FROM orders WHERE shop_id = ?`,
+      [shopId]
+    );
+
+    const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
+
     res.json({
       todaySales: Number(todaySalesRow?.today_sales || 0),
       todayOrderCount: Number(todaySalesRow?.today_count || 0),
@@ -717,10 +738,12 @@ router.get('/dashboard/stats', requireAuth, requireTenant, async (req: Request, 
       totalPaid: Number(totalSalesRow?.total_paid || 0),
       totalDebt: Number(totalSalesRow?.total_debt || 0),
       productCount: Number(totalProductsRow?.count || 0),
-      inventoryValue: Number(totalProductsRow?.total_inventory_value || 0),
+      inventoryValue: canViewBuying ? Number(totalProductsRow?.total_inventory_value || 0) : 0,
       customerCount: Number(totalCustomersRow?.count || 0),
       totalReceivables: Number(totalCustomersRow?.total_receivables || 0),
       lowStockCount: lowStockProducts.length,
+      pendingPaymentCount: Number(pendingCountsRow?.pending_payment_count || 0),
+      pendingStoreCount: Number(pendingCountsRow?.pending_store_count || 0),
       lowStockProducts,
       recentOrders: allOrders,
       stockLocations,
@@ -761,9 +784,11 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
     const products = await queryAll(sql, params);
     const normalizedProducts = products.map((p: any) => {
       const buyPrice = Number(p.buying_price || 0);
+      const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : buyPrice;
       return {
         ...p,
-        selling_price: buyPrice > 0 ? buyPrice : Number(p.selling_price || 0)
+        selling_price: sellPrice,
+        buying_price: hasUserPermission(req.session?.user, 'can_view_buying_prices') ? buyPrice : null
       };
     });
 
@@ -1175,11 +1200,16 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
       return res.status(404).json({ error: 'Product not found in this store' });
     }
 
-    const effectiveBuyPrice = buying_price !== undefined ? Number(buying_price) : Number(existing.buying_price || 0);
+    const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
+    const requestedBuyPrice = canViewBuying && buying_price !== undefined && buying_price !== null && buying_price !== ''
+      ? Number(buying_price)
+      : Number(existing.buying_price || 0);
     const rawSellingPrice = req.body.selling_price !== undefined ? req.body.selling_price : req.body.price;
     const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0
       ? Number(rawSellingPrice)
-      : (effectiveBuyPrice > 0 ? effectiveBuyPrice : (existing.selling_price !== undefined ? Number(existing.selling_price) : 0));
+      : (existing.selling_price !== undefined && Number(existing.selling_price) > 0
+          ? Number(existing.selling_price)
+          : (requestedBuyPrice > 0 ? requestedBuyPrice : 0));
 
     let hasSellingPrice = false;
     try {
@@ -1200,7 +1230,7 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
           barcode !== undefined ? barcode : existing.barcode,
           category || existing.category,
           unit || existing.unit,
-          buying_price !== undefined ? Number(buying_price) : existing.buying_price,
+          requestedBuyPrice,
           finalSellingPrice,
           quantity !== undefined ? Math.max(0, Number(quantity)) : existing.quantity,
           low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
@@ -1220,7 +1250,7 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
           barcode !== undefined ? barcode : existing.barcode,
           category || existing.category,
           unit || existing.unit,
-          buying_price !== undefined ? Number(buying_price) : existing.buying_price,
+          requestedBuyPrice,
           quantity !== undefined ? Math.max(0, Number(quantity)) : existing.quantity,
           low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
           description !== undefined ? description : existing.description,
@@ -1232,7 +1262,12 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
 
     await logApiAudit(req, 'PRODUCT_UPDATED', `Updated product #${productId} (${name || existing.name})`);
     const updated = await queryOne('SELECT * FROM products WHERE id = ? AND shop_id = ?', [productId, shopId]);
-    res.json({ success: true, product: updated });
+    res.json({
+      success: true,
+      product: updated
+        ? { ...updated, buying_price: canViewBuying ? updated.buying_price : null }
+        : updated
+    });
   } catch (err: any) {
     console.error('Update product error:', err);
     res.status(500).json({ error: 'Failed to update product' });
@@ -1473,8 +1508,14 @@ router.get('/orders', requireAuth, requireTenant, async (req: Request, res: Resp
     const params: any[] = [shopId];
 
     if (status && status !== 'all') {
-      sql += ` AND (o.payment_status = ? OR o.fulfillment_status = ?)`;
-      params.push(status, status);
+      if (status === 'waiting_payment') {
+        sql += ` AND o.debt_amount > 0 AND o.fulfillment_status != 'cancelled'`;
+      } else if (status === 'released') {
+        sql += ` AND o.fulfillment_status IN ('approved', 'dispatched')`;
+      } else {
+        sql += ` AND (o.payment_status = ? OR o.fulfillment_status = ?)`;
+        params.push(status, status);
+      }
     }
 
     const now = new Date();
@@ -1555,17 +1596,34 @@ router.get('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
       [orderId, shopId]
     );
 
-    res.json({ order, items, payments });
+    const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
+    const safeItems = items.map((it: any) =>
+      canViewBuying ? it : { ...it, buying_price: null, profit: null }
+    );
+
+    res.json({ order, items: safeItems, payments });
   } catch (err: any) {
     console.error('Get order detail error:', err);
     res.status(500).json({ error: 'Failed to fetch order details' });
   }
 });
 
-// Update/Edit Order & Receipt (Available to ANY authenticated staff member to adjust out-of-stock items, add new items, or fix quantities)
+// Update/Edit Order & Receipt (Requires can_create_orders or can_process_payments; payment & discount edits follow user permissions)
 router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
+  const currentUser = req.session?.user;
+
+  const canCreateOrders = hasUserPermission(currentUser, 'can_create_orders');
+  const canProcessPayments = hasUserPermission(currentUser, 'can_process_payments');
+  const canGiveDiscounts = hasUserPermission(currentUser, 'can_give_discounts');
+  const canViewBuying = hasUserPermission(currentUser, 'can_view_buying_prices');
+
+  if (!canCreateOrders && !canProcessPayments) {
+    return res.status(403).json({
+      error: 'Permission Required: Your account does not have permission to edit orders or receipts. Ask your store manager to enable this duty in Staff & Roles.'
+    });
+  }
 
   if (!orderId || isNaN(orderId)) {
     return res.status(400).json({ error: 'Valid order ID is required.' });
@@ -1583,15 +1641,23 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
     return res.status(400).json({ error: 'The order must contain at least one item.' });
   }
 
-  const currentUserId = req.session?.user?.id || 1;
-  const userName = req.session?.user?.name || 'Staff';
+  const currentUserId = currentUser?.id || 1;
+  const userName = currentUser?.name || 'Staff';
 
   try {
     const updated = await withTransaction(async () => {
       // 1. Fetch existing order
       const existingOrder = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
       if (!existingOrder) {
-        throw new Error('Order not found in this store.');
+        const err: any = new Error('Order not found in this store.');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      if (existingOrder.fulfillment_status === 'cancelled') {
+        const err: any = new Error('Cancelled/voided orders cannot be edited.');
+        err.statusCode = 400;
+        throw err;
       }
 
       // Determine valid stock location for this store
@@ -1603,6 +1669,10 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
 
       // 2. Fetch old order items
       const oldItems = await queryAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
+      const oldItemPriceByProduct = new Map<number, number>();
+      for (const oi of oldItems) {
+        oldItemPriceByProduct.set(Number(oi.product_id), Number(oi.selling_price || 0));
+      }
 
       // 3. Revert stock deductions from old items
       for (const oi of oldItems) {
@@ -1621,8 +1691,8 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
       const oldDebt = Number(existingOrder.debt_amount || 0);
       if (oldDebt > 0 && existingOrder.customer_id) {
         await execute(
-          'UPDATE customers SET credit_balance = credit_balance - ? WHERE id = ? AND shop_id = ?',
-          [oldDebt, existingOrder.customer_id, shopId]
+          `UPDATE customers SET credit_balance = CASE WHEN credit_balance >= ? THEN credit_balance - ? ELSE 0 END WHERE id = ? AND shop_id = ?`,
+          [oldDebt, oldDebt, existingOrder.customer_id, shopId]
         );
       }
 
@@ -1672,9 +1742,24 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
           throw new Error(`Invalid quantity for product "${prod.name}"`);
         }
 
-        const sellingPrice = it.selling_price !== undefined 
-          ? Number(it.selling_price) 
-          : (prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : Number(prod.buying_price || 0));
+        const catalogPrice = prod.selling_price && Number(prod.selling_price) > 0
+          ? Number(prod.selling_price)
+          : Number(prod.buying_price || 0);
+        const sellingPrice = it.selling_price !== undefined ? Number(it.selling_price) : catalogPrice;
+        if (isNaN(sellingPrice) || sellingPrice < 0) {
+          throw new Error(`Invalid unit price for product "${prod.name}"`);
+        }
+
+        const existingItemPrice = oldItemPriceByProduct.get(Number(prod.id));
+        const minAllowedPrice = existingItemPrice !== undefined ? Math.min(catalogPrice, existingItemPrice) : catalogPrice;
+        if (!canGiveDiscounts && it.selling_price !== undefined && sellingPrice < minAllowedPrice) {
+          const err: any = new Error(
+            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" below RWF ${minAllowedPrice.toLocaleString()}.`
+          );
+          err.statusCode = 403;
+          throw err;
+        }
+
         const subtotal = sellingPrice * qty;
         const profit = (sellingPrice - Number(prod.buying_price || 0)) * qty;
 
@@ -1721,12 +1806,14 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
         );
       }
 
-      // 9. Recalculate payments, debt & payment_status
-      const effectivePaid = paid_amount !== undefined 
-        ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) 
+      // 9. Recalculate payments, debt & payment_status (enforce can_process_payments on paid_amount edits)
+      const effectivePaid = canProcessPayments && paid_amount !== undefined
+        ? Math.min(totalAmount, Math.max(0, Number(paid_amount)))
         : Math.min(totalAmount, Number(existingOrder.paid_amount || 0));
       const newDebt = Math.max(0, totalAmount - effectivePaid);
-      const newPaymentStatus = newDebt === 0 ? 'paid' : (effectivePaid > 0 ? 'partial' : 'debt');
+      const newPaymentStatus = newDebt === 0
+        ? 'paid'
+        : (effectivePaid > 0 ? 'partial' : (existingOrder.payment_status === 'pending' && !canProcessPayments ? 'pending' : 'debt'));
 
       await execute(
         `UPDATE orders 
@@ -1746,10 +1833,14 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
       // 11. Fetch full updated order with items, customer and shop metadata
       const fullOrder = await queryOne(`
         SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+               p_user.name as payment_approved_by_name,
+               s_user.name as stock_released_by_name,
                stk.name as stock_name, sh.name as shop_name, sh.tin_number, sh.receipt_footer_text, sh.phone as shop_phone
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN users u ON o.salesperson_id = u.id
+        LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+        LEFT JOIN users s_user ON o.stock_released_by = s_user.id
         LEFT JOIN stocks stk ON o.stock_id = stk.id
         LEFT JOIN shops sh ON o.shop_id = sh.id
         WHERE o.id = ? AND o.shop_id = ?
@@ -1763,7 +1854,9 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
       `, [orderId]);
 
       if (fullOrder) {
-        fullOrder.items = fullItems;
+        fullOrder.items = fullItems.map((it: any) =>
+          canViewBuying ? it : { ...it, buying_price: null, profit: null }
+        );
       }
       return fullOrder;
     });
@@ -1773,13 +1866,19 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
     res.json({ success: true, order: updated, message: `Order #${updated.order_number} updated successfully.` });
   } catch (err: any) {
     console.error('Order update error:', err);
-    res.status(500).json({ error: 'Failed to update order: ' + (err.message || 'Unknown database error') });
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update order.' });
   }
 });
 
-// Create Order (POS Checkout with ATOMIC stock decrements)
+// Create Order (POS Checkout with ATOMIC stock decrements & strict permission enforcement)
 router.post('/orders', requireAuth, requireTenant, requirePermission('can_create_orders'), async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
+  const currentUser = req.session?.user;
+  const canProcessPayments = hasUserPermission(currentUser, 'can_process_payments');
+  const canGiveDiscounts = hasUserPermission(currentUser, 'can_give_discounts');
+  const canReleaseStock = hasUserPermission(currentUser, 'can_release_stock');
+  const canViewBuying = hasUserPermission(currentUser, 'can_view_buying_prices');
+
   const {
     customer_id,
     customer_name,
@@ -1788,7 +1887,8 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
     payment_method,
     paid_amount,
     notes,
-    payment_reference
+    payment_reference,
+    release_immediately
   } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -1844,11 +1944,24 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           throw new Error(`Invalid quantity for product ${prod.name}`);
         }
 
-        const sellingPrice = item.selling_price !== undefined 
-          ? Number(item.selling_price) 
-          : (prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : prod.buying_price);
+        const catalogPrice = prod.selling_price && Number(prod.selling_price) > 0
+          ? Number(prod.selling_price)
+          : Number(prod.buying_price || 0);
+        const sellingPrice = item.selling_price !== undefined ? Number(item.selling_price) : catalogPrice;
+        if (isNaN(sellingPrice) || sellingPrice < 0) {
+          throw new Error(`Invalid unit price for product ${prod.name}`);
+        }
+
+        if (!canGiveDiscounts && item.selling_price !== undefined && sellingPrice < catalogPrice) {
+          const err: any = new Error(
+            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" below RWF ${catalogPrice.toLocaleString()}.`
+          );
+          err.statusCode = 403;
+          throw err;
+        }
+
         const subtotal = sellingPrice * qty;
-        const profit = (sellingPrice - prod.buying_price) * qty;
+        const profit = (sellingPrice - Number(prod.buying_price || 0)) * qty;
 
         totalAmount += subtotal;
 
@@ -1856,7 +1969,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           product: prod,
           product_id: prod.id,
           quantity: qty,
-          buying_price: prod.buying_price,
+          buying_price: Number(prod.buying_price || 0),
           selling_price: sellingPrice,
           subtotal,
           profit,
@@ -1864,20 +1977,35 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         });
       }
 
-      const paid = paid_amount !== undefined ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) : totalAmount;
-      const debt = Math.max(0, totalAmount - paid);
-      const paymentStatus = debt === 0 ? 'paid' : (paid > 0 ? 'partial' : 'debt');
-      const fulfillmentStatus = 'pending_store';
-      const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
-      const currentUserId = req.session?.user?.id || 1;
+      let paid = 0;
+      let debt = totalAmount;
+      let paymentStatus: string = 'pending';
 
-      // 3. Insert Order Record (with payment approver if paid on creation)
+      if (canProcessPayments) {
+        paid = paid_amount !== undefined ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) : totalAmount;
+        debt = Math.max(0, totalAmount - paid);
+        paymentStatus = debt === 0 ? 'paid' : (paid > 0 ? 'partial' : 'debt');
+      } else {
+        // Order-only staff cannot accept or mark cash/MoMo as paid
+        paid = 0;
+        debt = totalAmount;
+        paymentStatus = payment_method === 'debt_credit' ? 'debt' : 'pending';
+      }
+
+      const releaseNow = Boolean(release_immediately) && canReleaseStock;
+      const fulfillmentStatus = releaseNow ? 'approved' : 'pending_store';
+      const itemStatus = releaseNow ? 'approved' : 'pending_store';
+      const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+      const currentUserId = currentUser?.id || 1;
+      const nowIso = new Date().toISOString();
+
+      // 3. Insert Order Record (with payment approver if paid on creation, and stock releaser if immediate)
       const orderRes = await execute(
         `INSERT INTO orders (
           shop_id, stock_id, order_number, customer_id, salesperson_id,
           total_amount, paid_amount, debt_amount, payment_status, fulfillment_status,
-          notes, payment_approved_by, payment_approved_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          notes, payment_approved_by, payment_approved_at, stock_released_by, stock_released_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           shopId,
           1,
@@ -1891,7 +2019,9 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           fulfillmentStatus,
           notes || null,
           paid > 0 ? currentUserId : null,
-          paid > 0 ? new Date().toISOString() : null
+          paid > 0 ? nowIso : null,
+          releaseNow ? currentUserId : null,
+          releaseNow ? nowIso : null
         ]
       );
 
@@ -1901,8 +2031,8 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
       for (const pi of parsedItems) {
         await execute(
           `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_store')`,
-          [orderId, pi.product_id, pi.quantity, pi.buying_price, pi.selling_price, pi.subtotal, pi.profit, pi.fulfillment_source]
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [orderId, pi.product_id, pi.quantity, pi.buying_price, pi.selling_price, pi.subtotal, pi.profit, pi.fulfillment_source, itemStatus]
         );
 
         // Strict Atomic Stock Check & Decrement
@@ -1925,7 +2055,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         );
       }
 
-      // 5. Insert Payment Record
+      // 5. Insert Payment Record (only if canProcessPayments and paid > 0)
       if (paid > 0) {
         await execute(
           `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
@@ -1949,17 +2079,25 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         );
       }
 
-      return { orderId, orderNumber, totalAmount, paid, debt };
+      return { orderId, orderNumber, totalAmount, paid, debt, releaseNow };
     });
 
-    await logApiAudit(req, 'ORDER_CREATED', `Salesperson ${req.session?.user?.name || 'Staff'} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? 'RWF ' + result.paid.toLocaleString() + ' paid' : 'Unpaid'})`);
+    await logApiAudit(
+      req,
+      'ORDER_CREATED',
+      `Staff ${currentUser?.name || 'Staff'} created Order #${result.orderNumber} for RWF ${result.totalAmount.toLocaleString()} (${result.paid > 0 ? 'RWF ' + result.paid.toLocaleString() + ' paid' : 'Awaiting Payment'}${result.releaseNow ? ', Stock released immediately' : ''})`
+    );
 
     const createdOrder = await queryOne(`
       SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+             p_user.name as payment_approved_by_name,
+             s_user.name as stock_released_by_name,
              stk.name as stock_name, sh.name as shop_name, sh.tin_number, sh.receipt_footer_text, sh.phone as shop_phone
       FROM orders o
       LEFT JOIN customers c ON o.customer_id = c.id
       LEFT JOIN users u ON o.salesperson_id = u.id
+      LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+      LEFT JOIN users s_user ON o.stock_released_by = s_user.id
       LEFT JOIN stocks stk ON o.stock_id = stk.id
       LEFT JOIN shops sh ON o.shop_id = sh.id
       WHERE o.id = ? AND o.shop_id = ?
@@ -1973,13 +2111,15 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
     `, [result.orderId]);
 
     if (createdOrder) {
-      createdOrder.items = createdItems;
+      createdOrder.items = createdItems.map((it: any) =>
+        canViewBuying ? it : { ...it, buying_price: null, profit: null }
+      );
     }
 
     res.json({ success: true, order: createdOrder });
   } catch (err: any) {
     console.error('Order creation error:', err);
-    res.status(400).json({ error: err.message || 'Failed to place order' });
+    res.status(err.statusCode || 400).json({ error: err.message || 'Failed to place order' });
   }
 });
 
@@ -2029,8 +2169,8 @@ router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermissio
 
       if (order.customer_id) {
         await execute(
-          `UPDATE customers SET credit_balance = MAX(0, credit_balance - ?) WHERE id = ? AND shop_id = ?`,
-          [payAmt, order.customer_id, shopId]
+          `UPDATE customers SET credit_balance = CASE WHEN credit_balance >= ? THEN credit_balance - ? ELSE 0 END WHERE id = ? AND shop_id = ?`,
+          [payAmt, payAmt, order.customer_id, shopId]
         );
       }
     });
@@ -2260,10 +2400,14 @@ router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePerm
       // Fetch full updated order
       const fullOrder = await queryOne(`
         SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+               p_user.name as payment_approved_by_name,
+               s_user.name as stock_released_by_name,
                stk.name as stock_name, sh.name as shop_name, sh.tin_number, sh.receipt_footer_text, sh.phone as shop_phone
         FROM orders o
         LEFT JOIN customers c ON o.customer_id = c.id
         LEFT JOIN users u ON o.salesperson_id = u.id
+        LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+        LEFT JOIN users s_user ON o.stock_released_by = s_user.id
         LEFT JOIN stocks stk ON o.stock_id = stk.id
         LEFT JOIN shops sh ON o.shop_id = sh.id
         WHERE o.id = ? AND o.shop_id = ?
@@ -2277,7 +2421,10 @@ router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePerm
       `, [orderId]);
 
       if (fullOrder) {
-        fullOrder.items = fullItems;
+        const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
+        fullOrder.items = fullItems.map((it: any) =>
+          canViewBuying ? it : { ...it, buying_price: null, profit: null }
+        );
       }
       return fullOrder;
     });
@@ -2292,6 +2439,112 @@ router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePerm
   } catch (err: any) {
     console.error('Release items error:', err);
     res.status(500).json({ error: 'Failed to release items: ' + (err.message || 'Unknown database error') });
+  }
+});
+
+// Void / Cancel Order (Requires can_void_orders; restores stock & clears debt balance)
+router.post('/orders/:id/void', requireAuth, requireTenant, requirePermission('can_void_orders'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const { reason } = req.body || {};
+  const currentUserId = req.session?.user?.id || 1;
+  const currentUserName = req.session?.user?.name || 'Staff';
+
+  if (!orderId || isNaN(orderId)) {
+    return res.status(400).json({ error: 'Valid order ID is required.' });
+  }
+
+  try {
+    const voidedOrder = await withTransaction(async () => {
+      const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
+      if (!order) {
+        const err: any = new Error('Order not found in this store.');
+        err.statusCode = 404;
+        throw err;
+      }
+
+      if (order.fulfillment_status === 'cancelled') {
+        const err: any = new Error('This order has already been cancelled.');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      let stockId = order.stock_id;
+      if (!stockId) {
+        const defaultStock = await queryOne<{ id: number }>('SELECT id FROM stocks WHERE shop_id = ? ORDER BY is_main DESC, id ASC LIMIT 1', [shopId]);
+        stockId = defaultStock ? defaultStock.id : 1;
+      }
+
+      const items = await queryAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
+      for (const item of items) {
+        await execute(
+          'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
+          [item.quantity, item.product_id, shopId]
+        );
+        await execute(
+          `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+           VALUES (?, ?, ?, ?, 'Return', ?, ?)`,
+          [shopId, stockId, item.product_id, item.quantity, `Order #${order.order_number} Cancelled/Voided`, currentUserId]
+        );
+      }
+
+      const debtToClear = Number(order.debt_amount || 0);
+      if (debtToClear > 0 && order.customer_id) {
+        await execute(
+          `UPDATE customers SET credit_balance = CASE WHEN credit_balance >= ? THEN credit_balance - ? ELSE 0 END WHERE id = ? AND shop_id = ?`,
+          [debtToClear, debtToClear, order.customer_id, shopId]
+        );
+      }
+
+      const voidStamp = reason ? `[Cancelled by ${currentUserName}: ${String(reason).trim()}]` : `[Cancelled by ${currentUserName}]`;
+      const newNotes = order.notes ? `${order.notes} | ${voidStamp}` : voidStamp;
+
+      await execute(
+        `UPDATE orders SET fulfillment_status = 'cancelled', notes = ? WHERE id = ? AND shop_id = ?`,
+        [newNotes, orderId, shopId]
+      );
+
+      const fullOrder = await queryOne(`
+        SELECT o.*, c.name as customer_name, c.phone as customer_phone, u.name as salesperson_name,
+               p_user.name as payment_approved_by_name,
+               s_user.name as stock_released_by_name,
+               stk.name as stock_name, sh.name as shop_name, sh.tin_number, sh.receipt_footer_text, sh.phone as shop_phone
+        FROM orders o
+        LEFT JOIN customers c ON o.customer_id = c.id
+        LEFT JOIN users u ON o.salesperson_id = u.id
+        LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
+        LEFT JOIN users s_user ON o.stock_released_by = s_user.id
+        LEFT JOIN stocks stk ON o.stock_id = stk.id
+        LEFT JOIN shops sh ON o.shop_id = sh.id
+        WHERE o.id = ? AND o.shop_id = ?
+      `, [orderId, shopId]);
+
+      const fullItems = await queryAll(`
+        SELECT oi.*, p.name as product_name, p.sku as product_sku, p.unit as product_unit
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = ?
+      `, [orderId]);
+
+      if (fullOrder) {
+        const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
+        fullOrder.items = fullItems.map((it: any) =>
+          canViewBuying ? it : { ...it, buying_price: null, profit: null }
+        );
+      }
+      return fullOrder;
+    });
+
+    await logApiAudit(req, 'ORDER_VOIDED', `Staff ${currentUserName} cancelled/voided Order #${voidedOrder.order_number}${reason ? ` (Reason: ${reason})` : ''}`);
+
+    res.json({
+      success: true,
+      order: voidedOrder,
+      message: `Order #${voidedOrder.order_number} cancelled and items returned to stock.`
+    });
+  } catch (err: any) {
+    console.error('Void order error:', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to cancel order' });
   }
 });
 
@@ -3001,19 +3254,32 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
       [shopId, ...dateParams]
     );
 
-    const auditLogs = await queryAll(
-      `SELECT a.*, u.name as user_name, u.role as user_role
-       FROM audit_logs a
-       LEFT JOIN users u ON a.user_id = u.id
-       WHERE a.shop_id = ? ORDER BY a.created_at DESC LIMIT 50`,
-      [shopId]
-    );
+    const canViewCosts = hasUserPermission(req.session.user, 'can_view_buying_prices');
+    const canViewAudit = hasUserPermission(req.session.user, 'can_view_audit_trail');
+
+    const auditLogs = canViewAudit
+      ? await queryAll(
+          `SELECT a.*, u.name as user_name, u.role as user_role
+           FROM audit_logs a
+           LEFT JOIN users u ON a.user_id = u.id
+           WHERE a.shop_id = ? ORDER BY a.created_at DESC LIMIT 50`,
+          [shopId]
+        )
+      : [];
+
+    const maskedCategorySales = canViewCosts
+      ? categorySales
+      : categorySales.map((c: any) => ({ ...c, profit: null }));
+
+    const maskedTopSelling = canViewCosts
+      ? topSellingProducts
+      : topSellingProducts.map((p: any) => ({ ...p, total_profit: null }));
 
     res.json({
       period,
       financialOverview: financialOverview || { total_orders: 0, total_revenue: 0, total_paid: 0, total_debt: 0 },
-      categorySales,
-      topSellingProducts,
+      categorySales: maskedCategorySales,
+      topSellingProducts: maskedTopSelling,
       salespersonPerformance,
       auditLogs
     });

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ReportSummary, User, Shop, AuditLogEntry } from '../types';
 import { api } from '../services/api';
 import { exportReportsPdf } from '../services/pdfExport';
+import { hasPermission } from '../utils/permissions';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -42,6 +43,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
   const [auditSearch, setAuditSearch] = useState('');
   const [selectedAction, setSelectedAction] = useState('all');
   const [auditLoading, setAuditLoading] = useState(false);
+
+  const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices');
+  const canViewAuditTrail = hasPermission(user, 'can_view_audit_trail');
 
   useEffect(() => {
     if (user) {
@@ -116,7 +120,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
     fetchAuditLogs();
   };
 
-  const formatRwf = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
+  const formatRwf = (val: number | null | undefined) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
   const getActionBadge = (action: string) => {
     if (action.includes('PAYMENT')) {
@@ -138,14 +142,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
     if (!reports) return;
     let csvContent = 'data:text/csv;charset=utf-8,';
     if (activeReportTab === 'categories') {
-      csvContent += 'Category,Revenue (RWF),Units Sold,Gross Profit (RWF)\n';
+      csvContent += canViewBuyingPrices
+        ? 'Category,Revenue (RWF),Units Sold,Gross Profit (RWF)\n'
+        : 'Category,Revenue (RWF),Units Sold\n';
       reports.categorySales.forEach(c => {
-        csvContent += `"${c.category}",${c.revenue},${c.units_sold},${c.profit}\n`;
+        csvContent += canViewBuyingPrices
+          ? `"${c.category}",${c.revenue},${c.units_sold},${c.profit ?? 0}\n`
+          : `"${c.category}",${c.revenue},${c.units_sold}\n`;
       });
     } else if (activeReportTab === 'products') {
-      csvContent += 'Product,SKU,Category,Units Sold,Revenue (RWF),Profit (RWF)\n';
+      csvContent += canViewBuyingPrices
+        ? 'Product,SKU,Category,Units Sold,Revenue (RWF),Profit (RWF)\n'
+        : 'Product,SKU,Category,Units Sold,Revenue (RWF)\n';
       reports.topSellingProducts.forEach(p => {
-        csvContent += `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold},${p.total_revenue},${p.total_profit}\n`;
+        csvContent += canViewBuyingPrices
+          ? `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold},${p.total_revenue},${p.total_profit ?? 0}\n`
+          : `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold},${p.total_revenue}\n`;
       });
     } else if (activeReportTab === 'staff') {
       csvContent += 'Staff Name,Email,Total Orders,Total Sales (RWF)\n';
@@ -184,14 +196,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Business Intelligence & Financial Reports
+              Sales & Profit Reports
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {getPeriodLabel(period)}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Category turnover, top products, cashier/storekeeper approval tracking, and immutable security trail.
+            See top-selling categories, best products, staff sales, and activity history.
           </p>
         </div>
 
@@ -275,11 +287,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-xs overflow-x-auto">
         {[
-          { id: 'categories', label: 'Sales by Category', icon: Layers },
-          { id: 'products', label: 'Top Selling Products', icon: TrendingUp },
-          { id: 'staff', label: 'Salesperson Leaderboard', icon: Award },
-          { id: 'audit', label: 'Internal Audit & Approvals Trail', icon: ShieldAlert },
-        ].map((tab) => {
+          { id: 'categories', label: 'Sales by Category', icon: Layers, visible: true },
+          { id: 'products', label: 'Top Selling Products', icon: TrendingUp, visible: true },
+          { id: 'staff', label: 'Sales by Staff', icon: Award, visible: true },
+          { id: 'audit', label: 'Staff Activity History', icon: ShieldAlert, visible: canViewAuditTrail },
+        ].filter(t => t.visible).map((tab) => {
           const Icon = tab.icon;
           const isActive = activeReportTab === tab.id;
           return (
@@ -305,10 +317,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
               <tr>
-                <th className="py-3 px-4">Hardware Department</th>
+                <th className="py-3 px-4">Category</th>
                 <th className="py-3 px-4">Units Sold</th>
-                <th className="py-3 px-4">Gross Revenue</th>
-                <th className="py-3 px-4 font-semibold">Estimated Gross Profit</th>
+                <th className="py-3 px-4">Total Sales</th>
+                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">Estimated Profit</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -320,12 +332,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                   </td>
                   <td className="py-3.5 px-4 font-mono text-slate-300">{c.units_sold.toLocaleString()} units</td>
                   <td className="py-3.5 px-4 font-mono font-bold text-slate-100">{formatRwf(c.revenue)}</td>
-                  <td className="py-3.5 px-4 font-mono font-black text-emerald-400">{formatRwf(c.profit)}</td>
+                  {canViewBuyingPrices && (
+                    <td className="py-3.5 px-4 font-mono font-black text-emerald-400">{formatRwf(c.profit)}</td>
+                  )}
                 </tr>
               ))}
               {reports.categorySales.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-400">No category sales recorded yet.</td>
+                  <td colSpan={canViewBuyingPrices ? 4 : 3} className="py-8 text-center text-slate-400">No category sales recorded yet.</td>
                 </tr>
               )}
             </tbody>
@@ -340,11 +354,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
             <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
               <tr>
                 <th className="py-3 px-4">Product Name</th>
-                <th className="py-3 px-4">SKU</th>
+                <th className="py-3 px-4">Item Code</th>
                 <th className="py-3 px-4">Category</th>
                 <th className="py-3 px-4">Units Sold</th>
-                <th className="py-3 px-4">Total Revenue</th>
-                <th className="py-3 px-4 font-semibold">Gross Profit</th>
+                <th className="py-3 px-4">Total Sales</th>
+                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">Estimated Profit</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -355,12 +369,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                   <td className="py-3.5 px-4 text-slate-300">{p.category}</td>
                   <td className="py-3.5 px-4 font-mono font-bold text-slate-200">{p.total_units_sold}</td>
                   <td className="py-3.5 px-4 font-mono font-bold text-slate-100">{formatRwf(p.total_revenue)}</td>
-                  <td className="py-3.5 px-4 font-mono font-black text-emerald-400">{formatRwf(p.total_profit)}</td>
+                  {canViewBuyingPrices && (
+                    <td className="py-3.5 px-4 font-mono font-black text-emerald-400">{formatRwf(p.total_profit)}</td>
+                  )}
                 </tr>
               ))}
               {reports.topSellingProducts.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">No product sales logged yet.</td>
+                  <td colSpan={canViewBuyingPrices ? 6 : 5} className="py-8 text-center text-slate-400">No product sales logged yet.</td>
                 </tr>
               )}
             </tbody>
@@ -374,10 +390,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
               <tr>
-                <th className="py-3 px-4">Rank & Salesperson</th>
+                <th className="py-3 px-4">Rank & Staff Name</th>
                 <th className="py-3 px-4">Email</th>
-                <th className="py-3 px-4">Completed Invoices</th>
-                <th className="py-3 px-4 font-semibold">Total Revenue Generated</th>
+                <th className="py-3 px-4">Orders</th>
+                <th className="py-3 px-4 font-semibold">Total Sales</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -450,11 +466,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
                 <tr>
-                  <th className="py-3 px-4">Timestamp</th>
+                  <th className="py-3 px-4">Date & Time</th>
                   <th className="py-3 px-4">Staff Member</th>
-                  <th className="py-3 px-4">Role / Perm</th>
-                  <th className="py-3 px-4">Action Event</th>
-                  <th className="py-3 px-4">Activity Description & Evidence</th>
+                  <th className="py-3 px-4">Role</th>
+                  <th className="py-3 px-4">Action</th>
+                  <th className="py-3 px-4">What Happened</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">

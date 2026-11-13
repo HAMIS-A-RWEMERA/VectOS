@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Order, OrderItem, Product } from '../types';
+import { Order, OrderItem, Product, User } from '../types';
 import { api } from '../services/api';
+import { hasPermission } from '../utils/permissions';
 import { 
   X, 
   Trash2, 
@@ -17,6 +18,7 @@ import {
 interface EditOrderModalProps {
   isOpen: boolean;
   order: Order | null;
+  user?: User | null;
   onClose: () => void;
   onOrderUpdated: (updatedOrder: Order) => void;
 }
@@ -36,9 +38,12 @@ interface EditableItem {
 export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   isOpen,
   order,
+  user,
   onClose,
   onOrderUpdated,
 }) => {
+  const canProcessPayments = !user || hasPermission(user, 'can_process_payments');
+  const canGiveDiscounts = !user || hasPermission(user, 'can_give_discounts');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -223,11 +228,10 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
       setLoading(true);
       setError(null);
 
-      const payload = {
+      const payload: any = {
         customer_name: customerName.trim() || 'Walk-in Client',
         customer_phone: customerPhone.trim() || '',
         notes: notes.trim() || undefined,
-        paid_amount: paidAmount,
         items: items.map(it => ({
           product_id: it.product_id,
           quantity: it.quantity,
@@ -235,6 +239,9 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
           fulfillment_source: 'Store'
         }))
       };
+      if (canProcessPayments) {
+        payload.paid_amount = paidAmount;
+      }
 
       const res = await api.updateOrder(order.id, payload);
       if (res && res.order) {
@@ -461,10 +468,19 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                         <input
                           type="number"
                           min="0"
+                          disabled={!canGiveDiscounts}
                           value={it.selling_price}
                           onChange={e => handlePriceChange(it.tempId, Math.max(0, parseFloat(e.target.value) || 0))}
-                          className="w-24 text-right py-0.5 px-1.5 rounded bg-slate-950 border border-slate-700 text-white font-mono font-bold"
+                          title={canGiveDiscounts ? 'Edit unit price' : 'Price locked — discount permission required'}
+                          className={`w-24 text-right py-0.5 px-1.5 rounded border font-mono font-bold ${
+                            canGiveDiscounts
+                              ? 'bg-slate-950 border-slate-700 text-white'
+                              : 'bg-slate-900/50 border-slate-800 text-slate-400 cursor-not-allowed'
+                          }`}
                         />
+                        {!canGiveDiscounts && (
+                          <p className="text-[9px] text-slate-400 mt-0.5">Price locked</p>
+                        )}
                       </td>
 
                       {/* Subtotal */}
@@ -499,36 +515,49 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
               <input
                 type="number"
                 min="0"
+                disabled={!canProcessPayments}
                 value={paidAmount}
                 onChange={e => setPaidAmount(Math.max(0, parseFloat(e.target.value) || 0))}
-                className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm font-mono font-bold text-emerald-400 focus:outline-none focus:border-amber-500"
+                className={`w-full px-3 py-2 rounded-lg border text-sm font-mono font-bold focus:outline-none ${
+                  canProcessPayments
+                    ? 'bg-slate-950 border-slate-700 text-emerald-400 focus:border-amber-500'
+                    : 'bg-slate-900/50 border-slate-800 text-slate-400 cursor-not-allowed'
+                }`}
               />
-              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => setPaidAmount(totalAmount)}
-                  className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition"
-                >
-                  Pay Full ({formatRwf(totalAmount)})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaidAmount(Math.min(totalAmount, Number(order.paid_amount || 0)))}
-                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[10px] font-medium transition"
-                >
-                  Original ({formatRwf(order.paid_amount || 0)})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaidAmount(0)}
-                  className="px-2 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-medium transition"
-                >
-                  Unpaid (0 RWF)
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Set to equal order total if paid in full, or enter partial deposit.
-              </p>
+              {canProcessPayments ? (
+                <>
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setPaidAmount(totalAmount)}
+                      className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition"
+                    >
+                      Pay Full ({formatRwf(totalAmount)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaidAmount(Math.min(totalAmount, Number(order.paid_amount || 0)))}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[10px] font-medium transition"
+                    >
+                      Original ({formatRwf(order.paid_amount || 0)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaidAmount(0)}
+                      className="px-2 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-medium transition"
+                    >
+                      Unpaid (0 RWF)
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Set to equal order total if paid in full, or enter partial deposit.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[10px] text-amber-400/90 mt-1.5">
+                  Only Cashier / Accountant can change the paid amount.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5 text-right flex flex-col justify-center">

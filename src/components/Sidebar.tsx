@@ -1,5 +1,6 @@
 import React from 'react';
 import { User } from '../types';
+import { hasPermission } from '../utils/permissions';
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -39,32 +40,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenMobile
 }) => {
   const isSuperAdmin = user?.role === 'superadmin' || user?.email === 'rwemera30@gmail.com';
-  const isManager = user?.role === 'manager' || isSuperAdmin;
-  const isAccountant = user?.role === 'accountant' || isManager;
-  const isStorekeeper = user?.role === 'storekeeper' || isManager;
-  const canViewReports = user?.can_view_reports || isAccountant || isManager;
-  const canManageUsers = user?.can_manage_users || isManager;
-  const canManageStock = user?.can_manage_stock || isStorekeeper || isManager;
-  const canManagePartners = user?.can_manage_partners || isManager || isAccountant;
+  const canCreateOrders = hasPermission(user, 'can_create_orders');
+  const canProcessPayments = hasPermission(user, 'can_process_payments');
+  const canReleaseStock = hasPermission(user, 'can_release_stock');
+  const canManageStock = hasPermission(user, 'can_manage_stock');
+  const canImportExportStock = hasPermission(user, 'can_import_export_stock');
+  const canViewReports = hasPermission(user, 'can_view_reports');
+  const canManageUsers = hasPermission(user, 'can_manage_users');
+  const canManagePartners = hasPermission(user, 'can_manage_partners') || hasPermission(user, 'can_partner_borrow');
+  const canManageCustomers = hasPermission(user, 'can_manage_customers');
+  const canVoidOrders = hasPermission(user, 'can_void_orders');
+
+  const canSeeProducts = canCreateOrders || canManageStock || canImportExportStock || canReleaseStock;
+  const canSeeOrders = canCreateOrders || canProcessPayments || canReleaseStock || canVoidOrders || canViewReports;
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: true },
-    { id: 'pos', label: 'POS & Counter Sales', icon: ShoppingBag, visible: true, highlight: true },
+    { id: 'dashboard', label: 'Home', icon: LayoutDashboard, visible: true },
+    { id: 'pos', label: 'Make a Sale (POS)', icon: ShoppingBag, visible: canCreateOrders, highlight: true },
     { 
       id: 'products', 
-      label: 'Products & Inventory', 
+      label: 'Products & Stock', 
       icon: Package, 
-      visible: true,
+      visible: canSeeProducts,
       badge: lowStockCount > 0 ? `${lowStockCount}` : undefined,
       badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
     },
-    { id: 'stocks', label: 'Warehouses & Stocks', icon: Boxes, visible: true },
-    { id: 'orders', label: 'Orders & Dispatch', icon: FileText, visible: true },
-    { id: 'customers', label: 'Customers & Credit', icon: Users, visible: true },
-    { id: 'partners', label: 'Partner Borrowing', icon: Handshake, visible: canManagePartners },
-    { id: 'reports', label: 'Reports & Analytics', icon: BarChart3, visible: canViewReports },
-    { id: 'users', label: 'Staff & Roles', icon: Settings, visible: canManageUsers },
-    { id: 'superadmin', label: 'Big Boss & Approvals', icon: Crown, visible: isSuperAdmin, highlight: true },
+    { id: 'stocks', label: 'Stores & Warehouses', icon: Boxes, visible: canManageStock || canReleaseStock || canCreateOrders },
+    { id: 'orders', label: 'Orders & Receipts', icon: FileText, visible: canSeeOrders },
+    { id: 'customers', label: 'Customers & Debt', icon: Users, visible: canManageCustomers || canCreateOrders || canProcessPayments },
+    { id: 'partners', label: 'Partner Shops', icon: Handshake, visible: canManagePartners },
+    { id: 'reports', label: 'Sales & Profit Reports', icon: BarChart3, visible: canViewReports },
+    { id: 'users', label: 'Staff & Duties', icon: Settings, visible: canManageUsers },
+    { id: 'superadmin', label: 'Platform Approvals', icon: Crown, visible: isSuperAdmin, highlight: true },
   ];
 
   return (
@@ -74,12 +81,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Role Context Chip */}
         <div className="p-4 border-b border-slate-800/60">
           <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Active Session</p>
-            <p className="text-sm font-bold text-slate-100 truncate mt-0.5">{user?.name || 'Authorized User'}</p>
+            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Signed In As</p>
+            <p className="text-sm font-bold text-slate-100 truncate mt-0.5">{user?.name || 'Shop Staff'}</p>
             <div className="flex items-center gap-1.5 mt-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs font-semibold text-amber-400 capitalize">
-                {isSuperAdmin ? '👑 Big Boss (SuperAdmin)' : (user?.job_title || user?.role)}
+                {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
               </span>
             </div>
           </div>
@@ -122,16 +129,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="p-3 mx-3 mb-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-xs">
             <div className="flex items-center gap-2 text-amber-400 font-bold">
               <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Low Stock Alert</span>
+              <span>Low Stock Warning</span>
             </div>
             <p className="text-[11px] text-amber-200/80 mt-1">
-              {lowStockCount} construction/tech item(s) below safety threshold.
+              {lowStockCount} item(s) running low in the store.
             </p>
             <button
               onClick={() => setActiveTab('products')}
               className="mt-2 text-[11px] font-bold text-amber-400 hover:underline inline-block"
             >
-              Review Reorder List &rarr;
+              Check Low Stock &rarr;
             </button>
           </div>
         )}
@@ -139,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* System Footer */}
         <div className="p-3 border-t border-slate-800/60 text-center text-[10px] text-slate-400">
           <p className="font-semibold text-slate-300">VectOS Kigali v3.2</p>
-          <p className="text-slate-400">Rwandan Hardware & Electronics ERP</p>
+          <p className="text-slate-400">Hardware & Electronics Store</p>
         </div>
       </aside>
 
@@ -161,8 +168,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   V
                 </div>
                 <div>
-                  <p className="font-bold text-sm text-white">VectOS Navigation</p>
-                  <p className="text-[10px] text-amber-400 font-semibold uppercase">Rwanda Depot ERP</p>
+                  <p className="font-bold text-sm text-white">VectOS Menu</p>
+                  <p className="text-[10px] text-amber-400 font-semibold uppercase">Store Management</p>
                 </div>
               </div>
               <button
@@ -177,12 +184,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Active User Session Card */}
             <div className="p-3 border-b border-slate-800/60">
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Active Session</p>
-                <p className="text-xs font-bold text-slate-100 truncate mt-0.5">{user?.name || 'Authorized User'}</p>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Signed In As</p>
+                <p className="text-xs font-bold text-slate-100 truncate mt-0.5">{user?.name || 'Shop Staff'}</p>
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-[11px] font-semibold text-amber-400 capitalize">
-                    {isSuperAdmin ? '👑 Big Boss (SuperAdmin)' : (user?.job_title || user?.role)}
+                    {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
                   </span>
                 </div>
               </div>
@@ -236,7 +243,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </a>
               <div className="text-center text-[10px] text-slate-400">
                 <p className="font-semibold text-slate-300">VectOS Kigali v3.2</p>
-                <p className="text-slate-400">Hardware & Electronics Depot OS</p>
+                <p className="text-slate-400">Hardware & Electronics Store</p>
               </div>
             </div>
           </div>
@@ -257,46 +264,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="text-[10px] mt-0.5">Home</span>
         </button>
 
-        {/* 2. POS Counter (Center highlighted action) */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('pos')}
-          className={`flex flex-col items-center justify-center py-1 px-3.5 rounded-xl transition ${
-            activeTab === 'pos'
-              ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/30'
-              : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-          }`}
-        >
-          <ShoppingBag className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5 font-bold">POS Sales</span>
-        </button>
+        {/* 2. POS Counter (Center highlighted action, only if user can create orders) */}
+        {canCreateOrders && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('pos')}
+            className={`flex flex-col items-center justify-center py-1 px-3.5 rounded-xl transition ${
+              activeTab === 'pos'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/30'
+                : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+            }`}
+          >
+            <ShoppingBag className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5 font-bold">POS Sales</span>
+          </button>
+        )}
 
         {/* 3. Products */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('products')}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl relative transition ${
-            activeTab === 'products' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Package className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5">Stock</span>
-          {lowStockCount > 0 && (
-            <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0F131A]" />
-          )}
-        </button>
+        {canSeeProducts && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('products')}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl relative transition ${
+              activeTab === 'products' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Package className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Stock</span>
+            {lowStockCount > 0 && (
+              <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0F131A]" />
+            )}
+          </button>
+        )}
 
         {/* 4. Orders */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('orders')}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition ${
-            activeTab === 'orders' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <FileText className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5">Orders</span>
-        </button>
+        {canSeeOrders && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('orders')}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition ${
+              activeTab === 'orders' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileText className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Orders</span>
+          </button>
+        )}
 
         {/* 5. More Menu */}
         <button

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, User } from '../types';
 import { api } from '../services/api';
+import { hasPermission } from '../utils/permissions';
 import { 
   Users, 
   Plus, 
@@ -32,6 +33,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user }) => {
   });
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const canManageCustomers = hasPermission(user, 'can_manage_customers');
 
   useEffect(() => {
     if (user) {
@@ -96,43 +99,45 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Customers & Credit Ledger
+              Customers & Balances
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {customers.length} Accounts
+              {customers.length} Customers
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Contractors, builders, trade partners, and store debt credit balances.
+            Regular buyers, contractors, and unpaid credit balances.
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setModalError('');
-            setIsAddModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Register New Customer</span>
-        </button>
+        {canManageCustomers && (
+          <button
+            onClick={() => {
+              setModalError('');
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Customer</span>
+          </button>
+        )}
       </div>
 
       {/* Summary KPI Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
-          <span className="text-xs font-semibold text-slate-400 uppercase">Total Clients</span>
-          <p className="text-xl font-black text-white mt-1">{customers.length} Registered</p>
+          <span className="text-xs font-semibold text-slate-400 uppercase">Total Customers</span>
+          <p className="text-xl font-black text-white mt-1">{customers.length} Saved</p>
         </div>
         <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
-          <span className="text-xs font-semibold text-slate-400 uppercase">Total Outstanding Debt</span>
+          <span className="text-xs font-semibold text-slate-400 uppercase">Total Unpaid Balance</span>
           <p className="text-xl font-black text-rose-400 font-mono mt-1">{formatRwf(totalOutstandingReceivables)}</p>
         </div>
         <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
-          <span className="text-xs font-semibold text-slate-400 uppercase">Credit Risk Status</span>
+          <span className="text-xs font-semibold text-slate-400 uppercase">Balance Tracking</span>
           <p className="text-xl font-black text-emerald-400 mt-1 flex items-center gap-1.5">
-            <ShieldCheck className="w-5 h-5" /> Healthy Ledger
+            <ShieldCheck className="w-5 h-5" /> Up to Date
           </p>
         </div>
       </div>

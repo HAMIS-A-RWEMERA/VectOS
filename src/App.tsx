@@ -18,6 +18,7 @@ import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AiHelpModal } from './components/AiHelpModal';
 import { Sparkles } from 'lucide-react';
+import { hasPermission } from './utils/permissions';
 
 export const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -146,11 +147,11 @@ export const App: React.FC = () => {
       const res = await api.switchShop(shopId);
       if (res.success) {
         setShop(res.shop);
-        showToast(`Active store context switched to ${res.shop.name}`);
+        showToast(`Switched to shop: ${res.shop.name}`);
         loadDashboardStats();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to switch shop');
+      showToast(err.message || 'Failed to switch shop');
     }
   };
 
@@ -165,12 +166,15 @@ export const App: React.FC = () => {
   };
 
   const handleOrderCompleted = (order: Order) => {
-    const canPrint = isSuperAdmin || user?.role === 'manager' || user?.role === 'accountant' || user?.role === 'cashier' || Boolean(user?.can_print_full_receipt);
-    if (canPrint) {
+    const canPrint = hasPermission(user, 'can_print_full_receipt');
+    const canTakePayment = hasPermission(user, 'can_process_payments');
+    if (canPrint && canTakePayment) {
       showToast(`Order #${order.order_number} processed! Opening receipt...`);
       setReceiptOrder(order);
+    } else if (!canTakePayment) {
+      showToast(`Order #${order.order_number} sent to Cashier for payment & Store for release!`);
     } else {
-      showToast(`Order #${order.order_number} created successfully! Sent to Storekeeper for stock release.`);
+      showToast(`Order #${order.order_number} saved and sent to Store for release.`);
     }
     loadDashboardStats();
   };
@@ -189,7 +193,7 @@ export const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 text-sm text-slate-400 font-medium">
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-            Loading VectOS Retail ERP...
+            Loading your shop...
           </div>
         </div>
       </div>
@@ -254,6 +258,12 @@ export const App: React.FC = () => {
           setActiveTab={(tab) => {
             setActiveTab(tab);
             setIsMobileMenuOpen(false);
+            // Refresh live permissions in background so manager changes take effect immediately
+            api.getMe().then(res => {
+              if (res?.user) {
+                setUser(res.user);
+              }
+            }).catch(() => {});
           }}
           user={user}
           lowStockCount={dashboardStats?.lowStockCount || 0}
@@ -266,6 +276,7 @@ export const App: React.FC = () => {
         <main className={`flex-1 overflow-y-auto min-h-0 pb-20 lg:pb-0 ${isDarkMode ? 'bg-[#090d16]' : 'bg-slate-50'}`}>
           {activeTab === 'dashboard' && (
             <DashboardView
+              user={user}
               stats={dashboardStats}
               loading={loadingDashboard}
               onNavigate={(tab) => setActiveTab(tab)}

@@ -224,6 +224,7 @@ export const api = {
     paid_amount: number;
     notes?: string;
     payment_reference?: string;
+    release_immediately?: boolean;
   }) => request<{ success: boolean; order: Order }>('/api/orders', {
     method: 'POST',
     body: JSON.stringify(orderData)
@@ -257,6 +258,11 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(data)
   }),
+  voidOrder: (orderId: number, reason?: string) =>
+    request<{ success: boolean; order: Order; message?: string }>(`/api/orders/${orderId}/void`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    }),
 
   // Customers
   getCustomers: (search = '') => request<{ customers: Customer[] }>(`/api/customers?q=${encodeURIComponent(search)}`),

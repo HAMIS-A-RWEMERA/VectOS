@@ -17,8 +17,11 @@ import {
   RotateCcw,
   Smartphone,
   Building,
-  AlertCircle
+  AlertCircle,
+  Lock,
+  PackageCheck
 } from 'lucide-react';
+import { hasPermission, isSoloAllInOneUser } from '../utils/permissions';
 
 interface CartItem {
   product: Product;
@@ -54,13 +57,13 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [lastCreatedOrder, setLastCreatedOrder] = useState<any | null>(null);
+  const [releaseImmediately, setReleaseImmediately] = useState(false);
 
-  const canPrintReceipt = !user || 
-    user.role === 'superadmin' || 
-    user.role === 'manager' || 
-    user.role === 'accountant' || 
-    user.role === 'cashier' || 
-    Boolean(user.can_print_full_receipt);
+  const canProcessPayments = hasPermission(user, 'can_process_payments');
+  const canGiveDiscounts = hasPermission(user, 'can_give_discounts');
+  const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices');
+  const canPrintReceipt = hasPermission(user, 'can_print_full_receipt');
+  const isSoloOperator = isSoloAllInOneUser(user);
 
   // Load products, categories, customers, stocks
   useEffect(() => {
@@ -105,9 +108,10 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
 
   const getCatalogPrice = (product: Product): number => {
+    const buyPrice = Number(product.buying_price || 0);
     return (product.selling_price && Number(product.selling_price) > 0)
       ? Number(product.selling_price)
-      : (product.buying_price > 0 ? Number(product.buying_price) : 1000);
+      : (buyPrice > 0 ? buyPrice : 1000);
   };
 
   // Cart operations
@@ -216,8 +220,12 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
   const openCheckout = () => {
     if (cart.length === 0) return;
-    setPaidAmount(String(cartSubtotal));
+    setPaidAmount(canProcessPayments ? String(cartSubtotal) : '0');
+    if (!canProcessPayments && paymentMethod !== 'debt_credit') {
+      setPaymentMethod('cash');
+    }
     setPaymentRef('');
+    setReleaseImmediately(false);
     setErrorMsg('');
     setIsCheckoutOpen(true);
   };
@@ -227,8 +235,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       setIsSubmitting(true);
       setErrorMsg('');
 
-      const numericPaid = Number(paidAmount) || 0;
-      if (paymentMethod !== 'debt_credit' && numericPaid <= 0 && cartSubtotal > 0) {
+      const numericPaid = canProcessPayments ? (Number(paidAmount) || 0) : 0;
+      if (canProcessPayments && paymentMethod !== 'debt_credit' && numericPaid <= 0 && cartSubtotal > 0) {
         setErrorMsg('Please specify a valid payment amount or choose Credit/Debt.');
         setIsSubmitting(false);
         return;
@@ -244,10 +252,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           selling_price: item.selling_price,
           fulfillment_source: item.fulfillment_source
         })),
-        payment_method: paymentMethod,
-        paid_amount: paymentMethod === 'debt_credit' ? 0 : Math.min(numericPaid, cartSubtotal),
-        payment_reference: paymentRef,
-        notes: orderNotes
+        payment_method: canProcessPayments
+          ? paymentMethod
+          : (paymentMethod === 'debt_credit' ? 'debt_credit' : 'cash'),
+        paid_amount: !canProcessPayments || paymentMethod === 'debt_credit'
+          ? 0
+          : Math.min(numericPaid, cartSubtotal),
+        payment_reference: canProcessPayments ? paymentRef : '',
+        notes: orderNotes,
+        release_immediately: isSoloOperator && releaseImmediately
       };
 
       const res = await api.createOrder(payload);
@@ -313,7 +326,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search by name, SKU, or barcode..."
+                placeholder="Search by item name, code, or barcode..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-12 py-2 sm:py-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition"
@@ -331,7 +344,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-amber-400 shrink-0">
               <Barcode className="w-4 h-4" />
-              <span>Scanner Ready</span>
+              <span>Barcode Ready</span>
             </div>
           </div>
 
@@ -394,7 +407,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     {p.name}
                   </h3>
                   <p className="text-[10px] sm:text-[11px] text-slate-400 font-mono mt-0.5 truncate">
-                    SKU: {p.sku}
+                    Code: {p.sku}
                   </p>
                 </div>
 
@@ -439,7 +452,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               onClick={() => setMobileTab('cart')}
               className="py-2.5 px-4 rounded-xl bg-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center gap-1.5 active:scale-95 transition"
             >
-              <span>Negotiate & Pay</span>
+              <span>{canProcessPayments ? 'Take Payment' : 'Send Order to Cashier'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -524,7 +537,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           {cart.map((item) => {
             const catalogPrice = getCatalogPrice(item.product);
             const isNegotiated = item.selling_price !== catalogPrice;
-            const isBelowCost = item.product.buying_price > 0 && item.selling_price < item.product.buying_price;
+            const buyingPriceNum = Number(item.product.buying_price || 0);
+            const isBelowCost = canViewBuyingPrices && buyingPriceNum > 0 && item.selling_price < buyingPriceNum;
             const diffPrice = item.selling_price - catalogPrice;
 
             return (
@@ -541,7 +555,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
                     <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5">
-                      <span>SKU: {item.product.sku}</span>
+                      <span>Code: {item.product.sku}</span>
                       <span>•</span>
                       <span>Stock: {item.product.quantity} {item.product.unit || 'pcs'}</span>
                     </div>
@@ -560,31 +574,42 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-                      <span>Negotiated Unit Price:</span>
+                      <span>{canGiveDiscounts ? 'Negotiated Unit Price:' : 'Unit Price:'}</span>
                     </span>
-                    {isNegotiated && (
-                      <button
-                        type="button"
-                        onClick={() => resetItemPrice(item.product.id)}
-                        className="text-[10px] text-slate-400 hover:text-amber-400 flex items-center gap-1 underline transition"
-                        title="Reset to standard catalog price"
-                      >
-                        <RotateCcw className="w-2.5 h-2.5" /> Reset
-                      </button>
+                    {!canGiveDiscounts ? (
+                      <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                        <Lock className="w-2.5 h-2.5" /> Fixed price
+                      </span>
+                    ) : (
+                      isNegotiated && (
+                        <button
+                          type="button"
+                          onClick={() => resetItemPrice(item.product.id)}
+                          className="text-[10px] text-slate-400 hover:text-amber-400 flex items-center gap-1 underline transition"
+                          title="Reset to standard catalog price"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5" /> Reset
+                        </button>
+                      )
                     )}
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <div className="relative flex-1 flex items-center bg-slate-900 rounded-lg border border-slate-700 focus-within:border-amber-500 transition px-2 py-1">
+                    <div className={`relative flex-1 flex items-center rounded-lg border px-2 py-1 transition ${
+                      canGiveDiscounts
+                        ? 'bg-slate-900 border-slate-700 focus-within:border-amber-500'
+                        : 'bg-slate-900/50 border-slate-800 opacity-75'
+                    }`}>
                       <span className="text-[11px] font-mono font-bold text-amber-400 mr-1.5 shrink-0">RWF</span>
                       <input
                         type="number"
                         min="0"
                         step="100"
+                        disabled={!canGiveDiscounts}
                         value={item.selling_price}
                         onChange={(e) => updateItemPrice(item.product.id, Number(e.target.value))}
-                        className="w-full bg-transparent text-xs font-mono font-bold text-white focus:outline-none"
-                        title="Edit agreed bargaining price per unit"
+                        className="w-full bg-transparent text-xs font-mono font-bold text-white focus:outline-none disabled:cursor-not-allowed"
+                        title={canGiveDiscounts ? 'Edit agreed bargaining price per unit' : 'Fixed catalog price (discount permission disabled)'}
                       />
                     </div>
                     <span className="text-[10px] text-slate-400 shrink-0 font-mono">
@@ -599,7 +624,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                         {diffPrice < 0 ? `Discounted -${formatRwf(Math.abs(diffPrice))}` : `Premium +${formatRwf(diffPrice)}`}
                       </span>
                     ) : (
-                      <span className="text-slate-400 font-mono">Catalog price</span>
+                      <span className="text-slate-400 font-mono">Normal price</span>
                     )}
 
                     {catalogPrice > 0 && isNegotiated && (
@@ -609,11 +634,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     )}
                   </div>
 
-                  {/* Below Cost Warning */}
+                  {/* Below Cost Warning (Only shown to users allowed to view buying prices) */}
                   {isBelowCost && (
                     <div className="text-[10px] font-semibold text-rose-300 bg-rose-950/40 border border-rose-500/30 px-2 py-0.5 rounded flex items-center gap-1">
                       <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
-                      <span>Below cost (Cost: {formatRwf(item.product.buying_price)})</span>
+                      <span>Below cost (Cost: {formatRwf(buyingPriceNum)})</span>
                     </div>
                   )}
                 </div>
@@ -680,11 +705,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               <span className="font-mono">{cart.reduce((a, b) => a + b.quantity, 0)} units</span>
             </div>
             <div className="flex justify-between text-slate-400">
-              <span>Tax (Rwandan 18% VAT included)</span>
+              <span>VAT Included (18%)</span>
               <span className="font-mono">{formatRwf(cartSubtotal * 0.18 / 1.18)}</span>
             </div>
             <div className="flex justify-between text-base font-black text-white pt-1 border-t border-slate-800">
-              <span>Payable Total</span>
+              <span>Total to Pay</span>
               <span className="text-amber-400 font-mono">{formatRwf(cartSubtotal)}</span>
             </div>
           </div>
@@ -695,7 +720,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             disabled={cart.length === 0}
             className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 transition flex items-center justify-center gap-2 active:scale-95"
           >
-            <span>Proceed to Payment</span>
+            <span>{canProcessPayments ? 'Take Payment' : 'Send Order to Cashier'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -707,8 +732,14 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-4 sm:p-6 space-y-4 sm:space-y-5 animate-in fade-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-bold text-white">Payment & Receipt Generation</h3>
-                <p className="text-xs text-slate-400">Review bargained prices & confirm transaction</p>
+                <h3 className="text-base font-bold text-white">
+                  {canProcessPayments ? 'Payment & Order Confirmation' : 'Send Order to Cashier'}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {canProcessPayments
+                    ? 'Review items, confirm payment received, and complete sale'
+                    : 'Review customer items before sending to the Cashier & Store'}
+                </p>
               </div>
               <button
                 type="button"
@@ -722,7 +753,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             {/* Total Due Banner */}
             <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
               <div>
-                <p className="text-[11px] text-slate-400 uppercase font-semibold">Total Due (Recalculated)</p>
+                <p className="text-[11px] text-slate-400 uppercase font-semibold">Total Due</p>
                 <p className="text-xl sm:text-2xl font-black text-amber-400 font-mono mt-0.5">
                   {formatRwf(cartSubtotal)}
                 </p>
@@ -735,11 +766,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               </div>
             </div>
 
-            {/* Itemized Line Items & Bargaining Editor inside Checkout Modal */}
+            {/* Itemized Line Items Review */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                  Adjust Prices of Each Item (Bargaining)
+                  {canGiveDiscounts ? 'Adjust Item Prices (Discounts)' : 'Order Items Review'}
                 </label>
                 <span className="text-[10px] text-slate-400">
                   {cart.length} item{cart.length > 1 ? 's' : ''} in order
@@ -755,21 +786,29 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
                       <p className="text-[10px] text-slate-400 font-mono">
-                        Qty: {item.quantity} • Cost: {formatRwf(item.product.buying_price)}
+                        Qty: {item.quantity}
+                        {canViewBuyingPrices && Number(item.product.buying_price || 0) > 0
+                          ? ` • Cost: ${formatRwf(Number(item.product.buying_price))}`
+                          : ''}
                       </p>
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                      <div className="flex items-center gap-1 bg-slate-950 rounded-lg border border-slate-700 px-2 py-1 focus-within:border-amber-500">
+                      <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${
+                        canGiveDiscounts
+                          ? 'bg-slate-950 border-slate-700 focus-within:border-amber-500'
+                          : 'bg-slate-950/50 border-slate-800 opacity-75'
+                      }`}>
                         <span className="text-[10px] font-bold text-amber-400">RWF</span>
                         <input
                           type="number"
                           min="0"
                           step="100"
+                          disabled={!canGiveDiscounts}
                           value={item.selling_price}
                           onChange={(e) => updateItemPrice(item.product.id, Number(e.target.value))}
-                          className="w-20 bg-transparent text-xs font-mono font-bold text-white focus:outline-none"
-                          title="Edit negotiated price for this product"
+                          className="w-20 bg-transparent text-xs font-mono font-bold text-white focus:outline-none disabled:cursor-not-allowed"
+                          title={canGiveDiscounts ? 'Edit negotiated price for this product' : 'Fixed catalog price'}
                         />
                       </div>
 
@@ -784,80 +823,147 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               </div>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-300">Select Payment Method</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {[
-                  { id: 'cash', label: 'Cash (RWF)', icon: DollarSign },
-                  { id: 'momo', label: 'MTN MoMo', icon: Smartphone },
-                  { id: 'bank_transfer', label: 'Bank / POS', icon: CreditCard },
-                  { id: 'debt_credit', label: 'Credit / Debt', icon: Building },
-                ].map((m) => {
-                  const Icon = m.icon;
-                  const isSelected = paymentMethod === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setPaymentMethod(m.id as any)}
-                      className={`p-2.5 sm:p-3 rounded-xl border text-left flex flex-col justify-between gap-1.5 sm:gap-2 transition active:scale-95 ${
-                        isSelected
-                          ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span className="text-xs">{m.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            {canProcessPayments ? (
+              <>
+                {/* Payment Method Selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-300">Select Payment Method</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { id: 'cash', label: 'Cash (RWF)', icon: DollarSign },
+                      { id: 'momo', label: 'MTN MoMo', icon: Smartphone },
+                      { id: 'bank_transfer', label: 'Bank / POS', icon: CreditCard },
+                      { id: 'debt_credit', label: 'Credit / Debt', icon: Building },
+                    ].map((m) => {
+                      const Icon = m.icon;
+                      const isSelected = paymentMethod === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setPaymentMethod(m.id as any)}
+                          className={`p-2.5 sm:p-3 rounded-xl border text-left flex flex-col justify-between gap-1.5 sm:gap-2 transition active:scale-95 ${
+                            isSelected
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                          }`}
+                        >
+                          <Icon className="w-4 h-4" />
+                          <span className="text-xs">{m.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-            {/* Paid Amount Input (Cash or Partial) */}
-            {paymentMethod !== 'debt_credit' && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300">Amount Tendered (RWF)</label>
+                {/* Paid Amount Input (Cash or Partial) */}
+                {paymentMethod !== 'debt_credit' && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-300">Amount Received (RWF)</label>
+                      <button
+                        type="button"
+                        onClick={() => setPaidAmount(String(cartSubtotal))}
+                        className="text-[10px] text-amber-400 hover:underline font-semibold"
+                      >
+                        Pay Exact Total
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      value={paidAmount}
+                      onChange={(e) => setPaidAmount(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-white focus:outline-none focus:border-amber-500"
+                    />
+                    {Number(paidAmount) > cartSubtotal && (
+                      <p className="text-xs text-emerald-400 font-semibold font-mono">
+                        Change to Return: {formatRwf(Number(paidAmount) - cartSubtotal)}
+                      </p>
+                    )}
+                    {Number(paidAmount) < cartSubtotal && Number(paidAmount) > 0 && (
+                      <p className="text-xs text-amber-400 font-semibold font-mono">
+                        Remaining Balance Due: {formatRwf(cartSubtotal - Number(paidAmount))}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Reference Number for MoMo / Bank */}
+                {(paymentMethod === 'momo' || paymentMethod === 'bank_transfer') && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-300">Transaction Reference / SMS ID</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. TXN987654321 / BK-Slip"
+                      value={paymentRef}
+                      onChange={(e) => setPaymentRef(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                )}
+
+                {/* Solo Operator Immediate Stock Release Toggle */}
+                {isSoloOperator && (
+                  <label className="flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 cursor-pointer hover:bg-emerald-500/15 transition">
+                    <input
+                      type="checkbox"
+                      checked={releaseImmediately}
+                      onChange={(e) => setReleaseImmediately(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded accent-emerald-500 cursor-pointer"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                        <PackageCheck className="w-3.5 h-3.5" />
+                        Also mark items released from store now
+                      </span>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Turn this on if you are working solo and handing the goods to the customer right now.
+                      </p>
+                    </div>
+                  </label>
+                )}
+              </>
+            ) : (
+              /* Salesperson (no payment permission) handoff choice */
+              <div className="space-y-2.5">
+                <label className="text-xs font-semibold text-slate-300">How will the customer pay?</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setPaidAmount(String(cartSubtotal))}
-                    className="text-[10px] text-amber-400 hover:underline font-semibold"
+                    onClick={() => setPaymentMethod('cash')}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition ${
+                      paymentMethod !== 'debt_credit'
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                    }`}
                   >
-                    Pay Exact Total
+                    <DollarSign className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold">Customer Pays at Cashier Desk</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Cash, MoMo, or Bank handled by Cashier</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('debt_credit')}
+                    className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition ${
+                      paymentMethod === 'debt_credit'
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    <Building className="w-4 h-4 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold">Approved Credit / Account</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Recorded on customer balance</p>
+                    </div>
                   </button>
                 </div>
-                <input
-                  type="number"
-                  value={paidAmount}
-                  onChange={(e) => setPaidAmount(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-white focus:outline-none focus:border-amber-500"
-                />
-                {Number(paidAmount) > cartSubtotal && (
-                  <p className="text-xs text-emerald-400 font-semibold font-mono">
-                    Change to Return: {formatRwf(Number(paidAmount) - cartSubtotal)}
-                  </p>
-                )}
-                {Number(paidAmount) < cartSubtotal && Number(paidAmount) > 0 && (
-                  <p className="text-xs text-amber-400 font-semibold font-mono">
-                    Remaining Debt Balance: {formatRwf(cartSubtotal - Number(paidAmount))}
-                  </p>
-                )}
-              </div>
-            )}
 
-            {/* Reference Number for MoMo / Bank */}
-            {(paymentMethod === 'momo' || paymentMethod === 'bank_transfer') && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300">Transaction Reference / SMS ID</label>
-                <input
-                  type="text"
-                  placeholder="e.g. TXN987654321 / BK-Slip"
-                  value={paymentRef}
-                  onChange={(e) => setPaymentRef(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
-                />
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Order will be sent to the Cashier for payment and to the Store for release.</span>
+                </div>
               </div>
             )}
 
@@ -868,10 +974,10 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               </div>
             )}
 
-            {!canPrintReceipt && (
+            {canProcessPayments && !canPrintReceipt && (
               <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-300 flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Order will be queued for Storekeeper dispatch and Cashier receipting.</span>
+                <span>Order will be saved and sent to Store for release.</span>
               </div>
             )}
 
@@ -890,9 +996,13 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 disabled={isSubmitting}
                 className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 active:scale-95"
               >
-                {isSubmitting 
-                  ? 'Processing...' 
-                  : (canPrintReceipt ? 'Complete & Print Thermal Receipt' : 'Create Invoice Order')}
+                {isSubmitting
+                  ? 'Processing...'
+                  : !canProcessPayments
+                  ? 'Send Order to Cashier'
+                  : canPrintReceipt
+                  ? (isSoloOperator && releaseImmediately ? 'Complete, Release & Print' : 'Complete & Print Receipt')
+                  : 'Complete Order'}
               </button>
             </div>
           </div>

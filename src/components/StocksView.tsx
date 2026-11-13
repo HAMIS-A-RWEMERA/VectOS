@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StockLocation, StockTransfer, Product, User } from '../types';
 import { api } from '../services/api';
+import { hasPermission, isFullAccessRole } from '../utils/permissions';
 import { 
   Boxes, 
   Plus, 
@@ -47,7 +48,8 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
     is_main: 0
   });
 
-  const canManage = user?.role === 'manager' || user?.role === 'superadmin' || user?.role === 'storekeeper';
+  const canTransferStock = hasPermission(user, 'can_manage_stock');
+  const canAddWarehouse = isFullAccessRole(user) || hasPermission(user, 'can_manage_users');
 
   useEffect(() => {
     if (user) {
@@ -142,41 +144,41 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Warehouses & Multi-Stock Transfers
+              Stores & Warehouses
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
               {stocks.length} Locations Active
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Inter-warehouse stock movements, central depots, and dispatch verification.
+            Manage store locations and move items between your shops or warehouses.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
-          {canManage && (
-            <>
-              <button
-                onClick={() => {
-                  setModalError('');
-                  setIsTransferModalOpen(true);
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
-              >
-                <ArrowRightLeft className="w-4 h-4" />
-                <span>Inter-Stock Transfer</span>
-              </button>
-              <button
-                onClick={() => {
-                  setModalError('');
-                  setIsAddStockModalOpen(true);
-                }}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition"
-              >
-                <Plus className="w-4 h-4 text-amber-400" />
-                <span>Add Warehouse</span>
-              </button>
-            </>
+          {canTransferStock && (
+            <button
+              onClick={() => {
+                setModalError('');
+                setIsTransferModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
+            >
+              <ArrowRightLeft className="w-4 h-4" />
+              <span>Move Stock</span>
+            </button>
+          )}
+          {canAddWarehouse && (
+            <button
+              onClick={() => {
+                setModalError('');
+                setIsAddStockModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition"
+            >
+              <Plus className="w-4 h-4 text-amber-400" />
+              <span>Add Store / Warehouse</span>
+            </button>
           )}
         </div>
       </div>
@@ -205,7 +207,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
 
               {stock.is_main ? (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Main Depot
+                  Main Store
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">
@@ -221,14 +223,14 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
               <div className="flex items-center gap-2">
                 <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                <span>Manager: <strong className="text-slate-200">{stock.manager_name || 'Assigned Storekeeper'}</strong></span>
+                <span>In Charge: <strong className="text-slate-200">{stock.manager_name || 'Assigned Storekeeper'}</strong></span>
               </div>
             </div>
 
             <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between text-xs">
               <span className="text-slate-400">Status</span>
               <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Operational
+                <CheckCircle2 className="w-3.5 h-3.5" /> Active
               </span>
             </div>
           </div>
@@ -240,9 +242,9 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <History className="w-4 h-4 text-amber-400" />
-            <h2 className="text-base font-bold text-white">Stock Transfer Log & Audit Trail</h2>
+            <h2 className="text-base font-bold text-white">Stock Movement History</h2>
           </div>
-          <span className="text-xs text-slate-400">{transfers.length} movements logged</span>
+          <span className="text-xs text-slate-400">{transfers.length} movements</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -250,12 +252,12 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
               <tr>
                 <th className="py-2.5 px-4 font-semibold">Date & Time</th>
-                <th className="py-2.5 px-4 font-semibold">Product Item</th>
+                <th className="py-2.5 px-4 font-semibold">Product</th>
                 <th className="py-2.5 px-4 font-semibold">Quantity</th>
-                <th className="py-2.5 px-4 font-semibold">From Warehouse</th>
-                <th className="py-2.5 px-4 font-semibold">To Warehouse</th>
-                <th className="py-2.5 px-4 font-semibold">Transferred By</th>
-                <th className="py-2.5 px-4 font-semibold">Audit Notes</th>
+                <th className="py-2.5 px-4 font-semibold">From Store</th>
+                <th className="py-2.5 px-4 font-semibold">To Store</th>
+                <th className="py-2.5 px-4 font-semibold">Moved By</th>
+                <th className="py-2.5 px-4 font-semibold">Notes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -302,7 +304,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Execute Stock Transfer</h3>
+              <h3 className="text-base font-bold text-white">Move Stock Between Stores</h3>
               <button onClick={() => setIsTransferModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
@@ -316,7 +318,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                 >
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} (SKU: {p.sku}) — Available: {p.quantity} {p.unit}
+                      {p.name} (Code: {p.sku}) — Available: {p.quantity} {p.unit}
                     </option>
                   ))}
                 </select>
@@ -324,7 +326,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Source Warehouse</label>
+                  <label className="text-xs font-semibold text-slate-300">From Store</label>
                   <select
                     value={fromStockId}
                     onChange={(e) => setFromStockId(Number(e.target.value))}
@@ -337,7 +339,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Destination Warehouse</label>
+                  <label className="text-xs font-semibold text-slate-300">To Store</label>
                   <select
                     value={toStockId}
                     onChange={(e) => setToStockId(Number(e.target.value))}
@@ -351,7 +353,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Quantity to Transfer</label>
+                <label className="text-xs font-semibold text-slate-300">Quantity to Move</label>
                 <input
                   type="number"
                   required
@@ -362,10 +364,10 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Transfer Reason / Dispatch Reference</label>
+                <label className="text-xs font-semibold text-slate-300">Reason / Notes (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Branch replenishment, Truck dispatch #TRK-102"
+                  placeholder="e.g. Restocking branch shelf"
                   value={transferNotes}
                   onChange={(e) => setTransferNotes(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -392,7 +394,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                   disabled={isSubmitting}
                   className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
-                  {isSubmitting ? 'Transferring...' : 'Authorize Transfer'}
+                  {isSubmitting ? 'Moving...' : 'Confirm Move'}
                 </button>
               </div>
             </form>
@@ -405,7 +407,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Add New Warehouse / Branch Depot</h3>
+              <h3 className="text-base font-bold text-white">Add Store / Warehouse</h3>
               <button onClick={() => setIsAddStockModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
