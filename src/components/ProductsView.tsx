@@ -5,6 +5,7 @@ import { BulkImportModal } from './BulkImportModal';
 import { AiInvoiceScannerModal } from './AiInvoiceScannerModal';
 import { exportStockPdf } from '../services/pdfExport';
 import { hasPermission } from '../utils/permissions';
+import { matchesSearch } from '../utils/searchMatch';
 import { 
   Package, 
   Plus, 
@@ -184,8 +185,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     const filtered = products.filter((p) => {
       const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
       const matchLoc = selectedStockId === 'all' || Number(p.stock_id || 1) === Number(selectedStockId);
-      const q = searchQuery.toLowerCase().trim();
-      const matchQuery = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcode && p.barcode.toLowerCase().includes(q));
+      const matchQuery = matchesSearch(searchQuery, p.name, p.sku, p.barcode, p.category, p.stock_name);
       
       let matchStock = true;
       if (filterStockStatus === 'low') {
@@ -642,11 +642,21 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by product name, item code, or barcode..."
+              placeholder="Search by product name, item code, category, or barcode..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
+              className="w-full pl-10 pr-9 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Sort Selector */}

@@ -6,7 +6,6 @@ import {
   X, 
   Trash2, 
   Plus, 
-  Search, 
   AlertTriangle, 
   CheckCircle2, 
   Package, 
@@ -14,6 +13,7 @@ import {
   RefreshCw,
   Edit3
 } from 'lucide-react';
+import { SearchableSelect } from './SearchableSelect';
 
 interface EditOrderModalProps {
   isOpen: boolean;
@@ -52,7 +52,6 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   
   // Product Catalog for adding new items
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
-  const [catalogSearch, setCatalogSearch] = useState('');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
 
@@ -258,12 +257,14 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
     }
   };
 
-  const filteredCatalog = catalogProducts.filter(p => 
-    !catalogSearch ||
-    p.name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
-    p.sku.toLowerCase().includes(catalogSearch.toLowerCase()) ||
-    p.category?.toLowerCase().includes(catalogSearch.toLowerCase())
-  );
+  const catalogOptions = catalogProducts.map((p) => ({
+    value: p.id,
+    label: p.name,
+    sublabel: `Code: ${p.sku} • Price: ${formatRwf(p.selling_price || p.buying_price)}`,
+    badge: `Stock: ${p.quantity} ${p.unit || 'pcs'}`,
+    badgeTone: (p.quantity > 0 ? 'emerald' : 'rose') as 'emerald' | 'rose',
+    searchText: `${p.name} ${p.sku} ${p.barcode || ''} ${p.category || ''}`,
+  }));
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
@@ -358,38 +359,25 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
             {/* Add Product Inline Panel */}
             {isAddingProduct && (
               <div className="p-4 rounded-xl bg-slate-900 border border-amber-500/30 space-y-3 animate-in fade-in">
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Search store inventory by name, SKU or category..."
-                      value={catalogSearch}
-                      onChange={e => setCatalogSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="flex-1">
+                    <SearchableSelect
+                      value={selectedProductId || null}
+                      onChange={(val) => setSelectedProductId(val ? Number(val) : '')}
+                      options={catalogOptions}
+                      placeholder={`Search & pick a product (${catalogProducts.length} available)...`}
+                      searchPlaceholder="Type any part of product name, code, or category..."
+                      noResultsText="No matching inventory products"
+                      allowClear
+                      ariaLabel="Select product to add to order"
                     />
                   </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedProductId}
-                    onChange={e => setSelectedProductId(e.target.value ? Number(e.target.value) : '')}
-                    className="flex-1 px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="">-- Choose a product from catalog ({filteredCatalog.length} available) --</option>
-                    {filteredCatalog.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} [{p.sku}] - Stock: {p.quantity} {p.unit || 'pcs'} - Price: {formatRwf(p.selling_price || p.buying_price)}
-                      </option>
-                    ))}
-                  </select>
 
                   <button
                     type="button"
                     onClick={handleAddProduct}
                     disabled={!selectedProductId}
-                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs transition"
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs transition shrink-0"
                   >
                     Add Item
                   </button>

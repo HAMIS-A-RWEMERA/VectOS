@@ -20,10 +20,12 @@ import {
   Plus,
   Download,
   Edit3,
-  Ban
+  Ban,
+  X
 } from 'lucide-react';
 import { EditOrderModal } from './EditOrderModal';
 import { hasPermission } from '../utils/permissions';
+import { matchesSearch } from '../utils/searchMatch';
 
 interface OrdersViewProps {
   user: User | null;
@@ -382,12 +384,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     if (statusFilter === 'completed' && ord.fulfillment_status !== 'completed') return false;
     if (statusFilter === 'cancelled' && ord.fulfillment_status !== 'cancelled') return false;
 
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      ord.order_number.toLowerCase().includes(q) ||
-      (ord.customer_name && ord.customer_name.toLowerCase().includes(q)) ||
-      (ord.customer_phone && ord.customer_phone.includes(q))
+    return matchesSearch(
+      searchQuery,
+      ord.order_number,
+      ord.customer_name,
+      ord.customer_phone,
+      ord.notes,
+      ord.payment_method
     );
   });
 
@@ -454,8 +457,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               placeholder="Search orders by Order Number (e.g. ORD-...), Customer Name, or Phone..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
+              className="w-full pl-10 pr-9 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Status Tabs */}

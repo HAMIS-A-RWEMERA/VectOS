@@ -3,6 +3,7 @@ import { Customer, Shop, User } from '../types';
 import { api } from '../services/api';
 import { hasPermission } from '../utils/permissions';
 import { CustomerStatementModal } from './CustomerStatementModal';
+import { matchesSearch } from '../utils/searchMatch';
 import {
   Users,
   Plus,
@@ -199,13 +200,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
   const formatRwf = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
   const filteredCustomers = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return customers;
-    return customers.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        (c.phone && c.phone.toLowerCase().includes(q)) ||
-        (c.id_number && c.id_number.toLowerCase().includes(q))
+    if (!searchQuery.trim()) return customers;
+    return customers.filter((c) =>
+      matchesSearch(searchQuery, c.name, c.phone, c.id_number, c.email, c.address)
     );
   }, [customers, searchQuery]);
 
@@ -341,11 +338,21 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by client name, mobile phone (078...), or National ID..."
+              placeholder="Search by client name, mobile phone (078...), email, or National ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
+              className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">

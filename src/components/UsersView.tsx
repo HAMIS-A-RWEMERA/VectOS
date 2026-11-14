@@ -15,8 +15,10 @@ import {
   Search,
   CheckCircle2,
   Sparkles,
-  Eraser
+  Eraser,
+  X
 } from 'lucide-react';
+import { matchesSearch } from '../utils/searchMatch';
 
 interface UsersViewProps {
   currentUser: User | null;
@@ -472,17 +474,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
   };
 
   const filteredUsers = users.filter((u) => {
-    const matchesSearch =
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase()) ||
-      (u.job_title && u.job_title.toLowerCase().includes(search.toLowerCase()));
+    const matchesQuery = matchesSearch(search, u.name, u.email, u.job_title, u.phone, u.role);
     const matchesRole = filterRole === 'all' || u.role === filterRole;
     const isActive = Number(u.is_active) === 1;
     const matchesStatus =
       filterStatus === 'all' ||
       (filterStatus === 'active' && isActive) ||
       (filterStatus === 'paused' && !isActive);
-    return matchesSearch && matchesRole && matchesStatus;
+    return matchesQuery && matchesRole && matchesStatus;
   });
 
   const checkedCountInForm = ALL_SHOP_PERMISSION_KEYS.filter((k) => Boolean(formData[k])).length;
@@ -561,11 +560,21 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
           <input
             type="text"
-            placeholder="Search by name, email, or job title..."
+            placeholder="Search by name, email, phone, or job title..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+            className="w-full pl-9 pr-9 py-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

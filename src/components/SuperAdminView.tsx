@@ -26,6 +26,7 @@ import {
   Search,
   Filter
 } from 'lucide-react';
+import { matchesSearch } from '../utils/searchMatch';
 
 interface SuperAdminViewProps {
   currentUser: User | null;
@@ -242,30 +243,12 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
 
   const filteredShops = shops.filter(s => {
     if (filterStatus !== 'all' && s.status !== filterStatus) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return (
-        s.name.toLowerCase().includes(q) ||
-        s.owner_name.toLowerCase().includes(q) ||
-        s.email.toLowerCase().includes(q) ||
-        s.code.toLowerCase().includes(q)
-      );
-    }
-    return true;
+    return matchesSearch(searchQuery, s.name, s.owner_name, s.email, s.code, s.phone, s.location);
   });
 
-  const filteredUsers = users.filter(u => {
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return (
-        u.name.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        (u.shop_name && u.shop_name.toLowerCase().includes(q)) ||
-        u.role.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const filteredUsers = users.filter(u =>
+    matchesSearch(searchQuery, u.name, u.email, u.shop_name, u.role, u.job_title)
+  );
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-7xl mx-auto">
@@ -536,8 +519,18 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
               placeholder="Search by name, email, code..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-48 sm:w-64"
+              className="pl-8 pr-8 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 w-48 sm:w-64"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-white transition"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           <button

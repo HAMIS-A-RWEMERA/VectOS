@@ -14,6 +14,7 @@ import {
   CheckCircle2, 
   AlertCircle 
 } from 'lucide-react';
+import { SearchableSelect } from './SearchableSelect';
 
 interface StocksViewProps {
   user: User | null;
@@ -310,18 +311,23 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
 
             <form onSubmit={handleCreateTransfer} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Select Product to Move</label>
-                <select
-                  value={selectedProductId}
-                  onChange={(e) => setSelectedProductId(Number(e.target.value))}
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
-                >
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} (Code: {p.sku}) — Available: {p.quantity} {p.unit}
-                    </option>
-                  ))}
-                </select>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">Select Product to Move</label>
+                <SearchableSelect
+                  value={selectedProductId || null}
+                  onChange={(val) => setSelectedProductId(val ? Number(val) : 0)}
+                  options={products.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    sublabel: `Code: ${p.sku} • ${p.stock_name || 'Main Store'}`,
+                    badge: `${p.quantity} ${p.unit || 'pcs'}`,
+                    badgeTone: p.quantity > 0 ? 'emerald' : 'rose',
+                    searchText: `${p.name} ${p.sku} ${p.barcode || ''} ${p.category || ''} ${p.stock_name || ''}`,
+                  }))}
+                  placeholder="Search and select a product..."
+                  searchPlaceholder="Type any part of product name, code, or barcode..."
+                  noResultsText="No matching products found"
+                  ariaLabel="Select Product to Move"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">

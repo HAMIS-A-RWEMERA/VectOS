@@ -22,6 +22,8 @@ import {
   PackageCheck
 } from 'lucide-react';
 import { hasPermission, isSoloAllInOneUser } from '../utils/permissions';
+import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
+import { matchesSearch } from '../utils/searchMatch';
 
 interface CartItem {
   product: Product;
@@ -96,14 +98,35 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
-      const q = searchQuery.toLowerCase().trim();
-      const matchSearch = !q || 
-        p.name.toLowerCase().includes(q) || 
-        p.sku.toLowerCase().includes(q) || 
-        (p.barcode && p.barcode.toLowerCase().includes(q));
+      const matchSearch = matchesSearch(searchQuery, p.name, p.sku, p.barcode, p.category);
       return matchCat && matchSearch;
     });
   }, [products, searchQuery, selectedCategory]);
+
+  const customerSelectOptions = useMemo<SearchableSelectOption[]>(() => {
+    return customers.map((c) => {
+      const debt = Number(c.credit_balance || 0);
+      const storeCredit = Number(c.store_credit || 0);
+      const parts: string[] = [];
+      if (c.phone) parts.push(c.phone);
+      if (c.id_number) parts.push(`ID: ${c.id_number}`);
+      if (debt > 0) parts.push(`Debt: ${Math.round(debt).toLocaleString()} RWF`);
+      if (storeCredit > 0) parts.push(`We owe: ${Math.round(storeCredit).toLocaleString()} RWF`);
+
+      return {
+        value: c.id,
+        label: c.name,
+        sublabel: parts.join(' • ') || c.address || 'Saved client account',
+        badge: debt > 0
+          ? `Owes ${Math.round(debt).toLocaleString()}`
+          : storeCredit > 0
+          ? `Credit ${Math.round(storeCredit).toLocaleString()}`
+          : undefined,
+        badgeTone: debt > 0 ? 'rose' : storeCredit > 0 ? 'purple' : 'slate',
+        searchText: `${c.name} ${c.phone || ''} ${c.id_number || ''} ${c.email || ''} ${c.address || ''}`,
+      };
+    });
+  }, [customers]);
 
   // Mobile View Tab State: 'catalog' | 'cart'
   const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
@@ -524,23 +547,18 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           <label className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
             Customer / Client
           </label>
-          <div className="flex gap-2">
-            <select
-              value={selectedCustomerId || ''}
-              onChange={(e) => {
-                const val = e.target.value ? Number(e.target.value) : null;
-                setSelectedCustomerId(val);
-              }}
-              className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-            >
-              <option value="">Walk-in Cash Client</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({formatRwf(c.credit_balance)} debt{Number(c.store_credit || 0) > 0 ? ` | We owe: ${formatRwf(Number(c.store_credit))}` : ''})
-                </option>
-              ))}
-            </select>
-          </div>
+          <SearchableSelect
+            value={selectedCustomerId}
+            onChange={(val) => setSelectedCustomerId(val ? Number(val) : null)}
+            options={customerSelectOptions}
+            emptyOptionLabel="Walk-in Cash Client"
+            emptyOptionSublabel="Cash / one-off buyer (no saved account)"
+            placeholder="Walk-in Cash Client"
+            searchPlaceholder="Search client by name, phone, or ID..."
+            noResultsText="No matching customer found"
+            allowClear
+            ariaLabel="Customer or Client"
+          />
 
           {selectedCustomer && (Number(selectedCustomer.credit_balance || 0) > 0 || Number(selectedCustomer.store_credit || 0) > 0) && (
             <div className="flex flex-wrap gap-2 text-[10px] pt-0.5">
