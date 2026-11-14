@@ -358,8 +358,8 @@ router.get('/admin/shops', requireSuperAdmin, async (req: Request, res: Response
         (SELECT COUNT(*) FROM users WHERE shop_id = s.id AND activation_status = 'pending_approval') as pending_user_count,
         (SELECT COUNT(*) FROM stocks WHERE shop_id = s.id) as stock_count,
         (SELECT COUNT(*) FROM products WHERE shop_id = s.id) as product_count,
-        (SELECT COUNT(*) FROM orders WHERE shop_id = s.id) as order_count,
-        (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE shop_id = s.id) as total_sales
+        (SELECT COUNT(*) FROM orders WHERE shop_id = s.id AND fulfillment_status != 'cancelled') as order_count,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE shop_id = s.id AND fulfillment_status != 'cancelled') as total_sales
       FROM shops s
       ORDER BY s.id DESC
     `);
@@ -597,7 +597,7 @@ router.get('/dashboard', requireAuth, async (req: Request, res: Response) => {
     const todaySales = await queryOne(`
       SELECT COALESCE(SUM(total_amount), 0) as total, COUNT(*) as count 
       FROM orders 
-      WHERE shop_id = ? AND CAST(created_at AS DATE) = CURRENT_DATE
+      WHERE shop_id = ? AND CAST(created_at AS DATE) = CURRENT_DATE AND fulfillment_status != 'cancelled'
     `, [shopId]).catch(() => null) || { total: 0, count: 0 };
 
     // Total Profit (Sum of profit across completed order items)
@@ -605,7 +605,7 @@ router.get('/dashboard', requireAuth, async (req: Request, res: Response) => {
       SELECT COALESCE(SUM(oi.profit), 0) as total_profit
       FROM order_items oi
       JOIN orders o ON oi.order_id = o.id
-      WHERE o.shop_id = ? AND CAST(o.created_at AS DATE) = CURRENT_DATE AND oi.item_status IN ('approved', 'partner_fulfilled')
+      WHERE o.shop_id = ? AND CAST(o.created_at AS DATE) = CURRENT_DATE AND o.fulfillment_status != 'cancelled' AND oi.item_status IN ('approved', 'partner_fulfilled')
     `, [shopId]);
     const todayProfit = todayProfitRes ? todayProfitRes.total_profit : 0;
 
@@ -1084,8 +1084,8 @@ router.get('/customers', requireAuth, async (req: Request, res: Response) => {
   try {
     const customers = await queryAll(`
       SELECT c.*, 
-        (SELECT COUNT(*) FROM orders WHERE customer_id = c.id AND shop_id = ?) as total_orders,
-        (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE customer_id = c.id AND shop_id = ?) as total_spent
+        (SELECT COUNT(*) FROM orders WHERE customer_id = c.id AND shop_id = ? AND fulfillment_status != 'cancelled') as total_orders,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE customer_id = c.id AND shop_id = ? AND fulfillment_status != 'cancelled') as total_spent
       FROM customers c
       WHERE c.shop_id = ?
       ORDER BY c.name ASC
@@ -1829,7 +1829,7 @@ router.get('/payments', requireAuth, async (req: Request, res: Response) => {
       JOIN orders o ON pay.order_id = o.id
       JOIN customers c ON o.customer_id = c.id
       JOIN users u ON pay.recorded_by = u.id
-      WHERE pay.shop_id = ?
+      WHERE pay.shop_id = ? AND o.fulfillment_status != 'cancelled'
       ORDER BY pay.id DESC
     `, [shopId]);
 
@@ -1837,7 +1837,7 @@ router.get('/payments', requireAuth, async (req: Request, res: Response) => {
       SELECT o.*, c.name as customer_name, c.phone as customer_phone
       FROM orders o
       JOIN customers c ON o.customer_id = c.id
-      WHERE o.shop_id = ? AND o.debt_amount > 0
+      WHERE o.shop_id = ? AND o.debt_amount > 0 AND o.fulfillment_status != 'cancelled'
       ORDER BY o.id DESC
     `, [shopId]);
 
@@ -1869,6 +1869,9 @@ router.post('/payments/record', requirePermission('can_process_payments'), async
 
     const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
     if (!order) return res.status(404).send('Order not found.');
+    if (order.fulfillment_status === 'cancelled') {
+      return res.status(400).send('Cannot record payment on a cancelled order.');
+    }
     if (order.payment_status === 'paid' && order.debt_amount === 0) {
       return res.status(400).send('Order is already fully paid.');
     }

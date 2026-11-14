@@ -437,21 +437,23 @@ export function exportOrdersPdf({
 
   currentY = 30;
 
-  // Financial Overview / Reconciliation Box
-  const totalInvoiced = orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
-  const totalPaid = orders.reduce((sum, o) => sum + Number(o.paid_amount || 0), 0);
-  const totalDebt = orders.reduce((sum, o) => sum + Number(o.debt_amount || 0), 0);
-  const paidCount = orders.filter((o) => o.payment_status === 'paid').length;
+  // Financial Overview / Reconciliation Box (strictly exclude cancelled orders from all totals)
+  const activeOrders = orders.filter((o) => o.fulfillment_status !== 'cancelled');
+  const cancelledCount = orders.length - activeOrders.length;
+  const totalInvoiced = activeOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+  const totalPaid = activeOrders.reduce((sum, o) => sum + Number(o.paid_amount || 0), 0);
+  const totalDebt = activeOrders.reduce((sum, o) => sum + Number(o.debt_amount || 0), 0);
+  const paidCount = activeOrders.filter((o) => o.payment_status === 'paid').length;
 
   const cardW = (pageWidth - margin * 2 - 12) / 5;
   const cardH = 14;
 
   const stats = [
-    { label: 'Total Orders', val: orders.length.toString() },
+    { label: 'Active Orders', val: cancelledCount > 0 ? `${activeOrders.length} (${cancelledCount} cancelled)` : activeOrders.length.toString() },
     { label: 'Total Invoiced', val: formatCurrency(totalInvoiced) },
     { label: 'Total Collected', val: formatCurrency(totalPaid) },
     { label: 'Total Outstanding Debt', val: formatCurrency(totalDebt) },
-    { label: 'Fully Paid Orders', val: `${paidCount} (${orders.length > 0 ? Math.round((paidCount / orders.length) * 100) : 0}%)` },
+    { label: 'Fully Paid Orders', val: `${paidCount} (${activeOrders.length > 0 ? Math.round((paidCount / activeOrders.length) * 100) : 0}%)` },
   ];
 
   stats.forEach((stat, i) => {
@@ -502,18 +504,37 @@ export function exportOrdersPdf({
         'Fulfillment',
       ],
     ],
-    body: orders.map((o) => [
-      o.order_number,
-      formatDate(o.created_at),
-      o.customer_name || 'Walk-in Client',
-      o.customer_phone || '-',
-      o.salesperson_name || 'Sales Staff',
-      formatCurrency(o.total_amount),
-      formatCurrency(o.paid_amount),
-      formatCurrency(o.debt_amount),
-      (o.payment_status || 'pending').toUpperCase(),
-      (o.fulfillment_status || 'pending').replace('_', ' ').toUpperCase(),
-    ]),
+    body: orders.map((o) => {
+      const isCancelled = o.fulfillment_status === 'cancelled';
+      if (isCancelled) {
+        const origTotal = Number(o.total_amount || 0);
+        const origPaid = Number(o.paid_amount || 0);
+        return [
+          o.order_number,
+          formatDate(o.created_at),
+          o.customer_name || 'Walk-in Client',
+          o.customer_phone || '-',
+          o.salesperson_name || 'Sales Staff',
+          `RWF 0\n(Cancelled: ${formatCurrency(origTotal)})`,
+          origPaid > 0 ? `RWF 0\n(Cancelled: ${formatCurrency(origPaid)})` : 'RWF 0',
+          'RWF 0',
+          'CANCELLED',
+          'CANCELLED',
+        ];
+      }
+      return [
+        o.order_number,
+        formatDate(o.created_at),
+        o.customer_name || 'Walk-in Client',
+        o.customer_phone || '-',
+        o.salesperson_name || 'Sales Staff',
+        formatCurrency(o.total_amount),
+        formatCurrency(o.paid_amount),
+        formatCurrency(o.debt_amount),
+        (o.payment_status || 'pending').toUpperCase(),
+        (o.fulfillment_status || 'pending').replace('_', ' ').toUpperCase(),
+      ];
+    }),
     headStyles: {
       fillColor: [30, 41, 59],
       textColor: [255, 255, 255],
@@ -538,6 +559,14 @@ export function exportOrdersPdf({
       7: { halign: 'right' },
       8: { halign: 'center' },
       9: { halign: 'center' },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && orders[data.row.index]?.fulfillment_status === 'cancelled') {
+        if ([5, 6, 7, 8, 9].includes(data.column.index)) {
+          data.cell.styles.textColor = [220, 38, 38];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
     },
   });
 
@@ -603,6 +632,16 @@ export function exportSingleOrderPdf({
   doc.setFontSize(8.5);
   doc.setTextColor(203, 213, 225);
   doc.text(`ORDER REF: ${order.order_number}`, margin, 19);
+
+  const isOrderCancelled = order.fulfillment_status === 'cancelled';
+  if (isOrderCancelled) {
+    doc.setFillColor(220, 38, 38);
+    doc.roundedRect(pageWidth - margin - 42, 7.5, 42, 8.5, 2, 2, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.text('CANCELLED (RWF 0)', pageWidth - margin - 21, 13, { align: 'center' });
+  }
 
   currentY = 32;
 
@@ -682,11 +721,11 @@ export function exportSingleOrderPdf({
   currentY = (doc as any).lastAutoTable.finalY + 8;
 
   // Total Summary box on the right
-  const summaryWidth = 75;
+  const summaryWidth = isOrderCancelled ? 92 : 75;
   const summaryX = pageWidth - margin - summaryWidth;
 
   doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(226, 232, 240);
+  doc.setDrawColor(isOrderCancelled ? 239 : 226, isOrderCancelled ? 68 : 232, isOrderCancelled ? 68 : 240);
   doc.roundedRect(summaryX, currentY, summaryWidth, 24, 2, 2, 'FD');
 
   doc.setFontSize(8.5);
@@ -697,12 +736,24 @@ export function exportSingleOrderPdf({
   doc.text('Balance / Debt:', summaryX + 4, currentY + 18);
 
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(formatCurrency(order.total_amount), summaryX + summaryWidth - 4, currentY + 6, { align: 'right' });
-  doc.setTextColor(16, 185, 129); // green
-  doc.text(formatCurrency(order.paid_amount), summaryX + summaryWidth - 4, currentY + 12, { align: 'right' });
-  doc.setTextColor(order.debt_amount > 0 ? 239 : 15, order.debt_amount > 0 ? 68 : 23, order.debt_amount > 0 ? 68 : 42); // red if debt
-  doc.text(formatCurrency(order.debt_amount), summaryX + summaryWidth - 4, currentY + 18, { align: 'right' });
+  if (isOrderCancelled) {
+    doc.setTextColor(220, 38, 38);
+    doc.text(`RWF 0 (Cancelled: ${formatCurrency(order.total_amount)})`, summaryX + summaryWidth - 4, currentY + 6, { align: 'right' });
+    doc.text(
+      Number(order.paid_amount || 0) > 0 ? `RWF 0 (Cancelled: ${formatCurrency(order.paid_amount)})` : 'RWF 0',
+      summaryX + summaryWidth - 4,
+      currentY + 12,
+      { align: 'right' }
+    );
+    doc.text('RWF 0', summaryX + summaryWidth - 4, currentY + 18, { align: 'right' });
+  } else {
+    doc.setTextColor(15, 23, 42);
+    doc.text(formatCurrency(order.total_amount), summaryX + summaryWidth - 4, currentY + 6, { align: 'right' });
+    doc.setTextColor(16, 185, 129); // green
+    doc.text(formatCurrency(order.paid_amount), summaryX + summaryWidth - 4, currentY + 12, { align: 'right' });
+    doc.setTextColor(order.debt_amount > 0 ? 239 : 15, order.debt_amount > 0 ? 68 : 23, order.debt_amount > 0 ? 68 : 42); // red if debt
+    doc.text(formatCurrency(order.debt_amount), summaryX + summaryWidth - 4, currentY + 18, { align: 'right' });
+  }
 
   // Payment Records if available
   if (payments && payments.length > 0) {
@@ -1235,10 +1286,16 @@ export function exportCustomerStatementPdf({
   currentY += cardH + 7;
 
   // Section 1: Orders & Items Table
+  const cancelledInStatementCount = statement.orders.filter((o) => o.fulfillment_status === 'cancelled').length;
+  const activeInStatementCount = statement.orders.length - cancelledInStatementCount;
   doc.setFontSize(9.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(`1. Client's Orders (${statement.orders.length} order${statement.orders.length === 1 ? '' : 's'} in selected timeframe)`, margin, currentY);
+  doc.text(
+    `1. Client's Orders (${activeInStatementCount} active order${activeInStatementCount === 1 ? '' : 's'}${cancelledInStatementCount > 0 ? `, ${cancelledInStatementCount} cancelled excluded from totals` : ''})`,
+    margin,
+    currentY
+  );
   currentY += 3;
 
   autoTable(doc, {
@@ -1250,6 +1307,19 @@ export function exportCustomerStatementPdf({
           const itemsSummary = (o.statement_items && o.statement_items.length > 0)
             ? o.statement_items.map((it) => `${it.product_name} × ${it.quantity} (@ ${Math.round(it.selling_price).toLocaleString()})`).join('; ')
             : 'Order items';
+          if (o.fulfillment_status === 'cancelled') {
+            const origTotal = Number(o.total_amount || 0);
+            const origPaid = Number(o.paid_amount || 0);
+            return [
+              formatDate(o.created_at),
+              o.order_number,
+              itemsSummary,
+              `RWF 0\n(Cancelled: ${formatCurrency(origTotal)})`,
+              origPaid > 0 ? `RWF 0\n(Cancelled: ${formatCurrency(origPaid)})` : 'RWF 0',
+              'RWF 0',
+              'CANCELLED',
+            ];
+          }
           return [
             formatDate(o.created_at),
             o.order_number,
@@ -1275,11 +1345,19 @@ export function exportCustomerStatementPdf({
     columnStyles: {
       0: { cellWidth: 27 },
       1: { cellWidth: 21, fontStyle: 'bold' },
-      2: { cellWidth: 56 },
+      2: { cellWidth: 52 },
       3: { halign: 'right' },
       4: { halign: 'right' },
       5: { halign: 'right', fontStyle: 'bold' },
-      6: { halign: 'center', cellWidth: 16 },
+      6: { halign: 'center', cellWidth: 18 },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && statement.orders[data.row.index]?.fulfillment_status === 'cancelled') {
+        if ([3, 4, 5, 6].includes(data.column.index)) {
+          data.cell.styles.textColor = [220, 38, 38];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
     },
   });
 
@@ -1299,13 +1377,17 @@ export function exportCustomerStatementPdf({
     currentY += 3;
 
     const activityRows: any[] = [
-      ...statement.payments.map((p) => [
-        formatDate(p.created_at),
-        p.order_number || `Order #${p.order_id}`,
-        `Payment (${(p.payment_method || 'cash').replace('_', ' ').toUpperCase()})`,
-        formatCurrency(Number(p.amount || 0)),
-        p.reference_no || p.recorded_by_name || 'Confirmed',
-      ]),
+      ...statement.payments.map((p) => {
+        const methodLabel = (p.payment_method || 'cash').replace('_', ' ').toUpperCase();
+        const isCancelledPayment = p.order_status === 'cancelled';
+        return [
+          formatDate(p.created_at),
+          p.order_number || `Order #${p.order_id}`,
+          isCancelledPayment ? `Payment (${methodLabel}) [CANCELLED]` : `Payment (${methodLabel})`,
+          isCancelledPayment ? `RWF 0\n(Cancelled: ${formatCurrency(Number(p.amount || 0))})` : formatCurrency(Number(p.amount || 0)),
+          p.reference_no || p.recorded_by_name || 'Confirmed',
+        ];
+      }),
       ...statement.creditLedger.map((l) => [
         formatDate(l.created_at),
         l.order_number || l.reference_no || 'Account Ledger',
@@ -1341,7 +1423,18 @@ export function exportCustomerStatementPdf({
         0: { cellWidth: 28 },
         1: { cellWidth: 26 },
         2: { cellWidth: 42 },
-        3: { halign: 'right', fontStyle: 'bold', cellWidth: 26 },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 28 },
+      },
+      didParseCell: (data) => {
+        if (
+          data.section === 'body' &&
+          data.row.index < statement.payments.length &&
+          statement.payments[data.row.index]?.order_status === 'cancelled' &&
+          [2, 3].includes(data.column.index)
+        ) {
+          data.cell.styles.textColor = [220, 38, 38];
+          data.cell.styles.fontStyle = 'bold';
+        }
       },
     });
 

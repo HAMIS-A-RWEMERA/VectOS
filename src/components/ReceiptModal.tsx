@@ -148,13 +148,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
       return lines.join('\n');
     }
 
+    const isCancelledOrder = order.fulfillment_status === 'cancelled';
     const lines = [
       shopName.toUpperCase(),
       shopLocation || '',
       shopPhone ? `TEL: ${shopPhone}` : '',
       shopTin ? `TIN: ${shopTin}` : '',
       divider,
-      "*** Client's Order ***",
+      isCancelledOrder ? "*** CANCELLED ORDER (RWF 0) ***" : "*** Client's Order ***",
       divider,
       `ORDER NO: ${order.order_number}`,
       `DATE:     ${new Date(order.created_at).toLocaleString()}`,
@@ -171,10 +172,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
         : [`Hardware Sale Items                   ${formatRwf(order.total_amount)}`]
       ),
       divider,
-      `TOTAL DUE:                 ${formatRwf(order.total_amount)}`,
-      `PAID AMOUNT:               ${formatRwf(order.paid_amount)}`,
-      order.debt_amount > 0 ? `BALANCE DUE:               ${formatRwf(order.debt_amount)}` : '',
-      `PAYMENT STATUS:            ${(order.payment_status || 'PAID').toUpperCase()}`,
+      isCancelledOrder
+        ? `TOTAL DUE:                 RWF 0 (Cancelled: ${formatRwf(order.total_amount)})`
+        : `TOTAL DUE:                 ${formatRwf(order.total_amount)}`,
+      isCancelledOrder
+        ? `PAID AMOUNT:               RWF 0${Number(order.paid_amount || 0) > 0 ? ` (Cancelled: ${formatRwf(order.paid_amount)})` : ''}`
+        : `PAID AMOUNT:               ${formatRwf(order.paid_amount)}`,
+      !isCancelledOrder && order.debt_amount > 0 ? `BALANCE DUE:               ${formatRwf(order.debt_amount)}` : '',
+      `PAYMENT STATUS:            ${isCancelledOrder ? 'CANCELLED' : (order.payment_status || 'PAID').toUpperCase()}`,
       divider,
       footerMessage,
       'Goods sold in good condition not returnable.'
@@ -325,12 +330,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 ${shopEmail ? `<p class="shop-line">Email: ${escapeHtml(shopEmail)}</p>` : ''}
                 ${shopTin ? `<p class="shop-line"><strong>TIN: ${escapeHtml(shopTin)}</strong></p>` : ''}
               </div>
-              <div class="doc-box">
+                <div class="doc-box">
                 <p class="doc-title">${targetType === 'delivery_notice' ? 'DELIVERY NOTICE (BON DE LIVRAISON)' : "Client's Order"}</p>
+                ${order.fulfillment_status === 'cancelled' ? `<p class="doc-sub" style="color:#dc2626;font-weight:900;">CANCELLED ORDER — RWF 0</p>` : ''}
                 <p class="doc-sub"><strong>${targetType === 'delivery_notice' ? 'BL No' : 'Order No'}:</strong> ${targetType === 'delivery_notice' ? `BL-${escapeHtml(order.order_number.replace('ORD-', ''))}` : escapeHtml(order.order_number)}</p>
                 ${targetType === 'delivery_notice' ? `<p class="doc-sub"><strong>Order Ref:</strong> ${escapeHtml(order.order_number)}</p>` : ''}
                 <p class="doc-sub"><strong>Date:</strong> ${new Date(order.created_at).toLocaleString()}</p>
-                <p class="doc-sub"><strong>Status:</strong> ${(order.payment_status || 'PAID').toUpperCase()}</p>
+                <p class="doc-sub"><strong>Status:</strong> ${order.fulfillment_status === 'cancelled' ? '<span style="color:#dc2626;font-weight:800;">CANCELLED</span>' : (order.payment_status || 'PAID').toUpperCase()}</p>
               </div>
             </div>
 
@@ -368,6 +374,16 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   <div class="sig-box">Released by (Storekeeper Signature &amp; Date)</div>
                   <div class="sig-box">Driver / Vehicle Plate</div>
                   <div class="sig-box">Received in Good Order by Client</div>
+                </div>
+              `
+              : order.fulfillment_status === 'cancelled'
+              ? `
+                <div class="summary-wrap">
+                  <div class="summary-box" style="width:330px;border-color:#dc2626;">
+                    <div class="sum-row total" style="background:#dc2626;"><span>TOTAL DUE (CANCELLED):</span><span class="mono">RWF 0</span></div>
+                    <div class="sum-row bold" style="color:#dc2626;"><span>Original Order Amount:</span><span class="mono">(Cancelled: ${formatRwf(order.total_amount)})</span></div>
+                    <div class="sum-row bold" style="color:#dc2626;"><span>PAID AMOUNT:</span><span class="mono">RWF 0${Number(order.paid_amount || 0) > 0 ? ` (Cancelled: ${formatRwf(order.paid_amount)})` : ''}</span></div>
+                  </div>
                 </div>
               `
               : `
@@ -515,26 +531,44 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
             <div class="divider"></div>
 
-            <div class="row bold" style="font-size: 1.1em; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 0; margin: 2px 0;">
-              <span>TOTAL DUE:</span>
-              <span>${formatRwf(order.total_amount)}</span>
-            </div>
-
-            <div class="row bold" style="font-size: 0.95em;">
-              <span>PAID AMOUNT:</span>
-              <span>${formatRwf(order.paid_amount)}</span>
-            </div>
-
-            ${order.debt_amount > 0 ? `
-              <div class="row bold" style="color: #000; font-size: 0.95em;">
-                <span>BALANCE DUE:</span>
-                <span>${formatRwf(order.debt_amount)}</span>
+            ${order.fulfillment_status === 'cancelled' ? `
+              <div class="center bold" style="color: #dc2626; border: 1px solid #dc2626; padding: 3px; margin: 4px 0;">
+                CANCELLED ORDER — RWF 0
+                <div style="font-size: 0.85em;">(Cancelled: ${formatRwf(order.total_amount)})</div>
               </div>
-            ` : ''}
+              <div class="row bold" style="font-size: 1.05em;">
+                <span>TOTAL DUE:</span>
+                <span>RWF 0</span>
+              </div>
+              <div class="row bold" style="font-size: 0.95em;">
+                <span>PAID AMOUNT:</span>
+                <span>RWF 0${Number(order.paid_amount || 0) > 0 ? ` (Cancelled: ${formatRwf(order.paid_amount)})` : ''}</span>
+              </div>
+              <div class="center" style="margin-top: 4px; font-size: 0.85em; font-weight: bold; color: #dc2626;">
+                STATUS: CANCELLED
+              </div>
+            ` : `
+              <div class="row bold" style="font-size: 1.1em; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 2px 0; margin: 2px 0;">
+                <span>TOTAL DUE:</span>
+                <span>${formatRwf(order.total_amount)}</span>
+              </div>
 
-            <div class="center" style="margin-top: 4px; font-size: 0.85em; font-weight: bold;">
-              PAYMENT: ${(order.payment_status || 'PAID').toUpperCase()}
-            </div>
+              <div class="row bold" style="font-size: 0.95em;">
+                <span>PAID AMOUNT:</span>
+                <span>${formatRwf(order.paid_amount)}</span>
+              </div>
+
+              ${order.debt_amount > 0 ? `
+                <div class="row bold" style="color: #000; font-size: 0.95em;">
+                  <span>BALANCE DUE:</span>
+                  <span>${formatRwf(order.debt_amount)}</span>
+                </div>
+              ` : ''}
+
+              <div class="center" style="margin-top: 4px; font-size: 0.85em; font-weight: bold;">
+                PAYMENT: ${(order.payment_status || 'PAID').toUpperCase()}
+              </div>
+            `}
 
             <div class="divider"></div>
 
@@ -833,7 +867,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                     <p className="text-xs text-slate-700"><strong>Order Ref:</strong> {order.order_number}</p>
                   )}
                   <p className="text-xs text-slate-700"><strong>Date:</strong> {new Date(order.created_at).toLocaleString()}</p>
-                  <p className="text-xs text-slate-700"><strong>Status:</strong> {(order.payment_status || 'PAID').toUpperCase()}</p>
+                  <p className="text-xs text-slate-700">
+                    <strong>Status:</strong>{' '}
+                    {order.fulfillment_status === 'cancelled' ? (
+                      <span className="font-black text-rose-600">CANCELLED (RWF 0)</span>
+                    ) : (
+                      (order.payment_status || 'PAID').toUpperCase()
+                    )}
+                  </p>
                 </div>
               </div>
 
@@ -931,6 +972,25 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                     <div className="border-t border-slate-500 pt-1.5">Released by (Storekeeper)</div>
                     <div className="border-t border-slate-500 pt-1.5">Driver / Vehicle Plate</div>
                     <div className="border-t border-slate-500 pt-1.5">Received by Client</div>
+                  </div>
+                </div>
+              ) : order.fulfillment_status === 'cancelled' ? (
+                <div className="flex justify-end">
+                  <div className="w-full sm:w-80 border-2 border-rose-500 rounded-md overflow-hidden text-xs">
+                    <div className="flex justify-between px-3 py-2 bg-rose-600 text-white font-black text-sm">
+                      <span>CANCELLED ORDER:</span>
+                      <span className="font-mono">RWF 0</span>
+                    </div>
+                    <div className="flex justify-between px-3 py-1.5 border-b border-rose-200 font-bold text-rose-700 bg-rose-50">
+                      <span>Original Order Total:</span>
+                      <span className="font-mono">(Cancelled: {formatRwf(order.total_amount)})</span>
+                    </div>
+                    <div className="flex justify-between px-3 py-1.5 font-bold text-rose-700 bg-rose-50">
+                      <span>PAID AMOUNT:</span>
+                      <span className="font-mono">
+                        RWF 0{Number(order.paid_amount || 0) > 0 ? ` (Cancelled: ${formatRwf(order.paid_amount)})` : ''}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1136,23 +1196,47 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   </div>
 
                   <div className="space-y-1 text-[10px] border-t border-dashed border-black pt-1.5 mt-2">
-                    <div className="flex justify-between text-xs font-black border-y border-black py-1 my-0.5 text-black">
-                      <span>TOTAL DUE:</span>
-                      <span>{formatRwf(order.total_amount)}</span>
-                    </div>
-                    <div className="flex justify-between font-bold">
-                      <span>PAID:</span>
-                      <span>{formatRwf(order.paid_amount)}</span>
-                    </div>
-                    {order.debt_amount > 0 && (
-                      <div className="flex justify-between font-bold text-black">
-                        <span>BALANCE DUE:</span>
-                        <span>{formatRwf(order.debt_amount)}</span>
-                      </div>
+                    {order.fulfillment_status === 'cancelled' ? (
+                      <>
+                        <div className="p-1.5 border border-rose-600 bg-rose-50 text-center text-rose-700 font-black">
+                          <p>CANCELLED ORDER — RWF 0</p>
+                          <p className="text-[9px]">(Cancelled: {formatRwf(order.total_amount)})</p>
+                        </div>
+                        <div className="flex justify-between font-bold text-black">
+                          <span>TOTAL DUE:</span>
+                          <span>RWF 0</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-rose-700">
+                          <span>PAID:</span>
+                          <span>
+                            RWF 0{Number(order.paid_amount || 0) > 0 ? ` (Cancelled: ${formatRwf(order.paid_amount)})` : ''}
+                          </span>
+                        </div>
+                        <div className="text-center font-black text-[9px] uppercase tracking-wider pt-0.5 text-rose-700">
+                          STATUS: CANCELLED
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between text-xs font-black border-y border-black py-1 my-0.5 text-black">
+                          <span>TOTAL DUE:</span>
+                          <span>{formatRwf(order.total_amount)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold">
+                          <span>PAID:</span>
+                          <span>{formatRwf(order.paid_amount)}</span>
+                        </div>
+                        {order.debt_amount > 0 && (
+                          <div className="flex justify-between font-bold text-black">
+                            <span>BALANCE DUE:</span>
+                            <span>{formatRwf(order.debt_amount)}</span>
+                          </div>
+                        )}
+                        <div className="text-center font-bold text-[9px] uppercase tracking-wider pt-0.5">
+                          Mode: {order.payment_status === 'paid' ? 'SETTLED' : order.payment_status}
+                        </div>
+                      </>
                     )}
-                    <div className="text-center font-bold text-[9px] uppercase tracking-wider pt-0.5">
-                      Mode: {order.payment_status === 'paid' ? 'SETTLED' : order.payment_status}
-                    </div>
                   </div>
 
                   <div className="text-center pt-2 mt-2 border-t border-dashed border-black text-[9px] space-y-0.5">

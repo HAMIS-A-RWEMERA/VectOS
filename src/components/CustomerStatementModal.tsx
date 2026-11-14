@@ -120,6 +120,21 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
           const itemsList = (o.statement_items && o.statement_items.length > 0)
             ? o.statement_items.map(it => `${escapeHtml(it.product_name)} × ${it.quantity} (@ ${Math.round(it.selling_price).toLocaleString()})`).join('<br/>')
             : 'Order items';
+          if (o.fulfillment_status === 'cancelled') {
+            const origPaid = Number(o.paid_amount || 0);
+            return `
+              <tr style="background:#fff1f2;">
+                <td class="center">${idx + 1}</td>
+                <td>${escapeHtml(formatDate(o.created_at))}</td>
+                <td class="bold">${escapeHtml(o.order_number)}</td>
+                <td>${itemsList}</td>
+                <td class="right mono"><span class="bold">RWF 0</span><br/><span class="cancelled-red">(Cancelled: ${formatRwf(o.total_amount)})</span></td>
+                <td class="right mono"><span class="bold">RWF 0</span>${origPaid > 0 ? `<br/><span class="cancelled-red">(Cancelled: ${formatRwf(origPaid)})</span>` : ''}</td>
+                <td class="right mono bold">RWF 0</td>
+                <td class="center"><span class="badge-cancelled">CANCELLED</span></td>
+              </tr>
+            `;
+          }
           return `
             <tr>
               <td class="center">${idx + 1}</td>
@@ -135,15 +150,23 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
         }).join('')
       : `<tr><td colspan="8" class="center">No orders recorded in this period.</td></tr>`;
 
-    const paymentsRows = statement.payments.map((p) => `
-      <tr>
-        <td>${escapeHtml(formatDate(p.created_at))}</td>
-        <td class="bold">${escapeHtml(p.order_number || `Order #${p.order_id}`)}</td>
-        <td>Payment (${escapeHtml((p.payment_method || 'cash').replace('_', ' ').toUpperCase())})</td>
-        <td class="right mono bold">${formatRwf(p.amount)}</td>
-        <td>${escapeHtml(p.reference_no || p.recorded_by_name || 'Confirmed')}</td>
-      </tr>
-    `).join('');
+    const paymentsRows = statement.payments.map((p) => {
+      const isCancelledPay = p.order_status === 'cancelled';
+      const methodName = escapeHtml((p.payment_method || 'cash').replace('_', ' ').toUpperCase());
+      return `
+        <tr${isCancelledPay ? ' style="background:#fff1f2;"' : ''}>
+          <td>${escapeHtml(formatDate(p.created_at))}</td>
+          <td class="bold">${escapeHtml(p.order_number || `Order #${p.order_id}`)}</td>
+          <td>Payment (${methodName})${isCancelledPay ? ' <span class="badge-cancelled">CANCELLED</span>' : ''}</td>
+          <td class="right mono bold">${
+            isCancelledPay
+              ? `RWF 0<br/><span class="cancelled-red">(Cancelled: ${formatRwf(p.amount)})</span>`
+              : formatRwf(p.amount)
+          }</td>
+          <td>${escapeHtml(p.reference_no || p.recorded_by_name || 'Confirmed')}</td>
+        </tr>
+      `;
+    }).join('');
 
     const ledgerRows = statement.creditLedger.map((l) => {
       const label = l.entry_type === 'credit_added'
@@ -194,6 +217,8 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
           .center { text-align: center; }
           .bold { font-weight: 700; }
           .mono { font-family: monospace; }
+          .cancelled-red { color: #dc2626; font-weight: 700; font-size: 9px; }
+          .badge-cancelled { background: #fee2e2; color: #b91c1c; padding: 2px 5px; border-radius: 3px; font-weight: 800; font-size: 8.5px; display: inline-block; }
           .signs { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 26px; }
           .sign-line { border-top: 1px solid #64748b; padding-top: 5px; font-weight: 700; font-size: 10px; color: #475569; }
         </style>
@@ -448,7 +473,11 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                     {formatRwf(statement.summary.totalOrdered)}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    {statement.summary.ordersCount} order(s) • Lifetime: {statement.summary.lifetimeOrders}
+                    {statement.summary.ordersCount} active order(s)
+                    {statement.orders.length > statement.summary.ordersCount
+                      ? ` (${statement.orders.length - statement.summary.ordersCount} cancelled)`
+                      : ''}{' '}
+                    • Lifetime: {statement.summary.lifetimeOrders}
                   </p>
                 </div>
 
@@ -531,58 +560,91 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/70">
-                        {statement.orders.map((o) => (
-                          <tr key={o.id} className="hover:bg-slate-900/50">
-                            <td className="py-2.5 px-3 whitespace-nowrap">
-                              <p className="font-bold text-amber-400 font-mono">{o.order_number}</p>
-                              <p className="text-[10px] text-slate-400">{formatDate(o.created_at)}</p>
-                            </td>
-                            <td className="py-2.5 px-3 min-w-[210px]">
-                              {o.statement_items && o.statement_items.length > 0 ? (
-                                <ul className="space-y-0.5 text-[11px] text-slate-300">
-                                  {o.statement_items.map((it, i) => (
-                                    <li key={i}>
-                                      <span className="font-semibold text-white">{it.product_name}</span>{' '}
-                                      <span className="text-slate-400 font-mono">
-                                        × {it.quantity} (@ {Math.round(it.selling_price).toLocaleString()})
-                                      </span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <span className="text-slate-400">—</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-white whitespace-nowrap">
-                              {formatRwf(o.total_amount)}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono text-emerald-400 whitespace-nowrap">
-                              {formatRwf(o.paid_amount)}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
-                              {Number(o.debt_amount) > 0 ? (
-                                <span className="text-rose-400">{formatRwf(o.debt_amount)}</span>
-                              ) : (
-                                <span className="text-emerald-400">0</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                              {o.payment_status === 'paid' ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                                  <CheckCircle2 className="w-3 h-3" /> Paid
-                                </span>
-                              ) : o.payment_status === 'partial' ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300">
-                                  <Clock className="w-3 h-3" /> Partial
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300">
-                                  Debt
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        {statement.orders.map((o) => {
+                          const isCancelled = o.fulfillment_status === 'cancelled';
+                          return (
+                            <tr key={o.id} className={isCancelled ? 'bg-rose-950/15 hover:bg-rose-950/25' : 'hover:bg-slate-900/50'}>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <p className={`font-bold font-mono ${isCancelled ? 'text-rose-400 line-through' : 'text-amber-400'}`}>
+                                  {o.order_number}
+                                </p>
+                                <p className="text-[10px] text-slate-400">{formatDate(o.created_at)}</p>
+                              </td>
+                              <td className="py-2.5 px-3 min-w-[210px]">
+                                {o.statement_items && o.statement_items.length > 0 ? (
+                                  <ul className={`space-y-0.5 text-[11px] ${isCancelled ? 'text-slate-400' : 'text-slate-300'}`}>
+                                    {o.statement_items.map((it, i) => (
+                                      <li key={i}>
+                                        <span className={`font-semibold ${isCancelled ? 'text-slate-300 line-through' : 'text-white'}`}>
+                                          {it.product_name}
+                                        </span>{' '}
+                                        <span className="text-slate-400 font-mono">
+                                          × {it.quantity} (@ {Math.round(it.selling_price).toLocaleString()})
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                                {isCancelled ? (
+                                  <div>
+                                    <span className="text-slate-200">RWF 0</span>
+                                    <p className="text-[10px] text-rose-400 font-bold">
+                                      (Cancelled: {formatRwf(o.total_amount)})
+                                    </p>
+                                  </div>
+                                ) : (
+                                  <span className="text-white">{formatRwf(o.total_amount)}</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono whitespace-nowrap">
+                                {isCancelled ? (
+                                  <div>
+                                    <span className="text-slate-200 font-bold">RWF 0</span>
+                                    {Number(o.paid_amount || 0) > 0 && (
+                                      <p className="text-[10px] text-rose-400 font-bold">
+                                        (Cancelled: {formatRwf(o.paid_amount)})
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-emerald-400">{formatRwf(o.paid_amount)}</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold whitespace-nowrap">
+                                {isCancelled ? (
+                                  <span className="text-slate-300">RWF 0</span>
+                                ) : Number(o.debt_amount) > 0 ? (
+                                  <span className="text-rose-400">{formatRwf(o.debt_amount)}</span>
+                                ) : (
+                                  <span className="text-emerald-400">0</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                {isCancelled ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                                    Cancelled
+                                  </span>
+                                ) : o.payment_status === 'paid' ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
+                                    <CheckCircle2 className="w-3 h-3" /> Paid
+                                  </span>
+                                ) : o.payment_status === 'partial' ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300">
+                                    <Clock className="w-3 h-3" /> Partial
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300">
+                                    Debt
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
 
                         {statement.orders.length === 0 && (
                           <tr>
@@ -616,15 +678,38 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/70">
-                          {statement.payments.map((p) => (
-                            <tr key={p.id}>
-                              <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{formatDate(p.created_at)}</td>
-                              <td className="py-2 px-3 font-mono text-amber-400 font-bold">{p.order_number || `#${p.order_id}`}</td>
-                              <td className="py-2 px-3 uppercase text-slate-200">{(p.payment_method || '').replace('_', ' ')}</td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">{formatRwf(p.amount)}</td>
-                              <td className="py-2 px-3 text-slate-400">{p.reference_no || p.recorded_by_name || 'Confirmed'}</td>
-                            </tr>
-                          ))}
+                          {statement.payments.map((p) => {
+                            const isCancelledPay = p.order_status === 'cancelled';
+                            return (
+                              <tr key={p.id} className={isCancelledPay ? 'bg-rose-950/15' : ''}>
+                                <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{formatDate(p.created_at)}</td>
+                                <td className={`py-2 px-3 font-mono font-bold ${isCancelledPay ? 'text-rose-400 line-through' : 'text-amber-400'}`}>
+                                  {p.order_number || `#${p.order_id}`}
+                                </td>
+                                <td className="py-2 px-3 uppercase text-slate-200">
+                                  {(p.payment_method || '').replace('_', ' ')}
+                                  {isCancelledPay && (
+                                    <span className="ml-1.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                      CANCELLED
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-bold">
+                                  {isCancelledPay ? (
+                                    <div>
+                                      <span className="text-slate-200">RWF 0</span>
+                                      <p className="text-[10px] text-rose-400 font-bold">
+                                        (Cancelled: {formatRwf(p.amount)})
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <span className="text-emerald-400">{formatRwf(p.amount)}</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-slate-400">{p.reference_no || p.recorded_by_name || 'Confirmed'}</td>
+                              </tr>
+                            );
+                          })}
                           {statement.payments.length === 0 && (
                             <tr>
                               <td colSpan={5} className="py-6 text-center text-slate-400">

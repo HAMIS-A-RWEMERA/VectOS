@@ -710,8 +710,11 @@ router.get('/dashboard/stats', requireAuth, requireTenant, async (req: Request, 
     );
 
     const paymentBreakdown = await queryAll(
-      `SELECT payment_method, COALESCE(SUM(amount), 0) as total_amount, COUNT(*) as count 
-       FROM payments WHERE shop_id = ? GROUP BY payment_method`,
+      `SELECT p.payment_method, COALESCE(SUM(p.amount), 0) as total_amount, COUNT(*) as count 
+       FROM payments p
+       INNER JOIN orders o ON p.order_id = o.id
+       WHERE p.shop_id = ? AND o.fulfillment_status != 'cancelled'
+       GROUP BY p.payment_method`,
       [shopId]
     );
 
@@ -2263,6 +2266,9 @@ router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermissio
     if (!order) {
       return res.status(404).json({ error: 'Order not found in this store' });
     }
+    if (order.fulfillment_status === 'cancelled') {
+      return res.status(400).json({ error: 'Cannot record payment on a cancelled order' });
+    }
 
     await withTransaction(async () => {
       await execute(
@@ -2319,6 +2325,9 @@ router.post('/orders/:id/status', requireAuth, requireTenant, requirePermission(
     const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
     if (!order) {
       return res.status(404).json({ error: 'Order not found in this store' });
+    }
+    if (order.fulfillment_status === 'cancelled') {
+      return res.status(400).json({ error: 'Cannot update fulfillment status on a cancelled order' });
     }
 
     const isReleasing = fulfillment_status === 'approved' || fulfillment_status === 'dispatched' || fulfillment_status === 'completed';
@@ -2384,6 +2393,9 @@ router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePerm
       const order = await queryOne('SELECT * FROM orders WHERE id = ? AND shop_id = ?', [orderId, shopId]);
       if (!order) {
         throw new Error('Order not found in this store.');
+      }
+      if (order.fulfillment_status === 'cancelled') {
+        throw new Error('Cannot release stock for a cancelled order.');
       }
 
       // 2. Fetch existing items
@@ -2618,6 +2630,25 @@ router.post('/orders/:id/void', requireAuth, requireTenant, requirePermission('c
         );
       }
 
+      if (order.customer_id) {
+        const usedCredits = await queryAll<{ id: number; amount: number }>(
+          `SELECT id, amount FROM customer_credit_ledger WHERE order_id = ? AND customer_id = ? AND shop_id = ? AND entry_type = 'credit_used'`,
+          [orderId, order.customer_id, shopId]
+        );
+        const totalCreditToRestore = usedCredits.reduce((s, row) => s + Number(row.amount || 0), 0);
+        if (totalCreditToRestore > 0) {
+          await execute(
+            'UPDATE customers SET store_credit = COALESCE(store_credit, 0) + ? WHERE id = ? AND shop_id = ?',
+            [totalCreditToRestore, order.customer_id, shopId]
+          );
+          await execute(
+            `INSERT INTO customer_credit_ledger (shop_id, customer_id, order_id, amount, entry_type, payment_method, notes, recorded_by)
+             VALUES (?, ?, ?, ?, 'credit_added', 'store_credit', ?, ?)`,
+            [shopId, order.customer_id, orderId, totalCreditToRestore, `Order #${order.order_number} cancelled — store credit refunded`, currentUserId]
+          );
+        }
+      }
+
       const voidStamp = reason ? `[Cancelled by ${currentUserName}: ${String(reason).trim()}]` : `[Cancelled by ${currentUserName}]`;
       const newNotes = order.notes ? `${order.notes} | ${voidStamp}` : voidStamp;
 
@@ -2788,7 +2819,7 @@ router.get('/customers/:id/statement', requireAuth, requireTenant, async (req: R
       LEFT JOIN users u ON o.salesperson_id = u.id
       LEFT JOIN users p_user ON o.payment_approved_by = p_user.id
       LEFT JOIN users s_user ON o.stock_released_by = s_user.id
-      WHERE o.customer_id = ? AND o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+      WHERE o.customer_id = ? AND o.shop_id = ?
     `;
     const orderParams: any[] = [customerId, shopId];
     if (startIso) {
@@ -2827,11 +2858,11 @@ router.get('/customers/:id/statement', requireAuth, requireTenant, async (req: R
     }
 
     let paymentsSql = `
-      SELECT p.*, o.order_number, u.name as recorded_by_name
+      SELECT p.*, o.order_number, o.fulfillment_status as order_status, u.name as recorded_by_name
       FROM payments p
       INNER JOIN orders o ON p.order_id = o.id
       LEFT JOIN users u ON p.recorded_by = u.id
-      WHERE o.customer_id = ? AND o.shop_id = ? AND o.fulfillment_status != 'cancelled'
+      WHERE o.customer_id = ? AND o.shop_id = ?
     `;
     const payParams: any[] = [customerId, shopId];
     if (startIso) {
@@ -2874,10 +2905,13 @@ router.get('/customers/:id/statement', requireAuth, requireTenant, async (req: R
       [customerId, shopId]
     );
 
-    const totalOrdered = orders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-    const totalPaidOnOrders = orders.reduce((s, o) => s + Number(o.paid_amount || 0), 0);
-    const periodDebt = orders.reduce((s, o) => s + Number(o.debt_amount || 0), 0);
-    const paymentsReceivedInPeriod = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const activeOrders = orders.filter((o) => o.fulfillment_status !== 'cancelled');
+    const totalOrdered = activeOrders.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+    const totalPaidOnOrders = activeOrders.reduce((s, o) => s + Number(o.paid_amount || 0), 0);
+    const periodDebt = activeOrders.reduce((s, o) => s + Number(o.debt_amount || 0), 0);
+    const paymentsReceivedInPeriod = payments
+      .filter((p) => p.order_status !== 'cancelled')
+      .reduce((s, p) => s + Number(p.amount || 0), 0);
     const creditAddedInPeriod = creditLedger
       .filter((e) => e.entry_type === 'credit_added')
       .reduce((s, e) => s + Number(e.amount || 0), 0);
@@ -2893,7 +2927,7 @@ router.get('/customers/:id/statement', requireAuth, requireTenant, async (req: R
       startDate: startIso,
       endDate: endIso,
       summary: {
-        ordersCount: orders.length,
+        ordersCount: activeOrders.length,
         totalOrdered,
         totalPaidOnOrders,
         periodDebt,
@@ -3533,7 +3567,7 @@ router.get('/shops', requireAuth, async (req: Request, res: Response) => {
           (SELECT COUNT(*) FROM users u WHERE u.shop_id = s.id) as user_count,
           (SELECT COUNT(*) FROM stocks st WHERE st.shop_id = s.id) as stock_count,
           (SELECT COUNT(*) FROM products p WHERE p.shop_id = s.id) as product_count,
-          (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.shop_id = s.id) as total_revenue
+          (SELECT COALESCE(SUM(total_amount), 0) FROM orders o WHERE o.shop_id = s.id AND o.fulfillment_status != 'cancelled') as total_revenue
         FROM shops s ORDER BY s.id ASC
       `);
       return res.json({ shops });

@@ -510,39 +510,73 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filteredOrders.map((ord) => (
-                <tr key={ord.id} className="hover:bg-slate-800/40 transition">
-                  <td className="py-3 px-4 font-mono font-bold text-amber-400">{ord.order_number}</td>
-                  <td className="py-3 px-4 text-slate-400 font-mono">
-                    {new Date(ord.created_at).toLocaleString()}
-                  </td>
-                  <td className="py-3 px-4">
-                    <p className="font-bold text-slate-200">{ord.customer_name || 'Walk-in Cash Client'}</p>
-                    {ord.customer_phone && <p className="text-[10px] text-slate-400 font-mono">{ord.customer_phone}</p>}
-                  </td>
-                  <td className="py-3 px-4 font-bold text-white font-mono">{formatRwf(ord.total_amount)}</td>
-                  <td className="py-3 px-4">
-                    <p className="text-emerald-400 font-mono font-semibold">{formatRwf(ord.paid_amount)}</p>
-                    {ord.debt_amount > 0 && (
-                      <p className="text-rose-400 font-mono text-[10px]">Due: {formatRwf(ord.debt_amount)}</p>
-                    )}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      ord.payment_status === 'paid'
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : ord.payment_status === 'partial'
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                    }`}>
-                      {ord.payment_status}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="text-[11px] font-medium text-slate-300 capitalize">
-                      {ord.fulfillment_status.replace('_', ' ')}
-                    </span>
-                  </td>
+              {filteredOrders.map((ord) => {
+                const isCancelled = ord.fulfillment_status === 'cancelled';
+                return (
+                  <tr key={ord.id} className={isCancelled ? 'bg-rose-950/15 hover:bg-rose-950/25 transition' : 'hover:bg-slate-800/40 transition'}>
+                    <td className={`py-3 px-4 font-mono font-bold ${isCancelled ? 'text-rose-400 line-through' : 'text-amber-400'}`}>
+                      {ord.order_number}
+                    </td>
+                    <td className="py-3 px-4 text-slate-400 font-mono">
+                      {new Date(ord.created_at).toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4">
+                      <p className="font-bold text-slate-200">{ord.customer_name || 'Walk-in Cash Client'}</p>
+                      {ord.customer_phone && <p className="text-[10px] text-slate-400 font-mono">{ord.customer_phone}</p>}
+                    </td>
+                    <td className="py-3 px-4 font-bold font-mono">
+                      {isCancelled ? (
+                        <div>
+                          <span className="text-slate-200">RWF 0</span>
+                          <p className="text-[10px] text-rose-400 font-bold">
+                            (Cancelled: {formatRwf(ord.total_amount)})
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-white">{formatRwf(ord.total_amount)}</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {isCancelled ? (
+                        <div>
+                          <p className="text-slate-200 font-mono font-semibold">RWF 0</p>
+                          {Number(ord.paid_amount || 0) > 0 && (
+                            <p className="text-rose-400 font-mono text-[10px] font-bold">
+                              (Cancelled: {formatRwf(ord.paid_amount)})
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-emerald-400 font-mono font-semibold">{formatRwf(ord.paid_amount)}</p>
+                          {ord.debt_amount > 0 && (
+                            <p className="text-rose-400 font-mono text-[10px]">Due: {formatRwf(ord.debt_amount)}</p>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {isCancelled ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                          CANCELLED
+                        </span>
+                      ) : (
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          ord.payment_status === 'paid'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            : ord.payment_status === 'partial'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                        }`}>
+                          {ord.payment_status}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`text-[11px] font-medium capitalize ${isCancelled ? 'text-rose-400 font-bold' : 'text-slate-300'}`}>
+                        {ord.fulfillment_status.replace('_', ' ')}
+                      </span>
+                    </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-1.5">
                       <button
@@ -573,7 +607,8 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
 
               {filteredOrders.length === 0 && (
                 <tr>
@@ -820,19 +855,29 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">Total Amount</p>
                 <p className="text-sm font-bold text-white font-mono mt-1">
-                  {formatRwf(selectedOrder.total_amount)}
+                  {selectedOrder.fulfillment_status === 'cancelled' ? 'RWF 0' : formatRwf(selectedOrder.total_amount)}
                 </p>
+                {selectedOrder.fulfillment_status === 'cancelled' && (
+                  <p className="text-[10px] font-mono text-rose-400 font-bold mt-0.5">
+                    (Cancelled: {formatRwf(selectedOrder.total_amount)})
+                  </p>
+                )}
               </div>
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">Paid So Far</p>
-                <p className="text-sm font-bold text-emerald-400 font-mono mt-1">
-                  {formatRwf(selectedOrder.paid_amount)}
+                <p className={`text-sm font-bold font-mono mt-1 ${selectedOrder.fulfillment_status === 'cancelled' ? 'text-slate-200' : 'text-emerald-400'}`}>
+                  {selectedOrder.fulfillment_status === 'cancelled' ? 'RWF 0' : formatRwf(selectedOrder.paid_amount)}
                 </p>
+                {selectedOrder.fulfillment_status === 'cancelled' && Number(selectedOrder.paid_amount || 0) > 0 && (
+                  <p className="text-[10px] font-mono text-rose-400 font-bold mt-0.5">
+                    (Cancelled: {formatRwf(selectedOrder.paid_amount)})
+                  </p>
+                )}
               </div>
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
                 <p className="text-[10px] text-slate-400 uppercase font-semibold">Debt Outstanding</p>
-                <p className="text-sm font-bold text-rose-400 font-mono mt-1">
-                  {formatRwf(selectedOrder.debt_amount)}
+                <p className={`text-sm font-bold font-mono mt-1 ${selectedOrder.fulfillment_status === 'cancelled' ? 'text-slate-300' : 'text-rose-400'}`}>
+                  {selectedOrder.fulfillment_status === 'cancelled' ? 'RWF 0' : formatRwf(selectedOrder.debt_amount)}
                 </p>
               </div>
             </div>
@@ -1113,7 +1158,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Payment History</h3>
-                {selectedOrder.debt_amount > 0 && canProcessPayments && (
+                {selectedOrder.debt_amount > 0 && selectedOrder.fulfillment_status !== 'cancelled' && canProcessPayments && (
                   <button
                     onClick={() => {
                       setPayAmount(String(selectedOrder.debt_amount));
@@ -1135,12 +1180,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <span className="font-bold text-slate-200 uppercase font-mono">
                         {p.payment_method === 'momo' ? 'MTN MoMo' : p.payment_method.replace('_', ' ')}
                       </span>
+                      {selectedOrder.fulfillment_status === 'cancelled' && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                          CANCELLED
+                        </span>
+                      )}
                       {p.reference_no && (
                         <p className="text-[10px] text-slate-400 font-mono">Ref: {p.reference_no}</p>
                       )}
                     </div>
                     <div className="text-right">
-                      <span className="font-mono font-bold text-emerald-400">{formatRwf(p.amount)}</span>
+                      {selectedOrder.fulfillment_status === 'cancelled' ? (
+                        <div>
+                          <span className="font-mono font-bold text-slate-200">RWF 0</span>
+                          <p className="text-[10px] font-mono text-rose-400 font-bold">(Cancelled: {formatRwf(p.amount)})</p>
+                        </div>
+                      ) : (
+                        <span className="font-mono font-bold text-emerald-400">{formatRwf(p.amount)}</span>
+                      )}
                       <p className="text-[10px] text-slate-400">{new Date(p.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>

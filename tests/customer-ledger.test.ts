@@ -225,4 +225,104 @@ describe('Customer Statements, Bulk Debt Settlement, Store Credit & Top Buyers',
     });
     expect(crossSettle.status).toBe(404);
   });
+
+  it('excludes cancelled/voided paid orders from dashboard paymentBreakdown, reports, and customer statement totals while preserving them for red RWF 0 display', async () => {
+    // Use an isolated shop so all KPIs start at 0
+    const shopC = await createTestShop('VoidAuditShop');
+    const { agent: shopCAgent } = await login(shopC.managerEmail, shopC.managerPassword);
+
+    // 1. Add product with stock = 20, selling price = 10,000
+    const pRes = await shopCAgent.post('/api/products').send({
+      name: 'Void Test Cement',
+      sku: 'VTC-' + Date.now(),
+      category: 'Cement',
+      unit: 'bags',
+      buying_price: 8000,
+      selling_price: 10000,
+      quantity: 20,
+      low_stock_threshold: 5,
+    });
+    expect(pRes.status).toBe(200);
+    const pId = pRes.body.product.id;
+
+    // 2. Create customer with 10,000 store credit
+    const cRes = await shopCAgent.post('/api/customers').send({
+      name: 'Cancelled Audit Client',
+      phone: '0788999000',
+    });
+    expect(cRes.status).toBe(200);
+    const cId = cRes.body.customer.id;
+
+    await shopCAgent.post(`/api/customers/${cId}/store-credit`).send({
+      action: 'add',
+      amount: 10000,
+      payment_method: 'cash',
+      notes: 'Deposit before cancelled order',
+    });
+
+    // 3. Employee creates an order for 5 bags (50,000) marked PAID (10,000 store credit + 40,000 cash)
+    const orderRes = await shopCAgent.post('/api/orders').send({
+      customer_id: cId,
+      items: [{ product_id: pId, quantity: 5, selling_price: 10000 }],
+      payment_method: 'cash',
+      paid_amount: 40000,
+      use_store_credit: true,
+    });
+    expect(orderRes.status).toBe(200);
+    const orderId = orderRes.body.order.id;
+    expect(orderRes.body.order.payment_status).toBe('paid');
+
+    // Confirm stock reduced to 15
+    const midProd = await shopCAgent.get('/api/products');
+    expect(midProd.body.products.find((p: any) => p.id === pId).quantity).toBe(15);
+
+    // 4. Manager cancels/voids the order
+    const voidRes = await shopCAgent.post(`/api/orders/${orderId}/void`).send({
+      reason: 'Employee mistakenly marked order paid',
+    });
+    expect(voidRes.status).toBe(200);
+    expect(voidRes.body.order.fulfillment_status).toBe('cancelled');
+
+    // Stock returned back to 20
+    const afterProd = await shopCAgent.get('/api/products');
+    expect(afterProd.body.products.find((p: any) => p.id === pId).quantity).toBe(20);
+
+    // Cannot record any new payment against a cancelled order
+    const payAttempt = await shopCAgent.post(`/api/orders/${orderId}/payments`).send({
+      amount: 5000,
+      payment_method: 'cash',
+    });
+    expect(payAttempt.status).toBe(400);
+
+    // Dashboard stats & paymentBreakdown must all be 0
+    const statsRes = await shopCAgent.get('/api/dashboard/stats');
+    expect(statsRes.status).toBe(200);
+    expect(Number(statsRes.body.todaySales)).toBe(0);
+    expect(Number(statsRes.body.totalSales)).toBe(0);
+    expect(Number(statsRes.body.totalPaid)).toBe(0);
+    expect(statsRes.body.paymentBreakdown).toHaveLength(0);
+
+    // Reports summary must exclude cancelled order
+    const repRes = await shopCAgent.get('/api/reports/summary?period=today');
+    expect(repRes.status).toBe(200);
+    expect(Number(repRes.body.financialOverview.total_revenue)).toBe(0);
+    expect(Number(repRes.body.financialOverview.total_paid)).toBe(0);
+    expect(repRes.body.categorySales).toHaveLength(0);
+
+    // Customer statement totals must all be 0, store_credit restored to 10,000,
+    // AND cancelled order & payment are returned flagged as cancelled for red (Cancelled: RWF ...) display
+    const stmtRes = await shopCAgent.get(`/api/customers/${cId}/statement?period=today`);
+    expect(stmtRes.status).toBe(200);
+    expect(stmtRes.body.summary.ordersCount).toBe(0);
+    expect(stmtRes.body.summary.totalOrdered).toBe(0);
+    expect(stmtRes.body.summary.totalPaidOnOrders).toBe(0);
+    expect(stmtRes.body.summary.paymentsReceivedInPeriod).toBe(0);
+    expect(stmtRes.body.summary.lifetimeOrders).toBe(0);
+    expect(stmtRes.body.summary.lifetimeSpent).toBe(0);
+    expect(stmtRes.body.summary.lifetimePaid).toBe(0);
+    expect(stmtRes.body.summary.currentStoreCredit).toBe(10000);
+    expect(stmtRes.body.orders.some((o: any) => o.id === orderId && o.fulfillment_status === 'cancelled')).toBe(true);
+    expect(stmtRes.body.payments.some((p: any) => p.order_id === orderId && p.order_status === 'cancelled')).toBe(true);
+  });
 });
+

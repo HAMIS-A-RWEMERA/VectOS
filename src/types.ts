@@ -259,7 +259,7 @@ export interface CustomerStatement {
     lifetimePaid: number;
   };
   orders: CustomerStatementOrder[];
-  payments: (Payment & { order_number?: string })[];
+  payments: (Payment & { order_number?: string; order_status?: string })[];
   creditLedger: CustomerCreditEntry[];
 }
 

@@ -323,37 +323,59 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {stats.recentOrders.map((ord) => (
-                  <tr key={ord.id} className="hover:bg-slate-800/40 transition">
-                    <td className="py-3 font-mono font-bold text-amber-400">{ord.order_number}</td>
-                    <td className="py-3 text-slate-300">{ord.customer_name || 'Walk-in Cash Client'}</td>
-                    <td className="py-3 font-semibold text-white">{formatRwf(ord.total_amount)}</td>
-                    <td className="py-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        ord.payment_status === 'paid'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : ord.payment_status === 'partial'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                      }`}>
-                        {ord.payment_status}
-                      </span>
-                    </td>
-                    <td className="py-3">
-                      <span className="text-[11px] font-medium text-slate-300 capitalize">
-                        {ord.fulfillment_status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right">
-                      <button
-                        onClick={() => onViewOrder(ord.id)}
-                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-amber-400 font-semibold border border-slate-700 transition"
-                      >
-                        Open
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {stats.recentOrders.map((ord) => {
+                  const isCancelled = ord.fulfillment_status === 'cancelled';
+                  return (
+                    <tr key={ord.id} className={isCancelled ? 'bg-rose-950/15 hover:bg-rose-950/25 transition' : 'hover:bg-slate-800/40 transition'}>
+                      <td className={`py-3 font-mono font-bold ${isCancelled ? 'text-rose-400 line-through' : 'text-amber-400'}`}>
+                        {ord.order_number}
+                      </td>
+                      <td className="py-3 text-slate-300">{ord.customer_name || 'Walk-in Cash Client'}</td>
+                      <td className="py-3 font-semibold font-mono">
+                        {isCancelled ? (
+                          <div>
+                            <span className="text-slate-200">RWF 0</span>
+                            <span className="block text-[10px] text-rose-400 font-bold">
+                              (Cancelled: {formatRwf(ord.total_amount)})
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-white">{formatRwf(ord.total_amount)}</span>
+                        )}
+                      </td>
+                      <td className="py-3">
+                        {isCancelled ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                            CANCELLED
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            ord.payment_status === 'paid'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : ord.payment_status === 'partial'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                          }`}>
+                            {ord.payment_status}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3">
+                        <span className={`text-[11px] font-medium capitalize ${isCancelled ? 'text-rose-400 font-bold' : 'text-slate-300'}`}>
+                          {ord.fulfillment_status.replace('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="py-3 text-right">
+                        <button
+                          onClick={() => onViewOrder(ord.id)}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-amber-400 font-semibold border border-slate-700 transition"
+                        >
+                          Open
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {stats.recentOrders.length === 0 && (
                   <tr>
                     <td colSpan={6} className="py-6 text-center text-slate-400">
