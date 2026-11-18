@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Search, ChevronDown, X, Check } from 'lucide-react';
 import { matchesSearch } from '../utils/searchMatch';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface SearchableSelectOption {
   value: string | number;
@@ -39,16 +40,20 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   value,
   onChange,
   options,
-  placeholder = 'Select an option...',
-  searchPlaceholder = 'Type any letters, words, phone, or code...',
+  placeholder,
+  searchPlaceholder,
   emptyOptionLabel,
   emptyOptionSublabel,
-  noResultsText = 'No matching items found',
+  noResultsText,
   disabled = false,
   className = '',
   allowClear = false,
   ariaLabel,
 }) => {
+  const { tf } = useLanguage();
+  const resolvedPlaceholder = placeholder ?? tf('Select an option...', 'Hitamo kimwe...');
+  const resolvedSearchPlaceholder = searchPlaceholder ?? tf('Type any letters, words, phone, or code...', 'Andika inyuguti, ijambo, telefoni, cyangwa kode...');
+  const resolvedNoResults = noResultsText ?? tf('No matching items found', 'Nta gicuruzwa cyabonetse');
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -171,7 +176,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   const displayLabel = selectedOption
     ? selectedOption.label
-    : emptyOptionLabel || placeholder;
+    : emptyOptionLabel || resolvedPlaceholder;
 
   const hasSelection = Boolean(selectedOption);
 
@@ -182,7 +187,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         <div
           role="button"
           tabIndex={disabled ? -1 : 0}
-          aria-label={ariaLabel || placeholder}
+          aria-label={ariaLabel || resolvedPlaceholder}
           aria-expanded={isOpen}
           onClick={handleOpen}
           onKeyDown={(e) => {
@@ -236,8 +241,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={searchPlaceholder}
-            aria-label={ariaLabel ? `${ariaLabel} search` : 'Search options'}
+            placeholder={resolvedSearchPlaceholder}
+            aria-label={ariaLabel ? `${ariaLabel} search` : tf('Search options', 'Shakisha amahitamo')}
             className="w-full bg-transparent text-xs text-white placeholder-slate-400 focus:outline-none py-0.5"
           />
           {query && (
@@ -249,7 +254,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 inputRef.current?.focus();
               }}
               className="p-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition shrink-0"
-              title="Clear search text"
+              title={tf('Clear search text', 'Siba inyandiko y’ishakisha')}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -259,7 +264,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setIsOpen(false)}
             className="p-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition shrink-0"
-            title="Close dropdown"
+            title={tf('Close dropdown', 'Funga urutonde')}
           >
             <ChevronDown className="w-4 h-4 rotate-180" />
           </button>
@@ -346,7 +351,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
             {filteredOptions.length === 0 && !showEmptyOption && (
               <div className="px-4 py-6 text-center text-xs text-slate-400 space-y-2">
-                <p className="font-semibold text-slate-300">{noResultsText}</p>
+                <p className="font-semibold text-slate-300">{resolvedNoResults}</p>
                 {query && (
                   <button
                     type="button"
@@ -357,7 +362,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     }}
                     className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] font-semibold transition"
                   >
-                    Clear "{query}"
+                    {tf('Clear', 'Siba')} "{query}"
                   </button>
                 )}
               </div>
@@ -367,10 +372,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
             <span>
               {query.trim()
-                ? `${filteredOptions.length} match${filteredOptions.length === 1 ? '' : 'es'}`
-                : `${options.length} total`}
+                ? `${filteredOptions.length} ${tf(filteredOptions.length === 1 ? 'match' : 'matches', 'bihuye')}`
+                : `${options.length} ${tf('total', 'byose')}`}
             </span>
-            <span>Type or Backspace to edit</span>
+            <span>{tf('Type or Backspace to edit', 'Andika cyangwa usibe')}</span>
           </div>
         </div>
       )}

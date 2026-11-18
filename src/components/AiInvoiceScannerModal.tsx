@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { StockLocation } from '../types';
 import { api } from '../services/api';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface ExtractedItem {
   id: string;
@@ -70,6 +71,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
   onSuccess,
   stocks
 }) => {
+  const { tf } = useLanguage();
   const [selectedStockId, setSelectedStockId] = useState<number>(() => {
     const main = stocks.find((s) => s.is_main);
     return main ? main.id : (stocks[0]?.id || 1);
@@ -110,18 +112,18 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
 
   const handleStartScan = async () => {
     if (inputMode === 'upload' && !selectedFile) {
-      setError('Please select an invoice image, photo, or document to scan.');
+      setError(tf('Please select an invoice image, photo, or document to scan.', 'Nyamuneka hitamo ifoto ya fakitire cyangwa dosiye yo gusikana.'));
       return;
     }
     if (inputMode === 'paste' && !pastedText.trim()) {
-      setError('Please paste the invoice text, receipt items, or delivery note.');
+      setError(tf('Please paste the invoice text, receipt items, or delivery note.', 'Nyamuneka shyiramo inyandiko ya fakitire cyangwa urupapuro rw’ibicuruzwa.'));
       return;
     }
 
     try {
       setIsScanning(true);
       setError(null);
-      setScanStep('Sending document to Gemini AI...');
+      setScanStep(tf('Sending document to Gemini AI...', 'Kohereza dosiye kuri Gemini AI...'));
 
       const formData = new FormData();
       if (inputMode === 'upload' && selectedFile) {
@@ -132,11 +134,11 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
       }
       formData.append('stock_id', String(selectedStockId));
 
-      setScanStep('Gemini reading item names, quantities, and prices...');
+      setScanStep(tf('Gemini reading item names, quantities, and prices...', 'Gemini irimo gusoma amazina, ingano n’ibiciro...'));
       const res = await api.aiExtractInvoice(formData);
 
       if (!res.success || !res.items || res.items.length === 0) {
-        throw new Error(res.message || 'No inventory items could be found in this document. Please try a clearer photo or file.');
+        throw new Error(res.message || tf('No inventory items could be found in this document. Please try a clearer photo or file.', 'Nta bicuruzwa byabonetse muri iyi dosiye. Gerageza ifoto igaragara neza.'));
       }
 
       const formatted: ExtractedItem[] = res.items.map((it: any, idx: number) => {
@@ -160,7 +162,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
       setIsConfirmedStep(true);
     } catch (err: any) {
       console.error('AI Scan error:', err);
-      setError(err.message || 'Failed to analyze document with AI. Please ensure the document is clear.');
+      setError(err.message || tf('Failed to analyze document with AI. Please ensure the document is clear.', 'Gusesengura dosiye na AI byanze. Reba ko dosiye isomeka neza.'));
     } finally {
       setIsScanning(false);
       setScanStep('');
@@ -213,18 +215,18 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
 
   const handleCommitInventory = async () => {
     if (stagedItems.length === 0) {
-      setError('Please keep at least one product in the list to import.');
+      setError(tf('Please keep at least one product in the list to import.', 'Nyamuneka sigazamo nibura igicuruzwa kimwe cyo kwinjiza.'));
       return;
     }
 
     // Validate that every product has a name and non-negative quantity
     for (const item of stagedItems) {
       if (!item.name.trim()) {
-        setError('Every item must have a product name.');
+        setError(tf('Every item must have a product name.', 'Buri gicuruzwa kigomba kugira izina.'));
         return;
       }
       if (item.quantity < 0 || isNaN(item.quantity)) {
-        setError(`Invalid quantity for item "${item.name}".`);
+        setError(tf(`Invalid quantity for item "${item.name}".`, `Ingano ya "${item.name}" ntiyemewe.`));
         return;
       }
     }
@@ -251,11 +253,11 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
         handleReset();
         onClose();
       } else {
-        throw new Error(res.message || 'Failed to save products to inventory.');
+        throw new Error(res.message || tf('Failed to save products to inventory.', 'Kubika ibicuruzwa mu bubiko byanze.'));
       }
     } catch (err: any) {
       console.error('Commit error:', err);
-      setError(err.message || 'Failed to save products.');
+      setError(err.message || tf('Failed to save products.', 'Kubika ibicuruzwa byanze.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -277,14 +279,14 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-bold text-white font-display">
-                  AI Invoice & Receipt Scanner
+                  {tf('AI Invoice & Receipt Scanner', 'Igikoresho cya AI Gisikana Fakitire')}
                 </h2>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  Option 3
+                  {tf('Option 3', 'Uburyo bwa 3')}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Snap or upload any paper invoice, delivery receipt, or PDF. AI formats and lists items for your double-check.
+                {tf('Snap or upload any paper invoice, delivery receipt, or PDF. AI formats and lists items for your double-check.', 'Fata ifoto cyangwa ushyiremo fakitire y’urupapuro cyangwa PDF. AI igutegurira urutonde rw’ibicuruzwa kugira ngo ubanze ugenzure.')}
               </p>
             </div>
           </div>
@@ -317,8 +319,8 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                 <div className="flex items-center gap-2.5">
                   <Warehouse className="w-4 h-4 text-amber-400" />
                   <div>
-                    <p className="text-xs font-bold text-slate-200">Destination Warehouse / Depot</p>
-                    <p className="text-[11px] text-slate-400">Select which stock location will receive these scanned products</p>
+                    <p className="text-xs font-bold text-slate-200">{tf('Destination Warehouse / Depot', 'Ububiko / Depo bigiyemo')}</p>
+                    <p className="text-[11px] text-slate-400">{tf('Select which stock location will receive these scanned products', 'Hitamo ububiko bwakira ibi bicuruzwa byasikanwe')}</p>
                   </div>
                 </div>
 
@@ -329,7 +331,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                 >
                   {stocks.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name} {s.is_main ? '(Main)' : ''}
+                      {s.name} {s.is_main ? tf('(Main)', '(Nyuma)') : ''}
                     </option>
                   ))}
                 </select>
@@ -347,7 +349,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   }`}
                 >
                   <Camera className="w-3.5 h-3.5" />
-                  <span>Photo / Document Upload</span>
+                  <span>{tf('Photo / Document Upload', 'Ifoto / Dosiye')}</span>
                 </button>
 
                 <button
@@ -360,7 +362,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   }`}
                 >
                   <FileText className="w-3.5 h-3.5" />
-                  <span>Paste Invoice Text</span>
+                  <span>{tf('Paste Invoice Text', 'Shyiramo Inyandiko ya Fakitire')}</span>
                 </button>
               </div>
 
@@ -388,7 +390,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                         <img src={previewUrl} alt="Invoice preview" className="w-full h-full object-cover" />
                       </div>
                       <p className="text-xs font-bold text-indigo-300">{selectedFile?.name}</p>
-                      <p className="text-[11px] text-slate-400">Click to change photo or document</p>
+                      <p className="text-[11px] text-slate-400">{tf('Click to change photo or document', 'Kanda uhindure ifoto cyangwa dosiye')}</p>
                     </div>
                   ) : selectedFile ? (
                     <div className="space-y-2">
@@ -396,7 +398,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                         <FileText className="w-6 h-6" />
                       </div>
                       <p className="text-xs font-bold text-white">{selectedFile.name}</p>
-                      <p className="text-[11px] text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB • Click to change</p>
+                      <p className="text-[11px] text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB • {tf('Click to change', 'Kanda uhindure')}</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -405,15 +407,15 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-200">
-                          Take a photo or upload supplier invoice / delivery slip
+                          {tf('Take a photo or upload supplier invoice / delivery slip', 'Fata ifoto cyangwa ushyiremo fakitire y’uwakugemuriye')}
                         </p>
                         <p className="text-xs text-slate-400 mt-1">
-                          Supports phone camera photos (JPEG, PNG), PDFs from suppliers, or spreadsheets
+                          {tf('Supports phone camera photos (JPEG, PNG), PDFs from suppliers, or spreadsheets', 'Byemera amafoto ya telefoni (JPEG, PNG), PDF, cyangwa Excel')}
                         </p>
                       </div>
                       <div className="flex items-center justify-center gap-2 pt-2 text-[11px] text-indigo-400 font-semibold">
                         <Camera className="w-3.5 h-3.5" />
-                        <span>Tap to snap photo with camera or browse file</span>
+                        <span>{tf('Tap to snap photo with camera or browse file', 'Kanda ufotore cyangwa uhitemo dosiye')}</span>
                       </div>
                     </div>
                   )}
@@ -421,7 +423,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
               ) : (
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-slate-300">
-                    Paste supplier invoice lines, WhatsApp message, or delivery list:
+                    {tf('Paste supplier invoice lines, WhatsApp message, or delivery list:', 'Shyiramo imirongo ya fakitire, ubutumwa bwa WhatsApp, cyangwa urutonde rw’ibagemuwe:')}
                   </label>
                   <textarea
                     rows={6}
@@ -431,7 +433,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                     className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500"
                   />
                   <p className="text-[11px] text-slate-500">
-                    You can paste raw unformatted text in French, Kinyarwanda, or English. The AI will extract and structure it properly.
+                    {tf('You can paste raw unformatted text in French, Kinyarwanda, or English. The AI will extract and structure it properly.', 'Ushobora gushyiramo inyandiko mu Gifaransa, Ikinyarwanda, cyangwa Icyongereza. AI irabitunganya neza.')}
                   </p>
                 </div>
               )}
@@ -440,12 +442,12 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
               <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800/80 flex items-start gap-3">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div className="text-xs text-slate-400 space-y-1">
-                  <p className="text-slate-200 font-bold">How the verification works:</p>
+                  <p className="text-slate-200 font-bold">{tf('How the verification works:', 'Uko igenzura rikorwa:')}</p>
                   <p>
-                    1. The AI extracts items and initial prices from your document.
+                    {tf('1. The AI extracts items and initial prices from your document.', '1. AI ikuramo ibicuruzwa n’ibiciro by’ibanze muri dosiye yawe.')}
                   </p>
                   <p>
-                    2. <strong className="text-amber-300">Nothing is saved immediately</strong>: you will be shown a full review table to double-check quantities, units, and prices yourself before confirming!
+                    2. <strong className="text-amber-300">{tf('Nothing is saved immediately', 'Nta na kimwe kibikwa ako kanya')}</strong>: {tf('you will be shown a full review table to double-check quantities, units, and prices yourself before confirming!', 'urabanza werekwe imbonerahamwe yose ugenzure ingano n’ibiciro mbere yo kwemeza!')}
                   </p>
                 </div>
               </div>
@@ -458,17 +460,17 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
               {/* Summary Bar */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-500/20">
                 <div className="space-y-0.5">
-                  <span className="text-[10px] text-indigo-300 uppercase tracking-wider font-semibold">Extracted Items</span>
-                  <p className="text-base sm:text-lg font-black text-white">{stagedItems.length} Products</p>
+                  <span className="text-[10px] text-indigo-300 uppercase tracking-wider font-semibold">{tf('Extracted Items', 'Ibyakuwemo')}</span>
+                  <p className="text-base sm:text-lg font-black text-white">{tf(`${stagedItems.length} Products`, `Ibicuruzwa ${stagedItems.length}`)}</p>
                 </div>
 
                 <div className="space-y-0.5">
-                  <span className="text-[10px] text-indigo-300 uppercase tracking-wider font-semibold">Total Stock Units</span>
+                  <span className="text-[10px] text-indigo-300 uppercase tracking-wider font-semibold">{tf('Total Stock Units', 'Ingano Yose')}</span>
                   <p className="text-base sm:text-lg font-black text-white font-mono">{totalQty.toLocaleString()}</p>
                 </div>
 
                 <div className="col-span-2 space-y-0.5">
-                  <span className="text-[10px] text-indigo-300 uppercase tracking-wider font-semibold">Total Invoice Valuation</span>
+                  <span className="text-[10px] text-indigo-300 uppercase tracking-wider font-semibold">{tf('Total Invoice Valuation', 'Agaciro kose ka Fakitire')}</span>
                   <p className="text-base sm:text-lg font-black text-amber-400 font-mono">RWF {Math.round(totalValuation).toLocaleString()}</p>
                 </div>
               </div>
@@ -477,7 +479,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
                   <span>
-                    <strong>Double-Check Rule:</strong> Suggested selling price equals the invoice price by default. You can edit any field in the table below.
+                    <strong>{tf('Double-Check Rule:', 'Itegeko ry’Igenzura:')}</strong> {tf('Suggested selling price equals the invoice price by default. You can edit any field in the table below.', 'Igiciro cyo kugurisha gihura n’ikiri kuri fakitire. Ushobora guhindura icyo ushaka hasi aha.')}
                   </span>
                 </div>
                 <button
@@ -486,7 +488,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold transition shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add Line</span>
+                  <span>{tf('Add Line', 'Ongeramo Umurongo')}</span>
                 </button>
               </div>
 
@@ -496,12 +498,12 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/80 border-b border-slate-800">
                     <tr>
                       <th className="py-2.5 px-3 font-semibold">#</th>
-                      <th className="py-2.5 px-3 font-semibold min-w-[200px]">Product Name</th>
-                      <th className="py-2.5 px-3 font-semibold min-w-[130px]">Category</th>
-                      <th className="py-2.5 px-3 font-semibold w-24">Unit</th>
-                      <th className="py-2.5 px-3 font-semibold w-20">Quantity</th>
-                      <th className="py-2.5 px-3 font-semibold min-w-[120px]">Invoice / Buy (RWF)</th>
-                      <th className="py-2.5 px-3 font-semibold min-w-[120px]">Suggested Selling</th>
+                      <th className="py-2.5 px-3 font-semibold min-w-[200px]">{tf('Product Name', 'Izina ry’Igicuruzwa')}</th>
+                      <th className="py-2.5 px-3 font-semibold min-w-[130px]">{tf('Category', 'Icyiciro')}</th>
+                      <th className="py-2.5 px-3 font-semibold w-24">{tf('Unit', 'Ingero')}</th>
+                      <th className="py-2.5 px-3 font-semibold w-20">{tf('Quantity', 'Ingano')}</th>
+                      <th className="py-2.5 px-3 font-semibold min-w-[120px]">{tf('Invoice / Buy (RWF)', 'Fakitire / Ikiranguzo (RWF)')}</th>
+                      <th className="py-2.5 px-3 font-semibold min-w-[120px]">{tf('Suggested Selling', 'Igiciro cyo Kugurisha')}</th>
                       <th className="py-2.5 px-2 text-center w-10"></th>
                     </tr>
                   </thead>
@@ -585,7 +587,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                             type="button"
                             onClick={() => handleDeleteItem(item.id)}
                             className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 transition"
-                            title="Remove row"
+                            title={tf('Remove row', 'Kuramo umurongo')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -603,9 +605,9 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
         <div className="p-4 border-t border-slate-800 bg-slate-900/60 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="text-xs text-slate-400">
             {isConfirmedStep ? (
-              <span>Target: <strong>{stocks.find(s => s.id === selectedStockId)?.name || 'Main Warehouse'}</strong></span>
+              <span>{tf('Target:', 'Ububiko:')} <strong>{stocks.find(s => s.id === selectedStockId)?.name || tf('Main Warehouse', 'Ububiko Bukuru')}</strong></span>
             ) : (
-              <span>Powered by Gemini 3.8 Flash • Free-tier processing</span>
+              <span>{tf('Powered by Gemini 3.8 Flash • Free-tier processing', 'Bikoresha Gemini AI • Isuzuma ryihuse')}</span>
             )}
           </div>
 
@@ -620,7 +622,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   }}
                   className="w-1/2 sm:w-auto px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
 
                 <button
@@ -632,12 +634,12 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   {isScanning ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>{scanStep || 'Scanning with AI...'}</span>
+                      <span>{scanStep || tf('Scanning with AI...', 'Irimo gusikana na AI...')}</span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>Scan & Extract Items</span>
+                      <span>{tf('Scan & Extract Items', 'Sikana Ukuramo Ibicuruzwa')}</span>
                     </>
                   )}
                 </button>
@@ -650,7 +652,7 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   className="w-1/2 sm:w-auto flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 transition"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Scan Another</span>
+                  <span>{tf('Scan Another', 'Sikana Indi')}</span>
                 </button>
 
                 <button
@@ -662,12 +664,12 @@ export const AiInvoiceScannerModal: React.FC<AiInvoiceScannerModalProps> = ({
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Adding to Inventory...</span>
+                      <span>{tf('Adding to Inventory...', 'Kwinjiza mu Bubiko...')}</span>
                     </>
                   ) : (
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Confirm & Add {stagedItems.length} Products</span>
+                      <span>{tf(`Confirm & Add ${stagedItems.length} Products`, `Emeza Winjize Ibicuruzwa ${stagedItems.length}`)}</span>
                     </>
                   )}
                 </button>

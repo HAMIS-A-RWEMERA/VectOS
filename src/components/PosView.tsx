@@ -24,6 +24,7 @@ import {
 import { hasPermission, isSoloAllInOneUser } from '../utils/permissions';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 import { matchesSearch } from '../utils/searchMatch';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   formatPackStock,
   getPackSize,
@@ -52,6 +53,7 @@ interface PosViewProps {
 }
 
 export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }) => {
+  const { tf } = useLanguage();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -348,7 +350,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
       const numericPaid = canProcessPayments ? (Number(paidAmount) || 0) : 0;
       if (canProcessPayments && paymentMethod !== 'debt_credit' && (numericPaid + appliedStoreCredit) <= 0 && cartSubtotal > 0) {
-        setErrorMsg('Please specify a valid payment amount or choose Credit/Debt.');
+        setErrorMsg(tf('Please specify a valid payment amount or choose Credit/Debt.', 'Andika amafaranga yishyuwe cyangwa uhitemo Ideni.'));
         setIsSubmitting(false);
         return;
       }
@@ -388,7 +390,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         onOrderCompleted(res.order);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to complete order. Check stock availability.');
+      setErrorMsg(err.message || tf('Failed to complete order. Check stock availability.', 'Kugurisha byanze. Reba ko ibicuruzwa bihari mu bubiko.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -410,7 +412,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           }`}
         >
           <ShoppingBag className="w-3.5 h-3.5" />
-          <span>Catalog ({filteredProducts.length})</span>
+          <span>{tf('Catalog', 'Ibicuruzwa')} ({filteredProducts.length})</span>
         </button>
         <button
           type="button"
@@ -422,7 +424,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           }`}
         >
           <CreditCard className="w-3.5 h-3.5" />
-          <span>Cart ({cart.reduce((a, b) => a + b.quantity, 0)})</span>
+          <span>{tf('Cart', 'Agatebo')} ({cart.reduce((a, b) => a + b.quantity, 0)})</span>
           {cart.length > 0 && (
             <span className={`ml-1 text-[11px] font-mono font-black ${mobileTab === 'cart' ? 'text-slate-950' : 'text-amber-400'}`}>
               • {formatRwf(cartSubtotal)}
@@ -442,7 +444,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search by item name, code, or barcode..."
+                placeholder={tf('Search by item name, code, or barcode...', 'Shakisha izina ry’igicuruzwa, kode, cyangwa barcode...')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-12 py-2 sm:py-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs sm:text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition"
@@ -453,14 +455,14 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 hover:text-white"
                 >
-                  Clear
+                  {tf('Clear', 'Siba')}
                 </button>
               )}
             </div>
 
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-amber-400 shrink-0">
               <Barcode className="w-4 h-4" />
-              <span>Barcode Ready</span>
+              <span>{tf('Barcode Ready', 'Barcode Iriteguye')}</span>
             </div>
           </div>
 
@@ -477,7 +479,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
                 }`}
               >
-                {cat}
+                {cat === 'All' ? tf('All', 'Byose') : cat}
               </button>
             ))}
           </div>
@@ -660,7 +662,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     </span>
                   ) : (
                     <span className="text-[10px] sm:text-xs text-slate-400 group-hover:text-amber-300 flex items-center gap-0.5">
-                      <Plus className="w-3 h-3" /> Add
+                      <Plus className="w-3 h-3" /> {tf('Add', 'Ongeraho')}
                     </span>
                   )}
                 </div>
@@ -671,8 +673,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           {filteredProducts.length === 0 && (
             <div className="col-span-full py-16 text-center text-slate-400 text-xs">
               <ShoppingBag className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-              <p className="font-semibold text-slate-300">No matching products found</p>
-              <p className="text-[11px] text-slate-400 mt-1">Try adjusting your search keywords or category filters.</p>
+              <p className="font-semibold text-slate-300">{tf('No matching products found', 'Nta gicuruzwa cyabonetse')}</p>
+              <p className="text-[11px] text-slate-400 mt-1">{tf('Try adjusting your search keywords or category filters.', 'Gerageza guhindura ijambo ushakisha cyangwa icyiciro.')}</p>
             </div>
           )}
         </div>
@@ -681,9 +683,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         {cart.length > 0 && (
           <div className="lg:hidden sticky bottom-0 left-0 right-0 p-3 bg-[#0F131A]/95 backdrop-blur border-t border-slate-800 z-30 flex items-center justify-between gap-3 shadow-2xl">
             <div>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Active Cart</span>
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">{tf('Active Cart', 'Agatebo Karimo')}</span>
               <p className="text-sm font-black text-amber-400 font-mono">
-                {formatRwf(cartSubtotal)} <span className="text-xs font-normal text-slate-300">({cart.reduce((a, b) => a + b.quantity, 0)} items)</span>
+                {formatRwf(cartSubtotal)} <span className="text-xs font-normal text-slate-300">({cart.reduce((a, b) => a + b.quantity, 0)} {tf('items', 'ibintu')})</span>
               </p>
             </div>
             <button
@@ -691,7 +693,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               onClick={() => setMobileTab('cart')}
               className="py-2.5 px-4 rounded-xl bg-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 flex items-center gap-1.5 active:scale-95 transition"
             >
-              <span>{canProcessPayments ? 'Take Payment' : 'Send Order to Cashier'}</span>
+              <span>{canProcessPayments ? tf('Take Payment', 'Akira Ubwishyu') : tf('Send Order to Cashier', 'Ohereza kwa Keshye')}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -706,7 +708,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         <div className="p-3 sm:p-4 bg-[#111622] border-b border-slate-800/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <ShoppingBag className="w-4 h-4 text-amber-400" />
-            <h2 className="text-sm font-bold text-white">Current Cart ({cart.length})</h2>
+            <h2 className="text-sm font-bold text-white">{tf('Current Cart', 'Agatebo k’Ubu')} ({cart.length})</h2>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -714,7 +716,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               onClick={() => setMobileTab('catalog')}
               className="lg:hidden text-[11px] font-semibold text-amber-400 hover:underline flex items-center gap-1"
             >
-              + Add Items
+              + {tf('Add Items', 'Ongeraho Ibindi')}
             </button>
             {cart.length > 0 && (
               <button
@@ -722,7 +724,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 onClick={clearCart}
                 className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition flex items-center gap-1"
               >
-                <RotateCcw className="w-3 h-3" /> Clear
+                <RotateCcw className="w-3 h-3" /> {tf('Clear', 'Siba Byose')}
               </button>
             )}
           </div>
@@ -731,31 +733,31 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         {/* Customer Assignment Field */}
         <div className="p-3 bg-[#0F131A] border-b border-slate-800/80 space-y-2 shrink-0">
           <label className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-            Customer / Client
+            {tf('Customer / Client', 'Umukiriya')}
           </label>
           <SearchableSelect
             value={selectedCustomerId}
             onChange={(val) => setSelectedCustomerId(val ? Number(val) : null)}
             options={customerSelectOptions}
-            emptyOptionLabel="Walk-in Cash Client"
-            emptyOptionSublabel="Cash / one-off buyer (no saved account)"
-            placeholder="Walk-in Cash Client"
-            searchPlaceholder="Search client by name, phone, or ID..."
-            noResultsText="No matching customer found"
+            emptyOptionLabel={tf('Walk-in Cash Client', 'Umukiriya usanzwe')}
+            emptyOptionSublabel={tf('Cash / one-off buyer (no saved account)', 'Umukiriya ugura rimwe (nta konti yanditse)')}
+            placeholder={tf('Walk-in Cash Client', 'Umukiriya usanzwe')}
+            searchPlaceholder={tf('Search client by name, phone, or ID...', 'Shakisha izina, telefone, cyangwa irangamuntu...')}
+            noResultsText={tf('No matching customer found', 'Nta mukiriya wabonetse')}
             allowClear
-            ariaLabel="Customer or Client"
+            ariaLabel={tf('Customer or Client', 'Umukiriya')}
           />
 
           {selectedCustomer && (Number(selectedCustomer.credit_balance || 0) > 0 || Number(selectedCustomer.store_credit || 0) > 0) && (
             <div className="flex flex-wrap gap-2 text-[10px] pt-0.5">
               {Number(selectedCustomer.credit_balance || 0) > 0 && (
                 <span className="px-2 py-0.5 rounded bg-rose-500/15 text-rose-300 border border-rose-500/30 font-mono font-bold">
-                  Owes us: {formatRwf(selectedCustomer.credit_balance)}
+                  {tf('Owes us:', 'Araturimo:')} {formatRwf(selectedCustomer.credit_balance)}
                 </span>
               )}
               {Number(selectedCustomer.store_credit || 0) > 0 && (
                 <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono font-bold">
-                  We owe client: {formatRwf(Number(selectedCustomer.store_credit))}
+                  {tf('We owe client:', 'Tumurimo:')} {formatRwf(Number(selectedCustomer.store_credit))}
                 </span>
               )}
             </div>
@@ -765,14 +767,14 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             <div className="grid grid-cols-2 gap-2 pt-1">
               <input
                 type="text"
-                placeholder="Client Name (optional)"
+                placeholder={tf('Client Name (optional)', 'Izina (si itegeko)')}
                 value={customCustomerName}
                 onChange={(e) => setCustomCustomerName(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-amber-500"
               />
               <input
                 type="text"
-                placeholder="Client Phone (optional)"
+                placeholder={tf('Client Phone (optional)', 'Telefone (si itegeko)')}
                 value={customCustomerPhone}
                 onChange={(e) => setCustomCustomerPhone(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:border-amber-500"
@@ -824,16 +826,16 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5 flex-wrap">
-                      <span>Code: {item.product.sku}</span>
+                      <span>{tf('Code:', 'Kode:')} {item.product.sku}</span>
                       <span>•</span>
-                      <span>Avail: {stockBreakdown.short}</span>
+                      <span>{tf('Avail:', 'Ahari:')} {stockBreakdown.short}</span>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => removeFromCart(item.cartKey)}
                     className="text-slate-400 hover:text-rose-400 p-1 transition shrink-0"
-                    title="Remove item"
+                    title={tf('Remove item', 'Kura mu gatebo')}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -843,11 +845,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-                      <span>{canGiveDiscounts ? `Negotiated / ${item.sold_unit}:` : `Price / ${item.sold_unit}:`}</span>
+                      <span>{canGiveDiscounts ? tf(`Negotiated / ${item.sold_unit}:`, `Igiciro cyumvikanywe / ${item.sold_unit}:`) : tf(`Price / ${item.sold_unit}:`, `Igiciro / ${item.sold_unit}:`)}</span>
                     </span>
                     {!canGiveDiscounts ? (
                       <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                        <Lock className="w-2.5 h-2.5" /> Fixed price
+                        <Lock className="w-2.5 h-2.5" /> {tf('Fixed price', 'Igiciro ntahinduka')}
                       </span>
                     ) : (
                       isNegotiated && (
@@ -855,9 +857,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                           type="button"
                           onClick={() => resetItemPrice(item.cartKey)}
                           className="text-[10px] text-slate-400 hover:text-amber-400 flex items-center gap-1 underline transition"
-                          title="Reset to standard catalog price"
+                          title={tf('Reset to standard catalog price', 'Subiza ku giciro gisanzwe')}
                         >
-                          <RotateCcw className="w-2.5 h-2.5" /> Reset
+                          <RotateCcw className="w-2.5 h-2.5" /> {tf('Reset', 'Subizaho')}
                         </button>
                       )
                     )}
@@ -878,7 +880,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                         value={item.selling_price}
                         onChange={(e) => updateItemPrice(item.cartKey, Number(e.target.value))}
                         className="w-full bg-transparent text-xs font-mono font-bold text-white focus:outline-none disabled:cursor-not-allowed"
-                        title={canGiveDiscounts ? 'Edit agreed bargaining price per unit' : 'Fixed catalog price (discount permission disabled)'}
+                        title={canGiveDiscounts ? tf('Edit agreed bargaining price per unit', 'Hindura igiciro mwumvikanye') : tf('Fixed catalog price (discount permission disabled)', 'Igiciro gisanzwe (ntiwemerewe kugabanya)')}
                       />
                     </div>
                     <span className="text-[10px] text-slate-400 shrink-0 font-mono">
@@ -890,15 +892,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   <div className="flex items-center justify-between text-[10px]">
                     {isNegotiated ? (
                       <span className={`font-mono font-semibold ${diffPrice < 0 ? 'text-amber-300' : 'text-emerald-400'}`}>
-                        {diffPrice < 0 ? `Discounted -${formatRwf(Math.abs(diffPrice))}` : `Premium +${formatRwf(diffPrice)}`}
+                        {diffPrice < 0 ? `${tf('Discounted', 'Wagabanyije')} -${formatRwf(Math.abs(diffPrice))}` : `${tf('Premium', 'Wongeye')} +${formatRwf(diffPrice)}`}
                       </span>
                     ) : (
-                      <span className="text-slate-400 font-mono">Normal price</span>
+                      <span className="text-slate-400 font-mono">{tf('Normal price', 'Igiciro gisanzwe')}</span>
                     )}
 
                     {catalogPrice > 0 && isNegotiated && (
                       <span className="text-slate-400 line-through font-mono">
-                        Orig: {formatRwf(catalogPrice)}
+                        {tf('Orig:', 'Mbere:')} {formatRwf(catalogPrice)}
                       </span>
                     )}
                   </div>
@@ -907,7 +909,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   {isBelowCost && (
                     <div className="text-[10px] font-semibold text-rose-300 bg-rose-950/40 border border-rose-500/30 px-2 py-0.5 rounded flex items-center gap-1">
                       <AlertCircle className="w-3 h-3 shrink-0 text-rose-400" />
-                      <span>Below cost (Cost: {formatRwf(buyingPriceNum)})</span>
+                      <span>{tf(`Below cost (Cost: ${formatRwf(buyingPriceNum)})`, `Munsi y’ikiguzi (Byaranguwe: ${formatRwf(buyingPriceNum)})`)}</span>
                     </div>
                   )}
                 </div>
@@ -961,16 +963,16 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           {cart.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs py-12">
               <ShoppingBag className="w-10 h-10 text-slate-400 mb-2" />
-              <p className="font-semibold text-slate-300">Your Cart is Empty</p>
+              <p className="font-semibold text-slate-300">{tf('Your Cart is Empty', 'Nta kintu kiri mu gatebo')}</p>
               <p className="text-[11px] text-slate-400 mt-1 text-center px-4">
-                Tap any product on the catalog or scan a barcode to add it to this sales register.
+                {tf('Tap any product on the catalog or scan a barcode to add it to this sales register.', 'Kanda ku gicuruzwa ibumoso cyangwa usikane barcode kugira ngo ucyongere mu gatebo.')}
               </p>
               <button
                 type="button"
                 onClick={() => setMobileTab('catalog')}
                 className="lg:hidden mt-3 px-4 py-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold"
               >
-                Browse Catalog
+                {tf('Browse Catalog', 'Reba Ibicuruzwa')}
               </button>
             </div>
           )}
@@ -980,11 +982,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         <div className="p-3 sm:p-4 bg-[#111622] border-t border-slate-800/90 space-y-3 shrink-0">
           <div className="space-y-1 text-xs">
             <div className="flex justify-between text-slate-400">
-              <span>Items Count</span>
-              <span className="font-mono">{cart.reduce((a, b) => a + b.quantity, 0)} units</span>
+              <span>{tf('Items Count', 'Umubare w’ibicuruzwa')}</span>
+              <span className="font-mono">{cart.reduce((a, b) => a + b.quantity, 0)} {tf('units', 'uduce')}</span>
             </div>
             <div className="flex justify-between text-base font-black text-white pt-1 border-t border-slate-800">
-              <span>Total to Pay</span>
+              <span>{tf('Total to Pay', 'Igiteranyo cyo Kwishyura')}</span>
               <span className="text-amber-400 font-mono">{formatRwf(cartSubtotal)}</span>
             </div>
           </div>
@@ -995,7 +997,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             disabled={cart.length === 0}
             className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 transition flex items-center justify-center gap-2 active:scale-95"
           >
-            <span>{canProcessPayments ? 'Take Payment' : 'Send Order to Cashier'}</span>
+            <span>{canProcessPayments ? tf('Take Payment', 'Akira Ubwishyu') : tf('Send Order to Cashier', 'Ohereza kwa Keshye')}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -1008,12 +1010,12 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <h3 className="text-base font-bold text-white">
-                  {canProcessPayments ? 'Payment & Order Confirmation' : 'Send Order to Cashier'}
+                  {canProcessPayments ? tf('Payment & Order Confirmation', 'Kwishyuza & Kwemeza Igurisha') : tf('Send Order to Cashier', 'Ohereza Itegeko kwa Keshye')}
                 </h3>
                 <p className="text-xs text-slate-400">
                   {canProcessPayments
-                    ? 'Review items, confirm payment received, and complete sale'
-                    : 'Review customer items before sending to the Cashier & Store'}
+                    ? tf('Review items, confirm payment received, and complete sale', 'Reba ibicuruzwa, wemeze ubwishyu, urangize igurisha')
+                    : tf('Review customer items before sending to the Cashier & Store', 'Reba ibyo umukiriya aguze mbere yo kohereza kwa Keshye no mu Bubiko')}
                 </p>
               </div>
               <button
@@ -1029,21 +1031,21 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
               <div>
                 <p className="text-[11px] text-slate-400 uppercase font-semibold">
-                  {appliedStoreCredit > 0 ? 'Remaining Due After Store Credit' : 'Total Due'}
+                  {appliedStoreCredit > 0 ? tf('Remaining Due After Store Credit', 'Asigaye nyuma yo gukuramo ayo tumurimo') : tf('Total Due', 'Igiteranyo cyo Kwishyura')}
                 </p>
                 <p className="text-xl sm:text-2xl font-black text-amber-400 font-mono mt-0.5">
                   {formatRwf(netDueAfterStoreCredit)}
                 </p>
                 {appliedStoreCredit > 0 && (
                   <p className="text-[10px] text-purple-300 font-mono mt-0.5">
-                    Order: {formatRwf(cartSubtotal)} − Store Credit: {formatRwf(appliedStoreCredit)}
+                    {tf('Order:', 'Itegeko:')} {formatRwf(cartSubtotal)} − {tf('Store Credit:', 'Ayo tumurimo:')} {formatRwf(appliedStoreCredit)}
                   </p>
                 )}
               </div>
               <div className="text-right">
-                <p className="text-[11px] text-slate-400">Customer</p>
+                <p className="text-[11px] text-slate-400">{tf('Customer', 'Umukiriya')}</p>
                 <p className="text-xs font-bold text-slate-200">
-                  {selectedCustomer?.name || customCustomerName || 'Walk-in Client'}
+                  {selectedCustomer?.name || customCustomerName || tf('Walk-in Client', 'Umukiriya usanzwe')}
                 </p>
               </div>
             </div>
@@ -1060,16 +1062,16 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-purple-200">
-                      Deduct Money We Owe Client
+                      {tf('Deduct Money We Owe Client', 'Kuramo Amafaranga Tubereyemo Umukiriya')}
                     </span>
                     <span className="text-xs font-mono font-black text-purple-300">
-                      Avail: {formatRwf(availableCustomerCredit)}
+                      {tf('Avail:', 'Ahari:')} {formatRwf(availableCustomerCredit)}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-300 mt-0.5">
                     {useStoreCredit
-                      ? `Applying ${formatRwf(appliedStoreCredit)} from client credit. Client only pays missing ${formatRwf(netDueAfterStoreCredit)}.`
-                      : 'Check this box to subtract what we owe this client from today’s order total.'}
+                      ? tf(`Applying ${formatRwf(appliedStoreCredit)} from client credit. Client only pays missing ${formatRwf(netDueAfterStoreCredit)}.`, `Hakuwemo ${formatRwf(appliedStoreCredit)}. Umukiriya arishyura asigaye ${formatRwf(netDueAfterStoreCredit)}.`)
+                      : tf('Check this box to subtract what we owe this client from today’s order total.', 'Hitamo hano kugira ngo uvemo amafaranga uyu mukiriya abereyemo iduka.')}
                   </p>
                 </div>
               </label>
@@ -1079,10 +1081,10 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                  {canGiveDiscounts ? 'Adjust Item Prices (Discounts)' : 'Order Items Review'}
+                  {canGiveDiscounts ? tf('Adjust Item Prices (Discounts)', 'Hindura Ibiciro (Igabanyirizwa)') : tf('Order Items Review', 'Reba Ibicuruzwa Biguzwe')}
                 </label>
                 <span className="text-[10px] text-slate-400">
-                  {cart.length} item{cart.length > 1 ? 's' : ''} in order
+                  {tf(`${cart.length} item${cart.length > 1 ? 's' : ''} in order`, `Ibicuruzwa ${cart.length} mu itegeko`)}
                 </span>
               </div>
 
@@ -1144,13 +1146,13 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               <>
                 {/* Payment Method Selector */}
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-300">Select Payment Method</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Select Payment Method', 'Hitamo Uburyo bwo Kwishyura')}</label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
-                      { id: 'cash', label: 'Cash (RWF)', icon: DollarSign },
+                      { id: 'cash', label: tf('Cash (RWF)', 'Amafaranga (Cash)'), icon: DollarSign },
                       { id: 'momo', label: 'MTN MoMo', icon: Smartphone },
-                      { id: 'bank_transfer', label: 'Bank / POS', icon: CreditCard },
-                      { id: 'debt_credit', label: 'Credit / Debt', icon: Building },
+                      { id: 'bank_transfer', label: tf('Bank / POS', 'Banki / POS'), icon: CreditCard },
+                      { id: 'debt_credit', label: tf('Credit / Debt', 'Ideni / Kwizera'), icon: Building },
                     ].map((m) => {
                       const Icon = m.icon;
                       const isSelected = paymentMethod === m.id;
@@ -1178,14 +1180,14 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-semibold text-slate-300">
-                        {appliedStoreCredit > 0 ? 'Missing Cash / MoMo Received (RWF)' : 'Amount Received (RWF)'}
+                        {appliedStoreCredit > 0 ? tf('Missing Cash / MoMo Received (RWF)', 'Ayasigaye Yakiriwe (RWF)') : tf('Amount Received (RWF)', 'Amafaranga Yakiriwe (RWF)')}
                       </label>
                       <button
                         type="button"
                         onClick={() => setPaidAmount(String(netDueAfterStoreCredit))}
                         className="text-[10px] text-amber-400 hover:underline font-semibold"
                       >
-                        Pay Remaining ({formatRwf(netDueAfterStoreCredit)})
+                        {tf(`Pay Remaining (${formatRwf(netDueAfterStoreCredit)})`, `Yishyure Yose (${formatRwf(netDueAfterStoreCredit)})`)}
                       </button>
                     </div>
                     <input
@@ -1196,12 +1198,12 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     />
                     {Number(paidAmount) > netDueAfterStoreCredit && (
                       <p className="text-xs text-emerald-400 font-semibold font-mono">
-                        Change to Return: {formatRwf(Number(paidAmount) - netDueAfterStoreCredit)}
+                        {tf('Change to Return:', 'Ayasubizwa:')} {formatRwf(Number(paidAmount) - netDueAfterStoreCredit)}
                       </p>
                     )}
                     {Number(paidAmount) < netDueAfterStoreCredit && (Number(paidAmount) > 0 || appliedStoreCredit > 0) && (
                       <p className="text-xs text-amber-400 font-semibold font-mono">
-                        Remaining Balance Due (Debt): {formatRwf(netDueAfterStoreCredit - Number(paidAmount))}
+                        {tf('Remaining Balance Due (Debt):', 'Ideni Risigaye:')} {formatRwf(netDueAfterStoreCredit - Number(paidAmount))}
                       </p>
                     )}
                   </div>
@@ -1210,7 +1212,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 {/* Reference Number for MoMo / Bank */}
                 {(paymentMethod === 'momo' || paymentMethod === 'bank_transfer') && (
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-300">Transaction Reference / SMS ID</label>
+                    <label className="text-xs font-semibold text-slate-300">{tf('Transaction Reference / SMS ID', 'Kode y’Ubwishyu / SMS Reference')}</label>
                     <input
                       type="text"
                       placeholder="e.g. TXN987654321 / BK-Slip"
@@ -1233,10 +1235,10 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                     <div className="min-w-0">
                       <span className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
                         <PackageCheck className="w-3.5 h-3.5" />
-                        Also mark items released from store now
+                        {tf('Also mark items released from store now', 'Emeza kandi ko ibicuruzwa bisohotse mu bubiko ubu')}
                       </span>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Turn this on if you are working solo and handing the goods to the customer right now.
+                        {tf('Turn this on if you are working solo and handing the goods to the customer right now.', 'Kanda hano niba ukora wenyine kandi ugiye guhita uha umukiriya ibicuruzwa bye.')}
                       </p>
                     </div>
                   </label>
@@ -1245,7 +1247,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             ) : (
               /* Salesperson (no payment permission) handoff choice */
               <div className="space-y-2.5">
-                <label className="text-xs font-semibold text-slate-300">How will the customer pay?</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('How will the customer pay?', 'Umukiriya arwishyura ate?')}</label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -1258,8 +1260,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   >
                     <DollarSign className="w-4 h-4 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-xs font-bold">Customer Pays at Cashier Desk</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Cash, MoMo, or Bank handled by Cashier</p>
+                      <p className="text-xs font-bold">{tf('Customer Pays at Cashier Desk', 'Arishyura kwa Keshye')}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{tf('Cash, MoMo, or Bank handled by Cashier', 'Cash, MoMo, cyangwa Banki byakirwa na Keshye')}</p>
                     </div>
                   </button>
                   <button
@@ -1273,15 +1275,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   >
                     <Building className="w-4 h-4 mt-0.5 shrink-0" />
                     <div>
-                      <p className="text-xs font-bold">Approved Credit / Account</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Recorded on customer balance</p>
+                      <p className="text-xs font-bold">{tf('Approved Credit / Account', 'Ideni Ryemewe')}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{tf('Recorded on customer balance', 'Byandikwa ku ideni ry’umukiriya')}</p>
                     </div>
                   </button>
                 </div>
 
                 <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-300 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Order will be sent to the Cashier for payment and to the Store for release.</span>
+                  <span>{tf('Order will be sent to the Cashier for payment and to the Store for release.', 'Itegeko riryohererezwa kwa Keshye kwishyuza no mu Bubiko gusohora ibicuruzwa.')}</span>
                 </div>
               </div>
             )}
@@ -1296,7 +1298,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             {canProcessPayments && !canPrintReceipt && (
               <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[11px] text-slate-300 flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Order will be saved and sent to Store for release.</span>
+                <span>{tf('Order will be saved and sent to Store for release.', 'Itegeko rirabikwa kandi ryoherezwe mu Bubiko gusohoka.')}</span>
               </div>
             )}
 
@@ -1307,7 +1309,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 onClick={() => setIsCheckoutOpen(false)}
                 className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
               >
-                Cancel
+                {tf('Cancel', 'Hagarika')}
               </button>
               <button
                 type="button"
@@ -1316,12 +1318,12 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 active:scale-95"
               >
                 {isSubmitting
-                  ? 'Processing...'
+                  ? tf('Processing...', 'Birimo gutunganywa...')
                   : !canProcessPayments
-                  ? 'Send Order to Cashier'
+                  ? tf('Send Order to Cashier', 'Ohereza kwa Keshye')
                   : canPrintReceipt
-                  ? (isSoloOperator && releaseImmediately ? 'Complete, Release & Print' : 'Complete & Print Receipt')
-                  : 'Complete Order'}
+                  ? (isSoloOperator && releaseImmediately ? tf('Complete, Release & Print', 'Rangiza, Sohora & Inyemezabuguzi') : tf('Complete & Print Receipt', 'Rangiza & Sohora Inyemezabuguzi'))
+                  : tf('Complete Order', 'Rangiza Igurisha')}
               </button>
             </div>
           </div>

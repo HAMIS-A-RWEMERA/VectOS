@@ -6,6 +6,7 @@ import { AiInvoiceScannerModal } from './AiInvoiceScannerModal';
 import { exportStockPdf } from '../services/pdfExport';
 import { hasPermission } from '../utils/permissions';
 import { matchesSearch } from '../utils/searchMatch';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   formatPackStock,
   getPackSize,
@@ -69,6 +70,19 @@ interface ProductsViewProps {
 }
 
 export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
+  const { tf } = useLanguage();
+  const sortLabels: Record<StockSortOption, string> = {
+    qty_desc: tf('In Stock: Most to Least', 'Mu Bubiko: Bwinshi Kugeza kuri Buke'),
+    qty_asc: tf('In Stock: Least / Zero First', 'Mu Bubiko: Buke / Zero Imbere'),
+    sold_desc: tf('Best Selling First', 'Ibikunzwe Cyane Imbere'),
+    sold_asc: tf('Slowest Selling First', 'Ibigurwa Gake Imbere'),
+    date_desc: tf('Date Entered / Restocked (Newest)', 'Itariki Byinjiriye (Bishya Imbere)'),
+    date_asc: tf('Date Entered (Oldest First)', 'Itariki Byinjiriye (Bishaje Imbere)'),
+    name_asc: tf('Product Name (A to Z)', 'Izina ry’Igicuruzwa (A kugera Z)'),
+    name_desc: tf('Product Name (Z to A)', 'Izina ry’Igicuruzwa (Z kugera A)'),
+    price_desc: tf('Selling Price (High to Low)', 'Igiciro cyo Kugurisha (Kinini kugera Gito)'),
+    price_asc: tf('Selling Price (Low to High)', 'Igiciro cyo Kugurisha (Gito kugera Kinini)')
+  };
   const [products, setProducts] = useState<Product[]>([]);
   const [stocks, setStocks] = useState<StockLocation[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -258,7 +272,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     const list = mode === 'all' ? sortProductList(products, sortBy) : filteredProducts;
     exportStockPdf({
       products: list,
-      sortLabel: SORT_LABELS[sortBy],
+      sortLabel: sortLabels[sortBy],
       filterSummary: mode === 'all' ? 'All Shop Products' : getFilterSummaryText(),
       showBuyingPrices: canViewBuyingPrices,
       shop: shop || null,
@@ -552,11 +566,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
   const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.sku) {
-      setModalError('Product Name and Item Code are required.');
+      setModalError(tf('Product Name and Item Code are required.', 'Izina ry’igicuruzwa na Kode birakenewe.'));
       return;
     }
     if (sellInBothModes && (!formData.units_per_pack || Number(formData.units_per_pack) < 2)) {
-      setModalError('Items per Pack must be at least 2 when selling in both Wholesale Packs & Retail.');
+      setModalError(tf('Items per Pack must be at least 2 when selling in both Wholesale Packs & Retail.', 'Umubare w’ibiri muri paketi ugomba kuba nibura 2 igihe ugurisha muri paketi n’uduce.'));
       return;
     }
     try {
@@ -565,7 +579,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       setIsAddModalOpen(false);
       fetchProducts();
     } catch (err: any) {
-      setModalError(err.message || 'Failed to save product.');
+      setModalError(err.message || tf('Failed to save product.', 'Kubika igicuruzwa byanze.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -575,7 +589,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     e.preventDefault();
     if (!currentProduct) return;
     if (sellInBothModes && (!formData.units_per_pack || Number(formData.units_per_pack) < 2)) {
-      setModalError('Items per Pack must be at least 2 when selling in both Wholesale Packs & Retail.');
+      setModalError(tf('Items per Pack must be at least 2 when selling in both Wholesale Packs & Retail.', 'Umubare w’ibiri muri paketi ugomba kuba nibura 2 igihe ugurisha muri paketi n’uduce.'));
       return;
     }
     try {
@@ -584,7 +598,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       setIsEditModalOpen(false);
       fetchProducts();
     } catch (err: any) {
-      setModalError(err.message || 'Failed to update product.');
+      setModalError(err.message || tf('Failed to update product.', 'Kuvugurura igicuruzwa byanze.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -624,14 +638,17 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Products & Stock
+              {tf('Products & Stock', 'Ibicuruzwa n’Ububiko')}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700">
-              {products.length} Items Listed
+              {products.length} {tf('Items Listed', 'Ibicuruzwa Byanditswe')}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Add items you sell, set selling prices, update stock counts, and track low-stock warnings.
+            {tf(
+              'Add items you sell, set selling prices, update stock counts, and track low-stock warnings.',
+              'Ongeramo ibicuruzwa ugurisha, shyiraho ibiciro, uvugurure umubare w’ibiri mu bubiko, kandi ukurikirane ibishira.'
+            )}
           </p>
         </div>
 
@@ -641,10 +658,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             <button
               onClick={() => setIsExportMenuOpen((prev) => !prev)}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/20 border border-rose-500/30 transition transform active:scale-95"
-              title="Print stock sheet or export as PDF / CSV"
+              title={tf('Print stock sheet or export as PDF / CSV', 'Sohora urupapuro rw’ububiko cyangwa urobore muri PDF / CSV')}
             >
               <Printer className="w-4 h-4 text-white" />
-              <span>Print / Export Stock</span>
+              <span>{tf('Print / Export Stock', 'Sohora / Kubika Ububiko')}</span>
               <ChevronDown className="w-3.5 h-3.5 opacity-80" />
             </button>
 
@@ -661,10 +678,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   >
                     <span className="font-bold text-white flex items-center gap-1.5">
                       <Printer className="w-3.5 h-3.5 text-emerald-400" />
-                      Print Stock Sheet Now
+                      {tf('Print Stock Sheet Now', 'Sohora Urupapuro rw’Ububiko Ubu')}
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      Opens printer layout for current view ({filteredProducts.length} items)
+                      {tf(
+                        `Opens printer layout for current view (${filteredProducts.length} items)`,
+                        `Ifungura urupapuro rwo gusohora ku bigaragara ubu (${filteredProducts.length})`
+                      )}
                     </span>
                   </button>
                   <div className="my-1 border-t border-slate-800" />
@@ -674,10 +694,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   >
                     <span className="font-bold text-white flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5 text-amber-400" />
-                      Save Current Stock as PDF
+                      {tf('Save Current Stock as PDF', 'Bika Ububiko Buriho nka PDF')}
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      Keeps active sort & filter ({SORT_LABELS[sortBy]})
+                      {tf(`Keeps active sort & filter (${sortLabels[sortBy]})`, `Igumana uko byatondekejwe (${sortLabels[sortBy]})`)}
                     </span>
                   </button>
                   <button
@@ -686,10 +706,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   >
                     <span className="font-bold text-white flex items-center gap-1.5">
                       <Layers className="w-3.5 h-3.5 text-sky-400" />
-                      Save Complete Shop Stock PDF
+                      {tf('Save Complete Shop Stock PDF', 'Bika PDF y’Ububiko Bwose bw’Iduka')}
                     </span>
                     <span className="text-[11px] text-slate-400">
-                      All {products.length} items ordered by selected sort
+                      {tf(`All ${products.length} items ordered by selected sort`, `Ibicuruzwa byose ${products.length} uko byatondekejwe`)}
                     </span>
                   </button>
                   <div className="my-1 border-t border-slate-800" />
@@ -698,7 +718,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200 transition font-medium flex items-center gap-2"
                   >
                     <Download className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="font-bold text-white">Download Stock List (CSV)</span>
+                    <span className="font-bold text-white">{tf('Download Stock List (CSV)', 'Kuramo Urutonde rw’Ububiko (CSV)')}</span>
                   </button>
                 </div>
               </>
@@ -709,11 +729,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             <button
               onClick={() => setIsAiScanOpen(true)}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 font-bold text-xs shadow-md transition transform active:scale-95"
-              title="Scan paper supplier invoices or receipts to add stock automatically"
+              title={tf('Scan paper supplier invoices or receipts to add stock automatically', 'Sikana fakitire z’urupapuro z’abaguhaye ibicuruzwa kugira ngo byiyongere mu bubiko')}
             >
               <Sparkles className="w-4 h-4 text-indigo-400" />
-              <span className="hidden sm:inline">Scan Supplier Invoice</span>
-              <span className="sm:hidden">Scan Invoice</span>
+              <span className="hidden sm:inline">{tf('Scan Supplier Invoice', 'Sikana Fakitire y’Umugemura')}</span>
+              <span className="sm:hidden">{tf('Scan Invoice', 'Sikana Fakitire')}</span>
             </button>
           )}
 
@@ -721,11 +741,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             <button
               onClick={() => setIsBulkImportOpen(true)}
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs shadow-md transition transform active:scale-95"
-              title="Upload products from an Excel or CSV file"
+              title={tf('Upload products from an Excel or CSV file', 'Shyiramo ibicuruzwa uvanye muri dosiye ya Excel cyangwa CSV')}
             >
               <FileSpreadsheet className="w-4 h-4 text-amber-400" />
-              <span className="hidden sm:inline">Upload Excel / CSV</span>
-              <span className="sm:hidden">Upload List</span>
+              <span className="hidden sm:inline">{tf('Upload Excel / CSV', 'Shyiramo Excel / CSV')}</span>
+              <span className="sm:hidden">{tf('Upload List', 'Shyiramo Urutonde')}</span>
             </button>
           )}
 
@@ -735,7 +755,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
             >
               <Plus className="w-4 h-4" />
-              <span>Add New Product</span>
+              <span>{tf('Add New Product', 'Ongeramo Igicuruzwa Gishya')}</span>
             </button>
           )}
         </div>
@@ -749,7 +769,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by product name, item code, category, or barcode..."
+              placeholder={tf('Search by product name, item code, category, or barcode...', 'Shakisha ku izina, kode, icyiciro, cyangwa barcode...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-9 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
@@ -759,7 +779,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
-                title="Clear search"
+                title={tf('Clear search', 'Siba ishakisha')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -770,30 +790,30 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
           <div className="relative md:col-span-4">
             <ArrowUpDown className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select
-              aria-label="Sort stock items"
+              aria-label={tf('Sort stock items', 'Tondeka ibicuruzwa')}
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as StockSortOption)}
               className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-100 focus:outline-none focus:border-amber-500"
             >
-              <option value="qty_desc">Sort: Most in Stock First (High → Low)</option>
-              <option value="qty_asc">Sort: Least / Zero Stock First (Low → High)</option>
-              <option value="sold_desc">Sort: Best Selling First (Most Sold)</option>
-              <option value="sold_asc">Sort: Slowest Moving First (Least Sold)</option>
-              <option value="date_desc">Sort: Date Entered / Restocked (Newest)</option>
-              <option value="date_asc">Sort: Date Entered (Oldest First)</option>
-              <option value="name_asc">Sort: Product Name (A → Z)</option>
-              <option value="name_desc">Sort: Product Name (Z → A)</option>
-              <option value="price_desc">Sort: Selling Price (High → Low)</option>
-              <option value="price_asc">Sort: Selling Price (Low → High)</option>
+              <option value="qty_desc">{tf('Sort: Most in Stock First (High → Low)', 'Tondeka: Bwinshi Imbere (Bwinshi → Buke)')}</option>
+              <option value="qty_asc">{tf('Sort: Least / Zero Stock First (Low → High)', 'Tondeka: Buke / Zero Imbere (Buke → Bwinshi)')}</option>
+              <option value="sold_desc">{tf('Sort: Best Selling First (Most Sold)', 'Tondeka: Ibigurwa Cyane Imbere')}</option>
+              <option value="sold_asc">{tf('Sort: Slowest Moving First (Least Sold)', 'Tondeka: Ibigurwa Gake Imbere')}</option>
+              <option value="date_desc">{tf('Sort: Date Entered / Restocked (Newest)', 'Tondeka: Itariki Byinjiriye (Bishya)')}</option>
+              <option value="date_asc">{tf('Sort: Date Entered (Oldest First)', 'Tondeka: Itariki Byinjiriye (Bishaje)')}</option>
+              <option value="name_asc">{tf('Sort: Product Name (A → Z)', 'Tondeka: Izina (A → Z)')}</option>
+              <option value="name_desc">{tf('Sort: Product Name (Z → A)', 'Tondeka: Izina (Z → A)')}</option>
+              <option value="price_desc">{tf('Sort: Selling Price (High → Low)', 'Tondeka: Igiciro (Kinini → Gito)')}</option>
+              <option value="price_asc">{tf('Sort: Selling Price (Low → High)', 'Tondeka: Igiciro (Gito → Kinini)')}</option>
             </select>
           </div>
 
           {/* Stock Health Filter */}
           <div className="flex gap-2 md:col-span-3">
             {[
-              { id: 'all', label: 'All Stock' },
-              { id: 'low', label: 'Low Stock' },
-              { id: 'out', label: 'Out of Stock' },
+              { id: 'all', label: tf('All Stock', 'Byose') },
+              { id: 'low', label: tf('Low Stock', 'Biri Gushira') },
+              { id: 'out', label: tf('Out of Stock', 'Byashize') },
             ].map((st) => (
               <button
                 key={st.id}
@@ -823,19 +843,19 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
                 }`}
               >
-                {cat}
+                {cat === 'All' ? tf('All', 'Byose') : cat}
               </button>
             ))}
           </div>
 
           {stocks.length > 1 && (
             <select
-              aria-label="Filter by store location"
+              aria-label={tf('Filter by store location', 'Shungura ku bubiko')}
               value={selectedStockId}
               onChange={(e) => setSelectedStockId(e.target.value)}
               className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
             >
-              <option value="all">All Store Locations</option>
+              <option value="all">{tf('All Store Locations', 'Ububiko Bwose')}</option>
               {stocks.map((s) => (
                 <option key={s.id} value={String(s.id)}>
                   {s.name} ({s.code})
@@ -852,26 +872,26 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
               <tr>
-                <th className="py-3 px-4 font-semibold">Item Code</th>
+                <th className="py-3 px-4 font-semibold">{tf('Item Code', 'Kode y’Igicuruzwa')}</th>
                 <th className="py-3 px-4 font-semibold">
                   <button
                     type="button"
                     onClick={() => toggleColumnSort('name_asc', 'name_desc')}
                     className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
                   >
-                    <span>Product Name & Category</span>
+                    <span>{tf('Product Name & Category', 'Izina & Icyiciro')}</span>
                     {sortBy === 'name_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : sortBy === 'name_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
                   </button>
                 </th>
-                <th className="py-3 px-4 font-semibold">Unit</th>
-                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">Buying Cost</th>}
+                <th className="py-3 px-4 font-semibold">{tf('Unit', 'Igipimo')}</th>
+                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">{tf('Buying Cost', 'Ikiguzi')}</th>}
                 <th className="py-3 px-4 font-semibold">
                   <button
                     type="button"
                     onClick={() => toggleColumnSort('price_desc', 'price_asc')}
                     className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
                   >
-                    <span>Selling Price</span>
+                    <span>{tf('Selling Price', 'Igiciro cyo Kugurisha')}</span>
                     {sortBy === 'price_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'price_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
                   </button>
                 </th>
@@ -881,7 +901,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     onClick={() => toggleColumnSort('qty_desc', 'qty_asc')}
                     className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
                   >
-                    <span>In Stock</span>
+                    <span>{tf('In Stock', 'Mu Bubiko')}</span>
                     {sortBy === 'qty_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'qty_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
                   </button>
                 </th>
@@ -891,7 +911,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     onClick={() => toggleColumnSort('sold_desc', 'sold_asc')}
                     className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
                   >
-                    <span>Sold</span>
+                    <span>{tf('Sold', 'Byagurishijwe')}</span>
                     {sortBy === 'sold_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'sold_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
                   </button>
                 </th>
@@ -901,12 +921,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     onClick={() => toggleColumnSort('date_desc', 'date_asc')}
                     className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
                   >
-                    <span>Date Entered</span>
+                    <span>{tf('Date Entered', 'Itariki Byinjiriye')}</span>
                     {sortBy === 'date_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'date_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
                   </button>
                 </th>
-                <th className="py-3 px-4 font-semibold">Status</th>
-                {canManageStock && <th className="py-3 px-4 font-semibold text-right">Actions</th>}
+                <th className="py-3 px-4 font-semibold">{tf('Status', 'Imiterere')}</th>
+                {canManageStock && <th className="py-3 px-4 font-semibold text-right">{tf('Actions', 'Ibikorwa')}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -927,7 +947,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                         <p className="font-bold text-slate-100">{p.name}</p>
                         {breakdown.isMultiUnit && (
                           <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[9px] font-bold">
-                            Wholesale + Retail
+                            {tf('Wholesale + Retail', 'Ikarito + Uduce')}
                           </span>
                         )}
                       </div>
@@ -977,7 +997,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                       {breakdown.isMultiUnit ? (
                         <div>
                           <p className="font-black text-white">{breakdown.primary}</p>
-                          <p className="text-[10px] text-slate-400">({breakdown.totalText} total)</p>
+                          <p className="text-[10px] text-slate-400">({breakdown.totalText} {tf('total', 'yose')})</p>
                         </div>
                       ) : (
                         <span className="font-black text-white">{p.quantity}</span>
@@ -992,15 +1012,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     <td className="py-3 px-4">
                       {isOutOfStock ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          Out of Stock
+                          {tf('Out of Stock', 'Byashize')}
                         </span>
                       ) : isLowStock ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                          Low Stock ({p.quantity} &lt; {p.low_stock_threshold})
+                          {tf('Low Stock', 'Biri Gushira')} ({p.quantity} &lt; {p.low_stock_threshold})
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          Healthy
+                          {tf('Healthy', 'Birahagije')}
                         </span>
                       )}
                     </td>
@@ -1010,15 +1030,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                           <button
                             onClick={() => handleOpenAdjust(p)}
                             className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-[11px] font-semibold border border-slate-700 transition"
-                            title="Adjust inventory level"
+                            title={tf('Adjust inventory level', 'Hindura umubare w’ibiri mu bubiko')}
                           >
-                            Adjust
+                            {tf('Adjust', 'Hindura Umubare')}
                           </button>
                           <button
                             onClick={() => handleOpenEdit(p)}
                             className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold border border-slate-700 transition"
                           >
-                            Edit
+                            {tf('Edit', 'Hindura')}
                           </button>
                         </div>
                       </td>
@@ -1031,7 +1051,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Package className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                    <p className="font-semibold text-slate-300">No products found matching criteria</p>
+                    <p className="font-semibold text-slate-300">{tf('No products found matching criteria', 'Nta gicuruzwa cyabonetse gihura n’ibyo ushaka')}</p>
                   </td>
                 </tr>
               )}
@@ -1046,7 +1066,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
           <div className="w-full max-w-2xl rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white">
-                {isAddModalOpen ? 'Register New Product' : `Edit Product: ${currentProduct?.name}`}
+                {isAddModalOpen
+                  ? tf('Register New Product', 'Andika Igicuruzwa Gishya')
+                  : `${tf('Edit Product:', 'Hindura Igicuruzwa:')} ${currentProduct?.name}`}
               </h3>
               <button
                 type="button"
@@ -1100,17 +1122,20 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 />
                 <div className="min-w-0">
                   <span className="text-xs font-bold text-indigo-200 block">
-                    Sell in Both Wholesale Packs (Cartons/Boxes) &amp; Retail Pieces
+                    {tf('Sell in Both Wholesale Packs (Cartons/Boxes) & Retail Pieces', 'Gurisha mu Ikarito / Paketi n’Uduce (Detaye)')}
                   </span>
                   <span className="text-[11px] text-slate-300 block mt-0.5">
-                    Keep one unified stock pool. Selling full cartons or loose retail items will automatically break cartons when needed and keep exact inventory.
+                    {tf(
+                      'Keep one unified stock pool. Selling full cartons or loose retail items will automatically break cartons when needed and keep exact inventory.',
+                      'Bika ububiko bumwe. Kugurisha ikarito cyangwa uduce bihita bifungura ikarito mu gihe bikenewe kandi bikagaragaza umubare nyawo.'
+                    )}
                   </span>
                 </div>
               </label>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Product Name *</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Product Name *', 'Izina ry’Igicuruzwa *')}</label>
                   <input
                     type="text"
                     required
@@ -1121,7 +1146,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Item Code *</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Item Code *', 'Kode y’Igicuruzwa *')}</label>
                   <input
                     type="text"
                     required
@@ -1132,64 +1157,64 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Category</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Category', 'Icyiciro')}</label>
                   <select
                     value={formData.category}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
-                    <option value="Building Materials">Building Materials (Cement, Iron bars)</option>
-                    <option value="Electrical Supplies">Electrical Supplies (Cables, Sockets)</option>
-                    <option value="Plumbing & Pipes">Plumbing &amp; Pipes (PVC, Taps)</option>
-                    <option value="Paints & Finishes">Paints &amp; Finishes (Exterior, Primer)</option>
-                    <option value="Power Tools & Hardware">Power Tools &amp; Hardware</option>
-                    <option value="Solar & Electronics">Solar &amp; Electronics</option>
+                    <option value="Building Materials">{tf('Building Materials (Cement, Iron bars)', 'Ibikoresho by’Ubwubatsi (Sima, Fer à béton)')}</option>
+                    <option value="Electrical Supplies">{tf('Electrical Supplies (Cables, Sockets)', 'Ibikoresho by’Amashanyarazi (Insiga, Priz)')}</option>
+                    <option value="Plumbing & Pipes">{tf('Plumbing & Pipes (PVC, Taps)', 'Amazi n’Imiyoboro (PVC, Robine)')}</option>
+                    <option value="Paints & Finishes">{tf('Paints & Finishes (Exterior, Primer)', 'Amarangi n’Imirimo yo Kunoza')}</option>
+                    <option value="Power Tools & Hardware">{tf('Power Tools & Hardware', 'Ibikoresho & Imashini')}</option>
+                    <option value="Solar & Electronics">{tf('Solar & Electronics', 'Imirasire y’Izuba & Elegitoroniki')}</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="text-xs font-semibold text-slate-300">
-                    {sellInBothModes ? 'Retail Unit (Base Unit)' : 'Unit of Measure'}
+                    {sellInBothModes ? tf('Retail Unit (Base Unit)', 'Igipimo cy’Uduce (Detaye)') : tf('Unit of Measure', 'Igipimo')}
                   </label>
                   <select
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
-                    <option value="pcs">Pieces (pcs)</option>
-                    <option value="kg">Kilograms (kg)</option>
-                    <option value="meters">Meters (m)</option>
-                    <option value="liters">Liters (L)</option>
-                    {!sellInBothModes && <option value="cartons">Cartons (ctn)</option>}
-                    {!sellInBothModes && <option value="bags">Bags (50kg)</option>}
-                    {!sellInBothModes && <option value="rolls">Rolls</option>}
-                    {!sellInBothModes && <option value="boxes">Boxes</option>}
+                    <option value="pcs">{tf('Pieces (pcs)', 'Uduce (pcs)')}</option>
+                    <option value="kg">{tf('Kilograms (kg)', 'Ibiro (kg)')}</option>
+                    <option value="meters">{tf('Meters (m)', 'Metero (m)')}</option>
+                    <option value="liters">{tf('Liters (L)', 'Litiro (L)')}</option>
+                    {!sellInBothModes && <option value="cartons">{tf('Cartons (ctn)', 'Amakarito (ctn)')}</option>}
+                    {!sellInBothModes && <option value="bags">{tf('Bags (50kg)', 'Imifuka (50kg)')}</option>}
+                    {!sellInBothModes && <option value="rolls">{tf('Rolls', 'Imizingo')}</option>}
+                    {!sellInBothModes && <option value="boxes">{tf('Boxes', 'Udukarito')}</option>}
                   </select>
                 </div>
 
                 {sellInBothModes ? (
                   <>
                     <div>
-                      <label className="text-xs font-semibold text-indigo-300">Wholesale Pack Unit</label>
+                      <label className="text-xs font-semibold text-indigo-300">{tf('Wholesale Pack Unit', 'Igipimo cyo Kuranguza')}</label>
                       <select
                         value={formData.pack_unit || 'Carton'}
                         onChange={(e) => setFormData({ ...formData, pack_unit: e.target.value })}
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-indigo-500/40 text-xs text-white focus:outline-none focus:border-indigo-400"
                       >
-                        <option value="Carton">Carton</option>
-                        <option value="Box">Box</option>
-                        <option value="Sack">Sack</option>
-                        <option value="Bag">Bag</option>
-                        <option value="Roll">Roll</option>
-                        <option value="Bundle">Bundle</option>
-                        <option value="Packet">Packet</option>
-                        <option value="Dozen">Dozen</option>
+                        <option value="Carton">{tf('Carton', 'Ikarito')}</option>
+                        <option value="Box">{tf('Box', 'Agasanduku')}</option>
+                        <option value="Sack">{tf('Sack', 'Umufuka')}</option>
+                        <option value="Bag">{tf('Bag', 'Isaho')}</option>
+                        <option value="Roll">{tf('Roll', 'Umuzingo')}</option>
+                        <option value="Bundle">{tf('Bundle', 'Umuba')}</option>
+                        <option value="Packet">{tf('Packet', 'Paketi')}</option>
+                        <option value="Dozen">{tf('Dozen', 'Duzeni')}</option>
                       </select>
                     </div>
 
                     <div>
                       <label className="text-xs font-semibold text-indigo-300">
-                        Retail {formData.unit || 'pcs'} Inside 1 {formData.pack_unit || 'Carton'} *
+                        {tf('Retail', 'Uduce')} ({formData.unit || 'pcs'}) {tf('Inside 1', 'Muri 1')} {formData.pack_unit || 'Carton'} *
                       </label>
                       <input
                         type="number"
@@ -1214,7 +1239,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     {canViewBuyingPrices && (
                       <div>
                         <label className="text-xs font-semibold text-slate-300">
-                          Wholesale Buying Cost / {formData.pack_unit || 'Carton'} (RWF)
+                          {tf('Wholesale Buying Cost', 'Ikiguzi cyo Kurangura')} / {formData.pack_unit || 'Carton'} (RWF)
                         </label>
                         <input
                           type="number"
@@ -1233,21 +1258,21 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                           className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
                         />
                         <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                          Derived cost per {formData.unit || 'pcs'}: {formatRwf(formData.buying_price)}
+                          {tf('Derived cost per', 'Ikiguzi cy’agace kamwe')} {formData.unit || 'pcs'}: {formatRwf(formData.buying_price)}
                         </p>
                       </div>
                     )}
 
                     <div>
                       <label className="text-xs font-semibold text-amber-300">
-                        Wholesale Selling Price / {formData.pack_unit || 'Carton'} (RWF) *
+                        {tf('Wholesale Selling Price', 'Igiciro cyo Kuranguza')} / {formData.pack_unit || 'Carton'} (RWF) *
                       </label>
                       <input
                         type="number"
                         min="0"
                         required
                         value={formData.pack_selling_price || ''}
-                        placeholder="Price for 1 full carton/pack"
+                        placeholder={tf('Price for 1 full carton/pack', 'Igiciro cy’ikarito/paketi yuzuye')}
                         onChange={(e) => setFormData({ ...formData, pack_selling_price: Math.max(0, Number(e.target.value) || 0) })}
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-amber-500/40 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-amber-400"
                       />
@@ -1255,14 +1280,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
                     <div>
                       <label className="text-xs font-semibold text-sky-300">
-                        Retail Selling Price / 1 {formData.unit || 'pcs'} (RWF) *
+                        {tf('Retail Selling Price', 'Igiciro cyo Kudandaza')} / 1 {formData.unit || 'pcs'} (RWF) *
                       </label>
                       <input
                         type="number"
                         min="0"
                         required
                         value={formData.selling_price || ''}
-                        placeholder="Price for 1 loose piece"
+                        placeholder={tf('Price for 1 loose piece', 'Igiciro cy’agace kamwe')}
                         onChange={(e) => setFormData({ ...formData, selling_price: Math.max(0, Number(e.target.value) || 0) })}
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-xs text-sky-300 font-mono font-bold focus:outline-none focus:border-sky-400"
                       />
@@ -1271,10 +1296,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     <div className="sm:col-span-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-white">
-                          Stock on Hand (Whole Numbers)
+                          {tf('Stock on Hand (Whole Numbers)', 'Ibiri mu Bubiko (Imibare Yuzuye)')}
                         </label>
                         <span className="text-[11px] font-mono font-bold text-emerald-400">
-                          Total Stored: {(
+                          {tf('Total Stored:', 'Byose Hamwe:')}{' '}
+                          {(
                             Math.max(0, Math.round(stockPacksInput)) * Math.max(2, Math.round(Number(formData.units_per_pack || 100))) +
                             Math.max(0, Math.round(stockLooseInput))
                           ).toLocaleString()} {formData.unit || 'pcs'}
@@ -1282,7 +1308,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-[11px] text-slate-400">Full {formData.pack_unit || 'Carton'}s</label>
+                          <label className="text-[11px] text-slate-400">{tf('Full', 'Byuzuye')} {formData.pack_unit || 'Carton'}s</label>
                           <input
                             type="number"
                             min="0"
@@ -1293,7 +1319,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                           />
                         </div>
                         <div>
-                          <label className="text-[11px] text-slate-400">+ Loose {formData.unit || 'pcs'}</label>
+                          <label className="text-[11px] text-slate-400">{tf('+ Loose', '+ Uduce')} {formData.unit || 'pcs'}</label>
                           <input
                             type="number"
                             min="0"
@@ -1310,7 +1336,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   <>
                     {canViewBuyingPrices && (
                       <div>
-                        <label className="text-xs font-semibold text-slate-300">Buying Cost (RWF)</label>
+                        <label className="text-xs font-semibold text-slate-300">{tf('Buying Cost (RWF)', 'Ikiguzi cyo Kurangura (RWF)')}</label>
                         <input
                           type="number"
                           value={formData.buying_price ?? ''}
@@ -1328,18 +1354,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     )}
 
                     <div>
-                      <label className="text-xs font-semibold text-slate-300">Selling Price (RWF)</label>
+                      <label className="text-xs font-semibold text-slate-300">{tf('Selling Price (RWF)', 'Igiciro cyo Kugurisha (RWF)')}</label>
                       <input
                         type="number"
                         value={formData.selling_price || ''}
-                        placeholder="Enter retail price"
+                        placeholder={tf('Enter retail price', 'Andika igiciro cyo kugurisha')}
                         onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
                       />
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-slate-300">Initial Quantity in Stock</label>
+                      <label className="text-xs font-semibold text-slate-300">{tf('Initial Quantity in Stock', 'Umubare utangiranye mu Bubiko')}</label>
                       <input
                         type="number"
                         step="1"
@@ -1353,7 +1379,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
                 <div>
                   <label className="text-xs font-semibold text-slate-300">
-                    Low Stock Warning Level {sellInBothModes ? `(${formData.unit || 'pcs'})` : ''}
+                    {tf('Low Stock Warning Level', 'Umubare utanga Impuruza yo Gushira')} {sellInBothModes ? `(${formData.unit || 'pcs'})` : ''}
                   </label>
                   <input
                     type="number"
@@ -1365,7 +1391,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Barcode / EAN (Optional)</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Barcode / EAN (Optional)', 'Barcode / EAN (Si ngombwa)')}</label>
                   <input
                     type="text"
                     value={formData.barcode || ''}
@@ -1388,14 +1414,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   }}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
-                  {isSubmitting ? 'Saving...' : 'Save Product'}
+                  {isSubmitting ? tf('Saving...', 'Birabikwa...') : tf('Save Product', 'Bika Igicuruzwa')}
                 </button>
               </div>
             </form>
@@ -1418,9 +1444,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 <>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div>
-                      <h3 className="text-base font-bold text-white">Stock Level Adjustment</h3>
+                      <h3 className="text-base font-bold text-white">{tf('Stock Level Adjustment', 'Guhindura Umubare w’Ububiko')}</h3>
                       <p className="text-xs text-slate-400">
-                        {currentProduct.name} (Current: {adjBreakdown.primary}
+                        {currentProduct.name} ({tf('Current:', 'Ubu:')} {adjBreakdown.primary}
                         {adjBreakdown.isMultiUnit ? ` / ${adjBreakdown.totalText}` : ''})
                       </p>
                     </div>
@@ -1430,7 +1456,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   <form onSubmit={handleSaveAdjust} className="space-y-3">
                     {adjBreakdown.isMultiUnit && (
                       <div>
-                        <label className="text-xs font-semibold text-slate-300 block mb-1">Adjust By Unit</label>
+                        <label className="text-xs font-semibold text-slate-300 block mb-1">{tf('Adjust By Unit', 'Hindura Ukurikije Igipimo')}</label>
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
@@ -1452,7 +1478,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                                 : 'bg-slate-900 border-slate-700 text-slate-400'
                             }`}
                           >
-                            Loose {adjBreakdown.retailUnit}
+                            {tf('Loose', 'Uduce')} {adjBreakdown.retailUnit}
                           </button>
                         </div>
                       </div>
@@ -1460,7 +1486,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
                     <div>
                       <label className="text-xs font-semibold text-slate-300">
-                        Adjustment Quantity in {adjustUnitMode === 'pack' && adjBreakdown.isMultiUnit ? adjBreakdown.packUnit : adjBreakdown.retailUnit} (+ to add, - to reduce)
+                        {tf('Adjustment Quantity in', 'Umubare w’Impinduka mu')} {adjustUnitMode === 'pack' && adjBreakdown.isMultiUnit ? adjBreakdown.packUnit : adjBreakdown.retailUnit} ({tf('+ to add, - to reduce', '+ kongera, - kugabanya')})
                       </label>
                       <input
                         type="number"
@@ -1473,13 +1499,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                       <p className="text-[11px] text-slate-400 mt-1">
                         {adjBreakdown.isMultiUnit && adjustUnitMode === 'pack' && (
                           <span className="block text-slate-300">
-                            Equivalent change: {baseDelta > 0 ? '+' : ''}{baseDelta} {adjBreakdown.retailUnit}
+                            {tf('Equivalent change:', 'Impinduka ihwanye na:')} {baseDelta > 0 ? '+' : ''}{baseDelta} {adjBreakdown.retailUnit}
                           </span>
                         )}
-                        New stock will be:{' '}
+                        {tf('New stock will be:', 'Ububiko bushya buzaba:')}{' '}
                         <strong className={projectedTotal < 0 ? 'text-rose-400' : 'text-amber-400'}>
                           {projectedTotal < 0
-                            ? `Invalid (${projectedTotal})`
+                            ? `${tf('Invalid', 'Ntibishoboka')} (${projectedTotal})`
                             : adjBreakdown.isMultiUnit
                             ? `${projectedBreakdown.primary} (${projectedBreakdown.totalText})`
                             : `${projectedTotal} ${adjBreakdown.retailUnit}`}
@@ -1488,25 +1514,25 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-slate-300">Adjustment Reason</label>
+                      <label className="text-xs font-semibold text-slate-300">{tf('Adjustment Reason', 'Impamvu y’Impinduka')}</label>
                       <select
                         value={adjustType}
                         onChange={(e) => setAdjustType(e.target.value)}
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                       >
-                        <option value="purchase_restock">New Supplier Delivery / Restock (+)</option>
-                        <option value="customer_return">Customer Return (+)</option>
-                        <option value="inventory_audit">Stock Count Fix (+/-)</option>
-                        <option value="damaged_written_off">Damaged / Broken Items (-)</option>
-                        <option value="theft_loss">Missing / Lost Items (-)</option>
+                        <option value="purchase_restock">{tf('New Supplier Delivery / Restock (+)', 'Ibicuruzwa Bishya Byinjiye (+)')}</option>
+                        <option value="customer_return">{tf('Customer Return (+)', 'Ibyo Umukiriya Yagaruye (+)')}</option>
+                        <option value="inventory_audit">{tf('Stock Count Fix (+/-)', 'Gukosora Umubare w’Ibarura (+/-)')}</option>
+                        <option value="damaged_written_off">{tf('Damaged / Broken Items (-)', 'Ibyangiritse (-)')}</option>
+                        <option value="theft_loss">{tf('Missing / Lost Items (-)', 'Ibyabuze (-)')}</option>
                       </select>
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-slate-300">Notes (Optional)</label>
+                      <label className="text-xs font-semibold text-slate-300">{tf('Notes (Optional)', 'Inyandiko (Si ngombwa)')}</label>
                       <textarea
                         rows={2}
-                        placeholder="e.g. Received new cartons from supplier"
+                        placeholder={tf('e.g. Received new cartons from supplier', 'urugero: Twakiriye amakarito mashya')}
                         value={adjustNotes}
                         onChange={(e) => setAdjustNotes(e.target.value)}
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -1523,14 +1549,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                         onClick={() => setIsAdjustModalOpen(false)}
                         className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                       >
-                        Cancel
+                        {tf('Cancel', 'Hagarika')}
                       </button>
                       <button
                         type="submit"
                         disabled={isSubmitting || projectedTotal < 0}
                         className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                       >
-                        {isSubmitting ? 'Updating...' : 'Confirm Stock Adjustment'}
+                        {isSubmitting ? tf('Updating...', 'Biravugururwa...') : tf('Confirm Stock Adjustment', 'Emeza Impinduka z’Ububiko')}
                       </button>
                     </div>
                   </form>

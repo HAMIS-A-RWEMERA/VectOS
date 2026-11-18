@@ -1,21 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { User, Shop } from '../types';
-import { 
-  Lock, 
-  Mail, 
-  Store, 
-  User as UserIcon, 
-  Phone, 
-  MapPin, 
-  ArrowRight, 
-  AlertCircle, 
+import {
+  Lock,
+  Mail,
+  Store,
+  User as UserIcon,
+  Phone,
+  MapPin,
+  ArrowRight,
+  AlertCircle,
   CheckCircle2,
   MessageCircle,
   Download,
   Smartphone,
   Sparkles
 } from 'lucide-react';
+import { LanguageSwitcher, useLanguage } from '../i18n/LanguageContext';
 
 interface LoginModalProps {
   onLoginSuccess: (user: User, shop: Shop) => void;
@@ -23,6 +24,7 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAiHelp }) => {
+  const { tf } = useLanguage();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
 
   // Clean login state without any hardcoded credentials
@@ -163,13 +165,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
       <div className="w-full max-w-md my-auto rounded-3xl bg-[#141923] border border-slate-700 shadow-2xl p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95">
+        {/* Top Language Switcher */}
+        <div className="flex items-center justify-center">
+          <LanguageSwitcher variant="full" />
+        </div>
+
         {/* Header */}
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 mx-auto flex items-center justify-center shadow-xl shadow-amber-500/20 text-slate-950 font-black text-2xl">
             V
           </div>
           <h2 className="text-xl font-bold text-white font-display">VectOS Store Manager</h2>
-          <p className="text-xs text-slate-400">Sales, Stock & Receipts for Hardware & Electronics Shops</p>
+          <p className="text-xs text-slate-400">
+            {tf('Sales, Stock & Receipts for Hardware & Electronics Shops', "Igurisha, Ububiko n'Inyemezabuguzi z'Amaduka y'Ibikoresho by'Ubwubatsi na Elegitoroniki")}
+          </p>
         </div>
 
         {/* Tab Toggle: Sign In vs Register Store */}
@@ -183,7 +192,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Sign In
+            {tf('Sign In', 'Injira')}
           </button>
           <button
             type="button"
@@ -194,7 +203,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Register New Store
+            {tf('Register New Store', 'Andikisha Iduka Rishya')}
           </button>
         </div>
 
@@ -216,7 +225,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
         {activeTab === 'login' && (
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-slate-300">Email Address</label>
+              <label className="text-xs font-semibold text-slate-300">{tf('Email Address', 'Imeri (Email)')}</label>
               <div className="relative mt-1">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -232,7 +241,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-300">Password</label>
+              <label className="text-xs font-semibold text-slate-300">{tf('Password', 'Ijambo ry’ibanga')}</label>
               <div className="relative mt-1">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -252,7 +261,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 mt-4 cursor-pointer disabled:opacity-50"
             >
-              <span>{loading ? 'Signing in...' : 'Sign In to Store'}</span>
+              <span>{loading ? tf('Signing in...', 'Birimo kwinjira...') : tf('Sign In to Store', 'Injira mu Iduka')}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -262,7 +271,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
         {activeTab === 'register' && (
           <form onSubmit={handleRegister} className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-slate-300">Hardware / Electronics Store Name</label>
+              <label className="text-xs font-semibold text-slate-300">{tf('Hardware / Electronics Store Name', 'Izina ry’Iduka / Ikigo')}</label>
               <div className="relative mt-1">
                 <Store className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -277,7 +286,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-300">Store Owner / Manager Name</label>
+              <label className="text-xs font-semibold text-slate-300">{tf('Store Owner / Manager Name', 'Amazina ya Nyir’iduka / Umuyobozi')}</label>
               <div className="relative mt-1">
                 <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -293,7 +302,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Owner Work Email</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Owner Work Email', 'Imeri y’akazi ya Nyir’iduka')}</label>
                 <div className="relative mt-1">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -308,7 +317,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Phone Number</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Phone Number', 'Nomero ya Telefone')}</label>
                 <div className="relative mt-1">
                   <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -324,13 +333,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Password</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Password', 'Ijambo ry’ibanga')}</label>
                 <div className="relative mt-1">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="password"
                     required
-                    placeholder="Min 6 chars"
+                    placeholder={tf('Min 6 chars', 'Nibura inyuguti 6')}
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
@@ -339,7 +348,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Location</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Location', 'Aho Iduka Riherereye')}</label>
                 <div className="relative mt-1">
                   <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
@@ -358,7 +367,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               disabled={loading}
               className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-2 mt-3 cursor-pointer"
             >
-              <span>{loading ? 'Submitting Registration...' : 'Complete Registration & Submit'}</span>
+              <span>{loading ? tf('Submitting Registration...', 'Birimo koherezwa...') : tf('Complete Registration & Submit', 'Ohereza Iyandikisha ry’Iduka')}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -383,7 +392,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               </div>
             </div>
             <span className="text-[11px] font-bold text-emerald-400 group-hover:translate-x-0.5 transition shrink-0">
-              Chat &rarr;
+              {tf('Chat', 'Vugana')} &rarr;
             </span>
           </a>
 
@@ -400,7 +409,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               <div className="text-left min-w-0">
                 <div className="flex items-center gap-1">
                   <p className="text-xs font-bold text-amber-200 truncate">VectOS AI</p>
-                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/25 text-amber-300 font-bold uppercase">Quick</span>
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/25 text-amber-300 font-bold uppercase">{tf('Quick', 'Byihuse')}</span>
                 </div>
                 <p className="text-[10px] text-amber-300/90 truncate">Kinyarwanda & English</p>
               </div>
@@ -420,14 +429,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
             >
               <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-              <span>{installed ? '✓ App Installed' : 'Install / Add to Home Screen'}</span>
+              <span>{installed ? tf('✓ App Installed', '✓ App Yashyizweho') : tf('Install / Add to Home Screen', 'Shyira App kuri Telefone')}</span>
             </button>
           </div>
           {showInstallHint && (
             <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 space-y-1">
-              <p className="font-semibold text-amber-300">How to add this shop app to your phone:</p>
-              <p>• <strong>iPhone / iPad (Safari):</strong> Tap the Share icon and choose &ldquo;Add to Home Screen&rdquo;.</p>
-              <p>• <strong>Android (Chrome):</strong> Tap the three-dot menu and choose &ldquo;Install app&rdquo; or &ldquo;Add to Home Screen&rdquo;.</p>
+              <p className="font-semibold text-amber-300">{tf('How to add this shop app to your phone:', 'Uko washyira iyi app kuri telefone yawe:')}</p>
+              <p>• <strong>iPhone / iPad (Safari):</strong> {tf('Tap the Share icon and choose "Add to Home Screen".', 'Kanda aho basangiriza (Share) hanyuma uhitemo "Add to Home Screen".')}</p>
+              <p>• <strong>Android (Chrome):</strong> {tf('Tap the three-dot menu and choose "Install app" or "Add to Home Screen".', 'Kanda ududomo dutatu hejuru hanyuma uhitemo "Install app" cyangwa "Add to Home Screen".')}</p>
             </div>
           )}
         </div>

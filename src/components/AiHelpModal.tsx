@@ -10,6 +10,7 @@ import {
   Trash2,
   ExternalLink
 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface AiHelpModalProps {
   isOpen: boolean;
@@ -23,15 +24,26 @@ interface Message {
   isWelcome?: boolean;
 }
 
-const QUICK_QUESTIONS = [
+const QUICK_QUESTIONS_EN = [
   'What does VectOS solve?',
   'How do I add products (AI Scanner / CSV)?',
-  'How does Client\'s Order & Delivery Notice work?',
+  "How does Client's Order & Delivery Notice work?",
   'How do I negotiate item prices in POS?',
   '3-Way Order Dispatch & Storekeeper',
-  'Amadeni y\'abakiriya (Customer Debt)',
-  'Inshingano 8 z\'abakozi (Staff Roles)',
+  "Amadeni y'abakiriya (Customer Debt)",
+  "Inshingano 8 z'abakozi (Staff Roles)",
   'How do I change my password?'
+];
+
+const QUICK_QUESTIONS_RW = [
+  'VectOS ifasha iki mu iduka?',
+  'Nongera nte ibicuruzwa (AI Scanner / CSV)?',
+  'Nagurisha nte amakarito na kamwe ku gicuruzwa kimwe?',
+  'Delivery Notice itagira ibiciro ikora ite?',
+  'Nabara nte igiciro twumvikanyeho muri POS?',
+  'Amadeni y’abakiriya acungwa ate?',
+  'Inshingano z’abakozi zishyirwaho zite?',
+  'Mpindura nte ijambo ry’ibanga?'
 ];
 
 function renderInlineFormatting(text: string): React.ReactNode[] {
@@ -98,18 +110,30 @@ function FormattedAiMessage({ text }: { text: string }) {
   );
 }
 
-const WELCOME_MESSAGE = (): Message => ({
+const WELCOME_MESSAGE = (lang: 'en' | 'rw'): Message => ({
   role: 'model',
   isWelcome: true,
-  text: "Muraho neza! Welcome to the **VectOS AI Assistant**.\n\nAsk me anything about using **VectOS**—such as POS sales & per-item price bargaining, printing **Client's Order** receipts or Delivery Notices, adding stock (manual, CSV, or AI Invoice Scanner), managing debts, staff permissions, or store setup.\n\nAsk your question in **English**, **Kinyarwanda**, or **French**!",
+  text: lang === 'rw'
+    ? "Muraho neza! Murakaza neza ku **Mufasha wa VectOS AI**.\n\nMbaza ikibazo cyose ku mikoreshereze ya **VectOS** — nko kugurisha muri POS, kugurisha ku ikarito na kamwe, gusohora **Client's Order** cyangwa **Delivery Notice**, kongera ububiko (manual, CSV, cyangwa AI Invoice Scanner), gucunga amadeni, cyangwa abakozi.\n\nBaza mu **Kinyarwanda**, **Icyongereza**, cyangwa **Igifaransa**!"
+    : "Muraho neza! Welcome to the **VectOS AI Assistant**.\n\nAsk me anything about using **VectOS**—such as POS sales & per-item price bargaining, printing **Client's Order** receipts or Delivery Notices, adding stock (manual, CSV, or AI Invoice Scanner), managing debts, staff permissions, or store setup.\n\nAsk your question in **English**, **Kinyarwanda**, or **French**!",
   time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 });
 
 export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => {
-  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE()]);
+  const { lang, tf } = useLanguage();
+  const [messages, setMessages] = useState<Message[]>(() => [WELCOME_MESSAGE(lang)]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.length === 1 && prev[0].isWelcome) {
+        return [WELCOME_MESSAGE(lang)];
+      }
+      return prev;
+    });
+  }, [lang]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -185,12 +209,12 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <h3 className="text-sm font-bold text-white font-display">VectOS AI Guide</h3>
+                <h3 className="text-sm font-bold text-white font-display">{tf('VectOS AI Guide', 'Ubufasha bwa VectOS AI')}</h3>
                 <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  ERP Expert
+                  {tf('ERP Expert', 'Inzobere')}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">Conversational support strictly for VectOS ERP</p>
+              <p className="text-[11px] text-slate-400">{tf('Conversational support strictly for VectOS ERP', 'Ubufasha bwihariye ku mikoreshereze ya VectOS')}</p>
             </div>
           </div>
 
@@ -201,19 +225,19 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
                   {
                     role: 'model',
                     isWelcome: true,
-                    text: 'Conversation cleared. Ask me anything about using **VectOS**!',
+                    text: tf('Conversation cleared. Ask me anything about using **VectOS**!', 'Ikiganiro cyasibwe. Mbaza ikibazo cyose kuri **VectOS**!'),
                     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   }
                 ]);
               }}
-              title="Clear Chat"
+              title={tf('Clear Chat', 'Siba Ikiganiro')}
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
             >
               <Trash2 className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
-              title="Close"
+              title={tf('Close', 'Funga')}
               className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
             >
               <X className="w-4 h-4" />
@@ -225,7 +249,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
         <div className="px-4 py-2 bg-[#0E2A1E]/80 border-b border-emerald-500/30 flex items-center justify-between text-xs text-emerald-300 shrink-0">
           <div className="flex items-center gap-2">
             <MessageCircle className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
-            <span className="text-[11px] font-semibold">Live WhatsApp Support: <strong className="font-mono text-emerald-200">+250 781 549 993</strong></span>
+            <span className="text-[11px] font-semibold">{tf('Live WhatsApp Support:', 'Ubufasha kuri WhatsApp:')} <strong className="font-mono text-emerald-200">+250 781 549 993</strong></span>
           </div>
           <a
             href="https://wa.me/250781549993?text=Muraho%20VectOS%20Support%2C%20I%20need%20assistance%20with%20my%20store"
@@ -233,7 +257,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
             rel="noopener noreferrer"
             className="text-[11px] font-bold text-emerald-300 hover:text-white hover:underline flex items-center gap-1"
           >
-            <span>Chat</span>
+            <span>{tf('Chat', 'Vugana')}</span>
             <ExternalLink className="w-3 h-3" />
           </a>
         </div>
@@ -290,7 +314,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" />
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:0.2s]" />
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:0.4s]" />
-                <span className="ml-1 text-[11px]">VectOS AI is thinking...</span>
+                <span className="ml-1 text-[11px]">{tf('VectOS AI is thinking...', 'VectOS AI irimo gutekereza...')}</span>
               </div>
             </div>
           )}
@@ -300,10 +324,10 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
         {/* Suggested Quick Questions */}
         <div className="px-3 py-2 bg-slate-950/60 border-t border-slate-800/80 shrink-0">
           <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-1.5">
-            Suggested Questions:
+            {tf('Suggested Questions:', 'Ibibazo Wabaza:')}
           </p>
           <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {QUICK_QUESTIONS.map((q, idx) => (
+            {(lang === 'rw' ? QUICK_QUESTIONS_RW : QUICK_QUESTIONS_EN).map((q, idx) => (
               <button
                 key={idx}
                 type="button"
@@ -328,7 +352,7 @@ export const AiHelpModal: React.FC<AiHelpModalProps> = ({ isOpen, onClose }) => 
           >
             <input
               type="text"
-              placeholder="Ask anything about VectOS (English, Kinyarwanda, French)..."
+              placeholder={tf('Ask anything about VectOS (English, Kinyarwanda, French)...', 'Baza icyo wifuza kuri VectOS (Ikinyarwanda, Icyongereza, Igifaransa)...')}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}

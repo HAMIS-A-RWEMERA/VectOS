@@ -3,6 +3,7 @@ import { ReportSummary, User, Shop, AuditLogEntry } from '../types';
 import { api } from '../services/api';
 import { exportReportsPdf } from '../services/pdfExport';
 import { hasPermission } from '../utils/permissions';
+import { useLanguage } from '../i18n/LanguageContext';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -31,6 +32,7 @@ interface ReportsViewProps {
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
+  const { tf } = useLanguage();
   const [reports, setReports] = useState<ReportSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeReportTab, setActiveReportTab] = useState<'categories' | 'products' | 'staff' | 'audit'>('categories');
@@ -76,10 +78,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
 
   const getPeriodLabel = (p: string) => {
     switch (p) {
-      case 'day': return 'Daily (Today)';
-      case 'week': return 'Weekly (Past 7 Days)';
-      case 'month': return 'Monthly (Past 30 Days)';
-      default: return 'All Time';
+      case 'day': return tf('Daily (Today)', 'Uyu Munsi');
+      case 'week': return tf('Weekly (Past 7 Days)', 'Icyumweru (Iminsi 7)');
+      case 'month': return tf('Monthly (Past 30 Days)', 'Ukwezi (Iminsi 30)');
+      default: return tf('All Time', 'Ibihe Byose');
     }
   };
 
@@ -196,14 +198,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Sales & Profit Reports
+              {tf('Sales & Profit Reports', 'Raporo z’Ubucuruzi n’Inyungu')}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {getPeriodLabel(period)}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            See top-selling categories, best products, staff sales, and activity history.
+            {tf('See top-selling categories, best products, staff sales, and activity history.', 'Reba ibyiciro bigurwa cyane, ibicuruzwa bya mbere, ibikorwa by’abakozi, n’amateka.')}
           </p>
         </div>
 
@@ -212,10 +214,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
           {/* Period Selector */}
           <div className="flex items-center bg-[#121620] p-1 rounded-xl border border-slate-800 text-xs">
             {[
-              { id: 'day', label: 'Daily (Today)' },
-              { id: 'week', label: 'Weekly (7d)' },
-              { id: 'month', label: 'Monthly (30d)' },
-              { id: 'all', label: 'All Time' },
+              { id: 'day', label: tf('Daily (Today)', 'Uyu Munsi') },
+              { id: 'week', label: tf('Weekly (7d)', 'Icyumweru (7d)') },
+              { id: 'month', label: tf('Monthly (30d)', 'Ukwezi (30d)') },
+              { id: 'all', label: tf('All Time', 'Ibihe Byose') },
             ].map((p) => (
               <button
                 key={p.id}
@@ -238,7 +240,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/20 border border-rose-500/30 transition"
             >
               <FileText className="w-4 h-4 text-white" />
-              <span>Export PDF</span>
+              <span>{tf('Export PDF', 'Kuramo PDF')}</span>
               <ChevronDown className="w-3.5 h-3.5 opacity-80" />
             </button>
 
@@ -250,10 +252,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                 >
                   <span className="font-bold text-white flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-amber-400" />
-                    Complete Financial Summary
+                    {tf('Complete Financial Summary', 'Incamake Yuzuye y’Imari')}
                   </span>
                   <span className="text-[11px] text-slate-400">
-                    Includes category turnover, products & leaderboard ({getPeriodLabel(period)})
+                    {tf('Includes category turnover, products & leaderboard', 'Irimo ibyiciro, ibicuruzwa & abakozi')} ({getPeriodLabel(period)})
                   </span>
                 </button>
                 <div className="my-1 border-t border-slate-800" />
@@ -263,10 +265,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                 >
                   <span className="font-bold text-white flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-blue-400" />
-                    Active Tab Only ({activeReportTab.toUpperCase()})
+                    {tf('Active Tab Only', 'Igice Urebamo Gusa')} ({activeReportTab.toUpperCase()})
                   </span>
                   <span className="text-[11px] text-slate-400">
-                    Exports only currently focused dataset
+                    {tf('Exports only currently focused dataset', 'Isohora ibiri kuri iyi paji gusa')}
                   </span>
                 </button>
               </div>
@@ -287,10 +289,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-xs overflow-x-auto">
         {[
-          { id: 'categories', label: 'Sales by Category', icon: Layers, visible: true },
-          { id: 'products', label: 'Top Selling Products', icon: TrendingUp, visible: true },
-          { id: 'staff', label: 'Sales by Staff', icon: Award, visible: true },
-          { id: 'audit', label: 'Staff Activity History', icon: ShieldAlert, visible: canViewAuditTrail },
+          { id: 'categories', label: tf('Sales by Category', 'Ibyaguzwe ku Byiciro'), icon: Layers, visible: true },
+          { id: 'products', label: tf('Top Selling Products', 'Ibicuruzwa Byaguzwe Cyane'), icon: TrendingUp, visible: true },
+          { id: 'staff', label: tf('Sales by Staff', 'Ibyagurishijwe n’Abakozi'), icon: Award, visible: true },
+          { id: 'audit', label: tf('Staff Activity History', 'Amateka y’Ibikorwa by’Abakozi'), icon: ShieldAlert, visible: canViewAuditTrail },
         ].filter(t => t.visible).map((tab) => {
           const Icon = tab.icon;
           const isActive = activeReportTab === tab.id;
@@ -317,10 +319,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
               <tr>
-                <th className="py-3 px-4">Category</th>
-                <th className="py-3 px-4">Units Sold</th>
-                <th className="py-3 px-4">Total Sales</th>
-                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">Estimated Profit</th>}
+                <th className="py-3 px-4">{tf('Category', 'Icyiciro')}</th>
+                <th className="py-3 px-4">{tf('Units Sold', 'Ingano Yaguzwe')}</th>
+                <th className="py-3 px-4">{tf('Total Sales', 'Igiteranyo cy’Ibyaguzwe')}</th>
+                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">{tf('Estimated Profit', 'Inyungu Igereranywa')}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -330,7 +332,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                     <span className="w-2 h-2 rounded-full bg-amber-400" />
                     {c.category}
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-slate-300">{c.units_sold.toLocaleString()} units</td>
+                  <td className="py-3.5 px-4 font-mono text-slate-300">{c.units_sold.toLocaleString()} {tf('units', 'uduce')}</td>
                   <td className="py-3.5 px-4 font-mono font-bold text-slate-100">{formatRwf(c.revenue)}</td>
                   {canViewBuyingPrices && (
                     <td className="py-3.5 px-4 font-mono font-black text-emerald-400">{formatRwf(c.profit)}</td>
@@ -339,7 +341,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
               ))}
               {reports.categorySales.length === 0 && (
                 <tr>
-                  <td colSpan={canViewBuyingPrices ? 4 : 3} className="py-8 text-center text-slate-400">No category sales recorded yet.</td>
+                  <td colSpan={canViewBuyingPrices ? 4 : 3} className="py-8 text-center text-slate-400">{tf('No category sales recorded yet.', 'Nta byaguzwe mu byiciro birandikwa.')}</td>
                 </tr>
               )}
             </tbody>
@@ -353,12 +355,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
               <tr>
-                <th className="py-3 px-4">Product Name</th>
-                <th className="py-3 px-4">Item Code</th>
-                <th className="py-3 px-4">Category</th>
-                <th className="py-3 px-4">Units Sold</th>
-                <th className="py-3 px-4">Total Sales</th>
-                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">Estimated Profit</th>}
+                <th className="py-3 px-4">{tf('Product Name', 'Izina ry’Igicuruzwa')}</th>
+                <th className="py-3 px-4">{tf('Item Code', 'Kode')}</th>
+                <th className="py-3 px-4">{tf('Category', 'Icyiciro')}</th>
+                <th className="py-3 px-4">{tf('Units Sold', 'Byaguzwe')}</th>
+                <th className="py-3 px-4">{tf('Total Sales', 'Igiteranyo')}</th>
+                {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">{tf('Estimated Profit', 'Inyungu Igereranywa')}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -376,7 +378,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
               ))}
               {reports.topSellingProducts.length === 0 && (
                 <tr>
-                  <td colSpan={canViewBuyingPrices ? 6 : 5} className="py-8 text-center text-slate-400">No product sales logged yet.</td>
+                  <td colSpan={canViewBuyingPrices ? 6 : 5} className="py-8 text-center text-slate-400">{tf('No product sales logged yet.', 'Nta bicuruzwa biragurishwa.')}</td>
                 </tr>
               )}
             </tbody>
@@ -390,10 +392,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
               <tr>
-                <th className="py-3 px-4">Rank & Staff Name</th>
-                <th className="py-3 px-4">Email</th>
-                <th className="py-3 px-4">Orders</th>
-                <th className="py-3 px-4 font-semibold">Total Sales</th>
+                <th className="py-3 px-4">{tf('Rank & Staff Name', 'Umwanya & Izina ry’Umukozi')}</th>
+                <th className="py-3 px-4">{tf('Email', 'Imeri')}</th>
+                <th className="py-3 px-4">{tf('Orders', 'Amategeko')}</th>
+                <th className="py-3 px-4 font-semibold">{tf('Total Sales', 'Ibyagurishijwe Byose')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -408,13 +410,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                     <span className="font-bold text-white">{s.name}</span>
                   </td>
                   <td className="py-3.5 px-4 font-mono text-slate-400">{s.email}</td>
-                  <td className="py-3.5 px-4 font-mono font-bold text-slate-200">{s.total_orders} orders</td>
+                  <td className="py-3.5 px-4 font-mono font-bold text-slate-200">{s.total_orders} {tf('orders', 'amategeko')}</td>
                   <td className="py-3.5 px-4 font-mono font-black text-amber-400">{formatRwf(s.total_sales)}</td>
                 </tr>
               ))}
               {reports.salespersonPerformance.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-400">No salesperson data yet.</td>
+                  <td colSpan={4} className="py-8 text-center text-slate-400">{tf('No salesperson data yet.', 'Nta makuru y’abakozi araboneka.')}</td>
                 </tr>
               )}
             </tbody>
@@ -431,7 +433,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
               <input
                 type="text"
-                placeholder="Search audit details, staff name, email..."
+                placeholder={tf('Search audit details, staff name, email...', 'Shakisha ibikorwa, izina ry’umukozi, imeri...')}
                 value={auditSearch}
                 onChange={(e) => setAuditSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
@@ -444,7 +446,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                 onChange={(e) => setSelectedAction(e.target.value)}
                 className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
               >
-                <option value="all">All Action Types</option>
+                <option value="all">{tf('All Action Types', 'Ibikorwa Byose')}</option>
                 {availableActions.map(a => (
                   <option key={a} value={a}>{a}</option>
                 ))}
@@ -454,7 +456,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                 onClick={fetchAuditLogs}
                 disabled={auditLoading}
                 className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-                title="Refresh audit stream"
+                title={tf('Refresh audit stream', 'Vugurura amateka')}
               >
                 <RefreshCw className={`w-4 h-4 ${auditLoading ? 'animate-spin text-amber-400' : ''}`} />
               </button>
@@ -466,11 +468,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
                 <tr>
-                  <th className="py-3 px-4">Date & Time</th>
-                  <th className="py-3 px-4">Staff Member</th>
-                  <th className="py-3 px-4">Role</th>
-                  <th className="py-3 px-4">Action</th>
-                  <th className="py-3 px-4">What Happened</th>
+                  <th className="py-3 px-4">{tf('Date & Time', 'Itariki & Isaha')}</th>
+                  <th className="py-3 px-4">{tf('Staff Member', 'Umukozi')}</th>
+                  <th className="py-3 px-4">{tf('Role', 'Urwego')}</th>
+                  <th className="py-3 px-4">{tf('Action', 'Igikorwa')}</th>
+                  <th className="py-3 px-4">{tf('What Happened', 'Ibyabaye')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
@@ -482,7 +484,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                         {new Date(l.created_at).toLocaleString()}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className="font-bold text-white block">{l.user_name || 'System Auto-Agent'}</span>
+                        <span className="font-bold text-white block">{l.user_name || tf('System Auto-Agent', 'Sisitemu')}</span>
                         {l.user_email && <span className="text-[10px] text-slate-400 font-mono">{l.user_email}</span>}
                       </td>
                       <td className="py-3.5 px-4">
@@ -505,7 +507,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                 {(auditLogs.length === 0 && reports.auditLogs.length === 0) && (
                   <tr>
                     <td colSpan={5} className="py-10 text-center text-slate-400">
-                      No internal audit logs found matching criteria.
+                      {tf('No internal audit logs found matching criteria.', 'Nta makuru y’ibikorwa byabonetse.')}
                     </td>
                   </tr>
                 )}

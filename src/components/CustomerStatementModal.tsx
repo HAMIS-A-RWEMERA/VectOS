@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Clock
 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface CustomerStatementModalProps {
   customer: Customer;
@@ -35,6 +36,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
   onOpenBulkSettle,
   onOpenStoreCredit,
 }) => {
+  const { tf } = useLanguage();
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'all' | 'custom'>('month');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -77,7 +79,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
       });
       setStatement(res);
     } catch (err: any) {
-      setError(err.message || 'Failed to load customer statement.');
+      setError(err.message || tf('Failed to load customer statement.', 'Gufungura inyandiko y’umukiriya byanze.'));
     } finally {
       setLoading(false);
     }
@@ -332,11 +334,11 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <FileText className="w-5 h-5 text-amber-400 shrink-0" />
               <h2 className="text-base sm:text-lg font-black text-white truncate">
-                {customer.name} — Account Statement
+                {customer.name} — {tf('Account Statement', 'Inyandiko ya Konti')}
               </h2>
             </div>
             <p className="text-xs text-slate-400 mt-0.5 truncate">
-              {customer.phone || 'No phone'} {customer.id_number ? `• ID/TIN: ${customer.id_number}` : ''} {customer.address ? `• ${customer.address}` : ''}
+              {customer.phone || tf('No phone', 'Nta telefoni')} {customer.id_number ? `• ${tf('ID/TIN:', 'Indangamuntu/TIN:')} ${customer.id_number}` : ''} {customer.address ? `• ${customer.address}` : ''}
             </p>
           </div>
 
@@ -349,7 +351,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                   className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Print Statement (A4)</span>
+                  <span>{tf('Print Statement (A4)', 'Sohora Inyandiko (A4)')}</span>
                 </button>
                 <button
                   type="button"
@@ -357,7 +359,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                   className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs flex items-center gap-1.5 transition"
                 >
                   <Download className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Save Finance PDF</span>
+                  <span>{tf('Save Finance PDF', 'Bika PDF y’Imari')}</span>
                 </button>
               </>
             )}
@@ -365,7 +367,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
               type="button"
               onClick={onClose}
               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-              title="Close statement"
+              title={tf('Close statement', 'Funga inyandiko')}
             >
               <X className="w-4 h-4" />
             </button>
@@ -377,11 +379,11 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
           <div className="flex items-center gap-1.5 flex-wrap">
             <Calendar className="w-4 h-4 text-amber-400 mr-1" />
             {[
-              { id: 'day', label: 'Today' },
-              { id: 'week', label: '7 Days' },
-              { id: 'month', label: '30 Days' },
-              { id: 'all', label: 'All Time' },
-              { id: 'custom', label: 'Custom Range' },
+              { id: 'day', label: tf('Today', 'Uyu Munsi') },
+              { id: 'week', label: tf('7 Days', 'Iminsi 7') },
+              { id: 'month', label: tf('30 Days', 'Iminsi 30') },
+              { id: 'all', label: tf('All Time', 'Igihe Cyose') },
+              { id: 'custom', label: tf('Custom Range', 'Hitamo Amatariki') },
             ].map((p) => (
               <button
                 key={p.id}
@@ -406,7 +408,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                 onChange={(e) => setStartDate(e.target.value)}
                 className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-100"
               />
-              <span className="text-slate-400">to</span>
+              <span className="text-slate-400">{tf('to', 'kugeza')}</span>
               <input
                 type="date"
                 value={endDate}
@@ -418,7 +420,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                 onClick={fetchStatement}
                 className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold"
               >
-                Apply
+                {tf('Apply', 'Emeza')}
               </button>
             </div>
           )}
@@ -432,7 +434,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                   className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition"
                 >
                   <CreditCard className="w-3.5 h-3.5" />
-                  <span>Settle Debt (Bulk)</span>
+                  <span>{tf('Settle Debt (Bulk)', 'Ishyura Ideni (Icyarimwe)')}</span>
                 </button>
               )}
               {onOpenStoreCredit && (
@@ -442,7 +444,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                   className="px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-xs font-bold flex items-center gap-1.5 transition"
                 >
                   <Wallet className="w-3.5 h-3.5" />
-                  <span>Store Credit (We Owe)</span>
+                  <span>{tf('Store Credit (We Owe)', 'Avansi (Tumubereyemo)')}</span>
                 </button>
               )}
             </div>
@@ -454,7 +456,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
           {loading ? (
             <div className="py-16 flex flex-col items-center justify-center text-slate-400 gap-2">
               <Loader2 className="w-7 h-7 animate-spin text-amber-400" />
-              <p className="text-xs font-semibold">Loading customer transaction statement...</p>
+              <p className="text-xs font-semibold">{tf('Loading customer transaction statement...', 'Gutegura inyandiko y’ibyaguzwe n’umukiriya...')}</p>
             </div>
           ) : error ? (
             <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs text-rose-300 flex items-center gap-2">
@@ -467,53 +469,53 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
                   <span className="text-[11px] font-semibold text-slate-400 uppercase">
-                    Ordered ({statement.periodLabel})
+                    {tf(`Ordered (${statement.periodLabel})`, `Ibyaguzwe (${statement.periodLabel})`)}
                   </span>
                   <p className="text-base sm:text-lg font-black text-white font-mono mt-1">
                     {formatRwf(statement.summary.totalOrdered)}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    {statement.summary.ordersCount} active order(s)
+                    {tf(`${statement.summary.ordersCount} active order(s)`, `Komande ${statement.summary.ordersCount} zikora`)}
                     {statement.orders.length > statement.summary.ordersCount
-                      ? ` (${statement.orders.length - statement.summary.ordersCount} cancelled)`
+                      ? tf(` (${statement.orders.length - statement.summary.ordersCount} cancelled)`, ` (${statement.orders.length - statement.summary.ordersCount} zahagaritswe)`)
                       : ''}{' '}
-                    • Lifetime: {statement.summary.lifetimeOrders}
+                    • {tf('Lifetime:', 'Yose hamwe:')} {statement.summary.lifetimeOrders}
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
                   <span className="text-[11px] font-semibold text-slate-400 uppercase">
-                    Paid in Period
+                    {tf('Paid in Period', 'Ayishyuwe muri Iki Gihe')}
                   </span>
                   <p className="text-base sm:text-lg font-black text-emerald-400 font-mono mt-1">
                     {formatRwf(statement.summary.totalPaidOnOrders)}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Receipts logged: {formatRwf(statement.summary.paymentsReceivedInPeriod)}
+                    {tf('Receipts logged:', 'Inyemezabwishyu zabitswe:')} {formatRwf(statement.summary.paymentsReceivedInPeriod)}
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-slate-900/90 border border-rose-500/30">
                   <span className="text-[11px] font-semibold text-rose-300 uppercase">
-                    Current Debt Owed to Us
+                    {tf('Current Debt Owed to Us', 'Ideni Atubereyemo Ubu')}
                   </span>
                   <p className="text-base sm:text-lg font-black text-rose-400 font-mono mt-1">
                     {formatRwf(statement.summary.currentDebtBalance)}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Total unpaid across all receipts
+                    {tf('Total unpaid across all receipts', 'Ideni yose ku nyemezabuguzi zitarishyurwa')}
                   </p>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-slate-900/90 border border-purple-500/30">
                   <span className="text-[11px] font-semibold text-purple-300 uppercase">
-                    Store Credit (We Owe Client)
+                    {tf('Store Credit (We Owe Client)', 'Avansi (Tumubereyemo)')}
                   </span>
                   <p className="text-base sm:text-lg font-black text-purple-300 font-mono mt-1">
                     {formatRwf(statement.summary.currentStoreCredit)}
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Deductible on next POS order
+                    {tf('Deductible on next POS order', 'Ikurwaho ku bugure bukurikiraho')}
                   </p>
                 </div>
               </div>
@@ -529,7 +531,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Orders & Items ({statement.orders.length})
+                  {tf(`Orders & Items (${statement.orders.length})`, `Komande & Ibicuruzwa (${statement.orders.length})`)}
                 </button>
                 <button
                   type="button"
@@ -540,7 +542,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Payments & Credit Ledger ({statement.payments.length + statement.creditLedger.length})
+                  {tf(`Payments & Credit Ledger (${statement.payments.length + statement.creditLedger.length})`, `Ubwishyu & Avansi (${statement.payments.length + statement.creditLedger.length})`)}
                 </button>
               </div>
 
@@ -551,12 +553,12 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                     <table className="w-full text-left text-xs">
                       <thead className="text-[10px] uppercase tracking-wider text-slate-400 bg-slate-900 border-b border-slate-800">
                         <tr>
-                          <th className="py-2.5 px-3">Date & Order</th>
-                          <th className="py-2.5 px-3">Items Bought</th>
-                          <th className="py-2.5 px-3 text-right">Order Total</th>
-                          <th className="py-2.5 px-3 text-right">Paid</th>
-                          <th className="py-2.5 px-3 text-right">Debt Balance</th>
-                          <th className="py-2.5 px-3 text-center">Status</th>
+                          <th className="py-2.5 px-3">{tf('Date & Order', 'Itariki & Komande')}</th>
+                          <th className="py-2.5 px-3">{tf('Items Bought', 'Ibyaguzwe')}</th>
+                          <th className="py-2.5 px-3 text-right">{tf('Order Total', 'Igiteranyo')}</th>
+                          <th className="py-2.5 px-3 text-right">{tf('Paid', 'Yishyuwe')}</th>
+                          <th className="py-2.5 px-3 text-right">{tf('Debt Balance', 'Ideni Risigaye')}</th>
+                          <th className="py-2.5 px-3 text-center">{tf('Status', 'Imimerere')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/70">
@@ -593,7 +595,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                                   <div>
                                     <span className="text-slate-200">RWF 0</span>
                                     <p className="text-[10px] text-rose-400 font-bold">
-                                      (Cancelled: {formatRwf(o.total_amount)})
+                                      ({tf('Cancelled:', 'Yahagaritswe:')} {formatRwf(o.total_amount)})
                                     </p>
                                   </div>
                                 ) : (
@@ -606,7 +608,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                                     <span className="text-slate-200 font-bold">RWF 0</span>
                                     {Number(o.paid_amount || 0) > 0 && (
                                       <p className="text-[10px] text-rose-400 font-bold">
-                                        (Cancelled: {formatRwf(o.paid_amount)})
+                                        ({tf('Cancelled:', 'Yahagaritswe:')} {formatRwf(o.paid_amount)})
                                       </p>
                                     )}
                                   </div>
@@ -626,19 +628,19 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
                                 {isCancelled ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                                    Cancelled
+                                    {tf('Cancelled', 'Yahagaritswe')}
                                   </span>
                                 ) : o.payment_status === 'paid' ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300">
-                                    <CheckCircle2 className="w-3 h-3" /> Paid
+                                    <CheckCircle2 className="w-3 h-3" /> {tf('Paid', 'Yishyuwe')}
                                   </span>
                                 ) : o.payment_status === 'partial' ? (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300">
-                                    <Clock className="w-3 h-3" /> Partial
+                                    <Clock className="w-3 h-3" /> {tf('Partial', 'Yishyuwe Igice')}
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300">
-                                    Debt
+                                    {tf('Debt', 'Ideni')}
                                   </span>
                                 )}
                               </td>
@@ -649,7 +651,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                         {statement.orders.length === 0 && (
                           <tr>
                             <td colSpan={6} className="py-10 text-center text-slate-400">
-                              No transactions recorded for this customer in the selected timeframe.
+                              {tf('No transactions recorded for this customer in the selected timeframe.', 'Nta bikorwa byabonetse kuri uyu mukiriya muri iki gihe wahisemo.')}
                             </td>
                           </tr>
                         )}
@@ -664,17 +666,17 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                 <div className="space-y-4">
                   <div className="rounded-xl border border-slate-800 overflow-hidden bg-slate-950/60">
                     <div className="px-3.5 py-2 bg-slate-900 border-b border-slate-800 text-[11px] font-bold uppercase text-slate-300">
-                      Payment Receipts History ({statement.payments.length})
+                      {tf(`Payment Receipts History (${statement.payments.length})`, `Amateka y’Ubwishyu (${statement.payments.length})`)}
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
                         <thead className="text-[10px] uppercase text-slate-400 border-b border-slate-800">
                           <tr>
-                            <th className="py-2 px-3">Date</th>
-                            <th className="py-2 px-3">Order</th>
-                            <th className="py-2 px-3">Method</th>
-                            <th className="py-2 px-3 text-right">Amount Paid</th>
-                            <th className="py-2 px-3">Reference / Staff</th>
+                            <th className="py-2 px-3">{tf('Date', 'Itariki')}</th>
+                            <th className="py-2 px-3">{tf('Order', 'Komande')}</th>
+                            <th className="py-2 px-3">{tf('Method', 'Uburyo')}</th>
+                            <th className="py-2 px-3 text-right">{tf('Amount Paid', 'Ayishyuwe')}</th>
+                            <th className="py-2 px-3">{tf('Reference / Staff', 'Ref / Umukozi')}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/70">
@@ -690,7 +692,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                                   {(p.payment_method || '').replace('_', ' ')}
                                   {isCancelledPay && (
                                     <span className="ml-1.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                      CANCELLED
+                                      {tf('CANCELLED', 'YAHAGARITSWE')}
                                     </span>
                                   )}
                                 </td>
@@ -699,21 +701,21 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                                     <div>
                                       <span className="text-slate-200">RWF 0</span>
                                       <p className="text-[10px] text-rose-400 font-bold">
-                                        (Cancelled: {formatRwf(p.amount)})
+                                        ({tf('Cancelled:', 'Yahagaritswe:')} {formatRwf(p.amount)})
                                       </p>
                                     </div>
                                   ) : (
                                     <span className="text-emerald-400">{formatRwf(p.amount)}</span>
                                   )}
                                 </td>
-                                <td className="py-2 px-3 text-slate-400">{p.reference_no || p.recorded_by_name || 'Confirmed'}</td>
+                                <td className="py-2 px-3 text-slate-400">{p.reference_no || p.recorded_by_name || tf('Confirmed', 'Byemejwe')}</td>
                               </tr>
                             );
                           })}
                           {statement.payments.length === 0 && (
                             <tr>
                               <td colSpan={5} className="py-6 text-center text-slate-400">
-                                No payments logged in this period.
+                                {tf('No payments logged in this period.', 'Nta bwishyu bwanditswe muri iki gihe.')}
                               </td>
                             </tr>
                           )}
@@ -724,16 +726,16 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
 
                   <div className="rounded-xl border border-slate-800 overflow-hidden bg-slate-950/60">
                     <div className="px-3.5 py-2 bg-slate-900 border-b border-slate-800 text-[11px] font-bold uppercase text-purple-300">
-                      Store Credit & Bulk Settlement Ledger ({statement.creditLedger.length})
+                      {tf(`Store Credit & Bulk Settlement Ledger (${statement.creditLedger.length})`, `Igitabo cy’Avansi & Kwishyura Icyarimwe (${statement.creditLedger.length})`)}
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
                         <thead className="text-[10px] uppercase text-slate-400 border-b border-slate-800">
                           <tr>
-                            <th className="py-2 px-3">Date</th>
-                            <th className="py-2 px-3">Type</th>
-                            <th className="py-2 px-3 text-right">Amount</th>
-                            <th className="py-2 px-3">Notes / Ref</th>
+                            <th className="py-2 px-3">{tf('Date', 'Itariki')}</th>
+                            <th className="py-2 px-3">{tf('Type', 'Ubwoko')}</th>
+                            <th className="py-2 px-3 text-right">{tf('Amount', 'Umubare')}</th>
+                            <th className="py-2 px-3">{tf('Notes / Ref', 'Ibisobanuro / Ref')}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800/70">
@@ -742,12 +744,12 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                               <td className="py-2 px-3 text-slate-300 whitespace-nowrap">{formatDate(l.created_at)}</td>
                               <td className="py-2 px-3 font-semibold text-white">
                                 {l.entry_type === 'credit_added'
-                                  ? 'Credit Added (We Owe Client)'
+                                  ? tf('Credit Added (We Owe Client)', 'Avansi Yongewemo (Tumubereyemo)')
                                   : l.entry_type === 'credit_used'
-                                  ? 'Credit Used on Order'
+                                  ? tf('Credit Used on Order', 'Avansi Yakoreshejwe kuri Komande')
                                   : l.entry_type === 'credit_payout'
-                                  ? 'Credit Refund Paid Out'
-                                  : 'Bulk Debt Settlement'}
+                                  ? tf('Credit Refund Paid Out', 'Avansi Yasubijwe Kashi')
+                                  : tf('Bulk Debt Settlement', 'Kwishyura Amadeni Icyarimwe')}
                               </td>
                               <td className="py-2 px-3 text-right font-mono font-bold text-purple-300">{formatRwf(l.amount)}</td>
                               <td className="py-2 px-3 text-slate-300">{l.notes || l.reference_no || '—'}</td>
@@ -756,7 +758,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                           {statement.creditLedger.length === 0 && (
                             <tr>
                               <td colSpan={4} className="py-6 text-center text-slate-400">
-                                No bulk settlements or store credit entries in this period.
+                                {tf('No bulk settlements or store credit entries in this period.', 'Nta wishyura ry’icyarimwe cyangwa avansi muri iki gihe.')}
                               </td>
                             </tr>
                           )}

@@ -11,6 +11,7 @@ import {
   Boxes
 } from 'lucide-react';
 import { StockLocation } from '../types';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface BulkImportModalProps {
   stocks: StockLocation[];
@@ -53,6 +54,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   onClose,
   onSuccess
 }) => {
+  const { tf } = useLanguage();
   const [selectedStockId, setSelectedStockId] = useState<number>(stocks[0]?.id || 1);
   const [rawText, setRawText] = useState('');
   const [stagedProducts, setStagedProducts] = useState<StagedProduct[]>([]);
@@ -199,10 +201,10 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
 
       if (!name) {
         isValid = false;
-        error = 'Product name missing';
+        error = tf('Product name missing', 'Izina ry’igicuruzwa rirabura');
       } else if (isNaN(buying_price) || buying_price < 0) {
         isValid = false;
-        error = 'Invalid buying price';
+        error = tf('Invalid buying price', 'Igiciro kiranguza ntikemewe');
       }
 
       return {
@@ -247,12 +249,12 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             setRawText(csvContent);
             parseCsvData(csvContent);
           } catch (err: any) {
-            setErrorMessage('Could not parse Excel spreadsheet: ' + err.message);
+            setErrorMessage(tf('Could not parse Excel spreadsheet: ', 'Ntibyashobotse gusoma dosiye ya Excel: ') + err.message);
           }
         };
         reader.readAsArrayBuffer(file);
       }).catch(err => {
-        setErrorMessage('Failed to load Excel reader: ' + err.message);
+        setErrorMessage(tf('Failed to load Excel reader: ', 'Ntibyashobotse gufungura igisoma Excel: ') + err.message);
       });
     } else {
       const reader = new FileReader();
@@ -275,7 +277,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
   const handleCommitImport = async () => {
     const validRows = stagedProducts.filter(p => p.isValid);
     if (validRows.length === 0) {
-      setErrorMessage('No valid product rows ready for import.');
+      setErrorMessage(tf('No valid product rows ready for import.', 'Nta gicuruzwa cyujuje ibisabwa cyabonetse cyo kwinjizwa.'));
       return;
     }
 
@@ -283,12 +285,12 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       setImporting(true);
       setErrorMessage('');
       const res = await api.bulkImportProducts(validRows, selectedStockId);
-      setResultMsg(res.message || `Successfully imported ${validRows.length} products!`);
+      setResultMsg(res.message || tf(`Successfully imported ${validRows.length} products!`, `Ibicuruzwa ${validRows.length} byinjijwe neza!`));
       setTimeout(() => {
         onSuccess();
       }, 1800);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to import bulk stock data.');
+      setErrorMessage(err.message || tf('Failed to import bulk stock data.', 'Kwinjiza ibicuruzwa byinshi byanze.'));
     } finally {
       setImporting(false);
     }
@@ -309,13 +311,13 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base lg:text-lg font-bold text-white">Bulk Stock & Inventory Importer</h3>
+                <h3 className="text-base lg:text-lg font-bold text-white">{tf('Bulk Stock & Inventory Importer', 'Kwinjiza Ibicuruzwa Byinshi mu Bubiko')}</h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Excel / CSV Fast-Ingest
+                  {tf('Excel / CSV Fast-Ingest', 'Kwinjiza vuba na Excel / CSV')}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Quickly populate initial store catalog or receive bulk shipments with 500+ items at once.
+                {tf('Quickly populate initial store catalog or receive bulk shipments with 500+ items at once.', 'Uzuza vuba urutonde rw’ibicuruzwa cyangwa wakire ibicuruzwa byinshi (500+) icyarimwe.')}
               </p>
             </div>
           </div>
@@ -345,7 +347,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         {/* Action Controls & Warehouse Selection */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 shrink-0">
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1">Target Warehouse / Depot *</label>
+            <label className="text-xs font-semibold text-slate-300 block mb-1">{tf('Target Warehouse / Depot *', 'Ububiko / Depo bigiyemo *')}</label>
             <select
               value={selectedStockId}
               onChange={(e) => setSelectedStockId(Number(e.target.value))}
@@ -360,7 +362,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           <div className="flex items-end gap-2">
             <label className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 cursor-pointer transition">
               <UploadCloud className="w-4 h-4 text-amber-400" />
-              <span>Choose CSV / Excel File</span>
+              <span>{tf('Choose CSV / Excel File', 'Hitamo Dosiye CSV / Excel')}</span>
               <input
                 type="file"
                 accept=".csv,.txt,.tsv,.xlsx,.xls"
@@ -377,7 +379,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-xs font-bold text-amber-300 transition"
             >
               <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>Load 10 Kigali Hardware Demo Items</span>
+              <span>{tf('Load 10 Kigali Hardware Demo Items', 'Shyiramo Ingero 10 za Quincaillerie')}</span>
             </button>
           </div>
         </div>
@@ -387,23 +389,23 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
           {/* Raw Text Box */}
           <div className="lg:col-span-4 flex flex-col space-y-1.5 min-h-[160px]">
             <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="font-semibold text-slate-300">Paste CSV or Excel Table</span>
+              <span className="font-semibold text-slate-300">{tf('Paste CSV or Excel Table', 'Shyiramo Imbonerahamwe ya CSV cyangwa Excel')}</span>
               <button
                 type="button"
                 onClick={() => { setRawText(''); setStagedProducts([]); }}
                 className="text-[11px] text-slate-400 hover:text-rose-400"
               >
-                Clear
+                {tf('Clear', 'Siba')}
               </button>
             </div>
             <textarea
               value={rawText}
               onChange={handleTextChange}
-              placeholder="Paste comma-separated rows: Name, SKU, Category, Unit, Buying Price, Qty, Low Alert, Notes"
+              placeholder={tf('Paste comma-separated rows: Name, SKU, Category, Unit, Buying Price, Qty, Low Alert, Notes', 'Shyiramo imirongo itandukanyijwe n’akitso: Izina, SKU, Icyiciro, Ingero, Igiciro kiranguza, Ingano, Umuburo, Ibisobanuro')}
               className="w-full flex-1 p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 resize-none"
             />
             <p className="text-[10px] text-slate-400">
-              Format: Name, SKU, Category, Unit, BuyingPrice, Quantity, LowStockThreshold, Description
+              {tf('Format: Name, SKU, Category, Unit, BuyingPrice, Quantity, LowStockThreshold, Description', 'Imiterere: Izina, SKU, Icyiciro, Ingero, Igiciro kiranguza, Ingano, Umuburo wo gushira, Ibisobanuro')}
             </p>
           </div>
 
@@ -412,13 +414,13 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             <div className="p-3 bg-slate-800/60 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-bold text-white">Staging Table ({stagedProducts.length} items parsed)</span>
+                <span className="text-xs font-bold text-white">{tf(`Staging Table (${stagedProducts.length} items parsed)`, `Ibigiye Kwinjizwa (ibicuruzwa ${stagedProducts.length})`)}</span>
               </div>
 
               <div className="flex items-center gap-3 text-xs">
-                <span className="text-emerald-400 font-semibold">{validCount} Valid</span>
+                <span className="text-emerald-400 font-semibold">{tf(`${validCount} Valid`, `${validCount} Byemewe`)}</span>
                 {stagedProducts.length - validCount > 0 && (
-                  <span className="text-rose-400 font-semibold">{stagedProducts.length - validCount} Errors</span>
+                  <span className="text-rose-400 font-semibold">{tf(`${stagedProducts.length - validCount} Errors`, `Amakosa ${stagedProducts.length - validCount}`)}</span>
                 )}
               </div>
             </div>
@@ -427,19 +429,19 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               {stagedProducts.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-xs space-y-2">
                   <UploadCloud className="w-8 h-8 mx-auto text-slate-600 animate-bounce" />
-                  <p>No products staged yet. Paste CSV rows or click "Load Kigali Hardware Demo Items".</p>
+                  <p>{tf('No products staged yet. Paste CSV rows or click "Load Kigali Hardware Demo Items".', 'Nta bicuruzwa birashyirwamo. Kora paste ya CSV cyangwa ukande "Shyiramo Ingero 10 za Quincaillerie".')}</p>
                 </div>
               ) : (
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="sticky top-0 bg-[#161B24] text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
                     <tr>
-                      <th className="p-2.5">Item Name</th>
-                      <th className="p-2.5">SKU</th>
-                      <th className="p-2.5">Category</th>
-                      <th className="p-2.5 text-right">Cost (RWF)</th>
-                      <th className="p-2.5 text-right">Selling (RWF)</th>
-                      <th className="p-2.5 text-right">Init Qty</th>
-                      <th className="p-2.5 text-center">Status</th>
+                      <th className="p-2.5">{tf('Item Name', 'Izina')}</th>
+                      <th className="p-2.5">{tf('SKU', 'Kode / SKU')}</th>
+                      <th className="p-2.5">{tf('Category', 'Icyiciro')}</th>
+                      <th className="p-2.5 text-right">{tf('Cost (RWF)', 'Ikiranguzo (RWF)')}</th>
+                      <th className="p-2.5 text-right">{tf('Selling (RWF)', 'Igiciro (RWF)')}</th>
+                      <th className="p-2.5 text-right">{tf('Init Qty', 'Ingano')}</th>
+                      <th className="p-2.5 text-center">{tf('Status', 'Imimerere')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -454,11 +456,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
                         <td className="p-2.5 text-center">
                           {p.isValid ? (
                             <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
-                              Ready
+                              {tf('Ready', 'Biteguye')}
                             </span>
                           ) : (
                             <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[10px] font-bold" title={p.error}>
-                              Error
+                              {tf('Error', 'Ikosa')}
                             </span>
                           )}
                         </td>
@@ -474,11 +476,11 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
               <div className="p-3 bg-[#11151F] border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div className="flex items-center gap-4">
                   <div>
-                    <span className="text-slate-400 text-[11px]">Total Units: </span>
+                    <span className="text-slate-400 text-[11px]">{tf('Total Units: ', 'Ingano Yose: ')}</span>
                     <span className="font-bold text-white font-mono">{totalUnits.toLocaleString()}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 text-[11px]">Stock Value: </span>
+                    <span className="text-slate-400 text-[11px]">{tf('Stock Value: ', 'Agaciro k’Ububiko: ')}</span>
                     <span className="font-bold text-amber-400 font-mono">RWF {totalValue.toLocaleString()}</span>
                   </div>
                 </div>
@@ -494,7 +496,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
           >
-            Cancel
+            {tf('Cancel', 'Hagarika')}
           </button>
 
           <button
@@ -506,7 +508,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
             }`}
           >
             <Boxes className="w-4 h-4" />
-            <span>{importing ? 'Ingesting Bulk Stock...' : `Commit & Import ${validCount} Products`}</span>
+            <span>{importing ? tf('Ingesting Bulk Stock...', 'Kwinjiza Ibicuruzwa...') : tf(`Commit & Import ${validCount} Products`, `Emeza Winjize Ibicuruzwa ${validCount}`)}</span>
           </button>
         </div>
       </div>

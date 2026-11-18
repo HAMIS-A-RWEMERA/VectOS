@@ -18,6 +18,7 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface CustomersViewProps {
   user: User | null;
@@ -28,6 +29,7 @@ interface CustomersViewProps {
 type CustomerSortOption = 'debt' | 'top_spent' | 'most_orders' | 'store_credit' | 'name';
 
 export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null, onLedgerUpdated }) => {
+  const { tf } = useLanguage();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,7 +98,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustomer.name) {
-      setModalError('Customer Name is required.');
+      setModalError(tf('Customer Name is required.', 'Izina ry’umukiriya rirakenewe.'));
       return;
     }
 
@@ -109,7 +111,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
       fetchCustomers();
       onLedgerUpdated?.();
     } catch (err: any) {
-      setModalError(err.message || 'Failed to register customer.');
+      setModalError(err.message || tf('Failed to register customer.', 'Kwandikisha umukiriya byanze.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -130,7 +132,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
     if (!bulkCustomer) return;
     const amt = Number(bulkAmount);
     if (isNaN(amt) || amt <= 0) {
-      setBulkError('Please enter a valid payment amount greater than 0.');
+      setBulkError(tf('Please enter a valid payment amount greater than 0.', 'Nyamuneka shyiramo umubare w’amafaranga urenga 0.'));
       return;
     }
 
@@ -150,7 +152,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
       await fetchCustomers();
       onLedgerUpdated?.();
     } catch (err: any) {
-      setBulkError(err.message || 'Failed to process bulk debt settlement.');
+      setBulkError(err.message || tf('Failed to process bulk debt settlement.', 'Kwishyura ideni icyarimwe byanze.'));
     } finally {
       setBulkSubmitting(false);
     }
@@ -171,7 +173,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
     if (!creditCustomer) return;
     const amt = Number(creditAmount);
     if (isNaN(amt) || amt <= 0) {
-      setCreditError('Please enter a valid amount greater than 0.');
+      setCreditError(tf('Please enter a valid amount greater than 0.', 'Nyamuneka shyiramo umubare urenga 0.'));
       return;
     }
 
@@ -191,7 +193,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
       await fetchCustomers();
       onLedgerUpdated?.();
     } catch (err: any) {
-      setCreditError(err.message || 'Failed to update store credit.');
+      setCreditError(err.message || tf('Failed to update store credit.', 'Kuvugurura amavansi y’umukiriya byanze.'));
     } finally {
       setCreditSubmitting(false);
     }
@@ -233,14 +235,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Customers, Ledgers & Top Buyers
+              {tf('Customers, Ledgers & Top Buyers', 'Abakiriya, Amadeni n’Abaguzi Bakomeye')}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {customers.length} Customers
+              {tf(`${customers.length} Customers`, `Abakiriya ${customers.length}`)}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Print finance-ready account statements, settle multi-receipt debts in one payment, track credit we owe clients, and spot top buyers.
+            {tf('Print finance-ready account statements, settle multi-receipt debts in one payment, track credit we owe clients, and spot top buyers.', 'Sohora inyandiko z’ibyaguzwe, wishyure amadeni menshi icyarimwe, ukurikirane amavansi y’abakiriya kandi umenye abaguzi bakomeye.')}
           </p>
         </div>
 
@@ -254,7 +256,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
           >
             <Plus className="w-4 h-4" />
-            <span>Add New Customer</span>
+            <span>{tf('Add New Customer', 'Ongeramo Umukiriya Mushya')}</span>
           </button>
         )}
       </div>
@@ -275,58 +277,58 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
       {/* Summary KPI + Biggest Clients Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase">Total Debt Owed to Us</span>
+          <span className="text-[11px] font-semibold text-slate-400 uppercase">{tf('Total Debt Owed to Us', 'Ideni Yose Tuberewemo')}</span>
           <p className="text-xl font-black text-rose-400 font-mono mt-1">{formatRwf(totalOutstandingReceivables)}</p>
           <p className="text-[11px] text-slate-400 mt-1">
-            Across {customers.filter((c) => Number(c.credit_balance || 0) > 0).length} account(s)
+            {tf(`Across ${customers.filter((c) => Number(c.credit_balance || 0) > 0).length} account(s)`, `Kuri konti ${customers.filter((c) => Number(c.credit_balance || 0) > 0).length}`)}
           </p>
         </div>
 
         <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase">Store Credit We Owe Clients</span>
+          <span className="text-[11px] font-semibold text-slate-400 uppercase">{tf('Store Credit We Owe Clients', 'Amavansi Tubereyemo Abakiriya')}</span>
           <p className="text-xl font-black text-purple-300 font-mono mt-1">{formatRwf(totalStoreCreditOwed)}</p>
           <p className="text-[11px] text-slate-400 mt-1">
-            Deductible on client's next POS order
+            {tf("Deductible on client's next POS order", 'Yiyakurwaho ku bugure bukurikiraho')}
           </p>
         </div>
 
         <div
           onClick={() => setSortBy('top_spent')}
           className="p-4 rounded-2xl bg-[#121620] border border-amber-500/30 cursor-pointer hover:bg-[#161b28] transition"
-          title="Click to rank customers by highest total spending"
+          title={tf('Click to rank customers by highest total spending', 'Kanda utonde abakiriya ukurikije abaguze byinshi')}
         >
           <span className="text-[11px] font-semibold text-amber-400 uppercase flex items-center gap-1.5">
-            <Trophy className="w-3.5 h-3.5" /> Highest Revenue Client
+            <Trophy className="w-3.5 h-3.5" /> {tf('Highest Revenue Client', 'Umukiriya Waguze Byinshi')}
           </span>
           {topRevenueClient ? (
             <>
               <p className="text-sm font-black text-white mt-1 truncate">{topRevenueClient.name}</p>
               <p className="text-xs font-mono font-bold text-emerald-400 mt-0.5">
-                {formatRwf(Number(topRevenueClient.total_spent || 0))} ({topRevenueClient.order_count || 0} orders)
+                {formatRwf(Number(topRevenueClient.total_spent || 0))} ({tf(`${topRevenueClient.order_count || 0} orders`, `Komande ${topRevenueClient.order_count || 0}`)})
               </p>
             </>
           ) : (
-            <p className="text-xs text-slate-400 mt-2">No orders recorded yet</p>
+            <p className="text-xs text-slate-400 mt-2">{tf('No orders recorded yet', 'Nta komande zirabikwa')}</p>
           )}
         </div>
 
         <div
           onClick={() => setSortBy('most_orders')}
           className="p-4 rounded-2xl bg-[#121620] border border-sky-500/30 cursor-pointer hover:bg-[#161b28] transition"
-          title="Click to rank customers by most frequent orders"
+          title={tf('Click to rank customers by most frequent orders', 'Kanda utonde abakiriya ukurikije abaza kenshi')}
         >
           <span className="text-[11px] font-semibold text-sky-400 uppercase flex items-center gap-1.5">
-            <Repeat className="w-3.5 h-3.5" /> Most Frequent Buyer
+            <Repeat className="w-3.5 h-3.5" /> {tf('Most Frequent Buyer', 'Uwagarutse Kenshi')}
           </span>
           {mostFrequentClient ? (
             <>
               <p className="text-sm font-black text-white mt-1 truncate">{mostFrequentClient.name}</p>
               <p className="text-xs font-mono font-bold text-sky-300 mt-0.5">
-                {mostFrequentClient.order_count || 0} order(s) • {formatRwf(Number(mostFrequentClient.total_spent || 0))}
+                {tf(`${mostFrequentClient.order_count || 0} order(s)`, `Komande ${mostFrequentClient.order_count || 0}`)} • {formatRwf(Number(mostFrequentClient.total_spent || 0))}
               </p>
             </>
           ) : (
-            <p className="text-xs text-slate-400 mt-2">No orders recorded yet</p>
+            <p className="text-xs text-slate-400 mt-2">{tf('No orders recorded yet', 'Nta komande zirabikwa')}</p>
           )}
         </div>
       </div>
@@ -338,7 +340,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search by client name, mobile phone (078...), email, or National ID..."
+              placeholder={tf('Search by client name, mobile phone (078...), email, or National ID...', 'Shakisha izina ry’umukiriya, telefoni (078...), imeyili, cyangwa Indangamuntu...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-9 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
@@ -348,7 +350,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                 type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
-                title="Clear search"
+                title={tf('Clear search', 'Siba ishakisha')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -357,14 +359,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
 
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] text-slate-400 font-semibold flex items-center gap-1 mr-1">
-              <ArrowUpDown className="w-3.5 h-3.5 text-amber-400" /> Rank by:
+              <ArrowUpDown className="w-3.5 h-3.5 text-amber-400" /> {tf('Rank by:', 'Tondeka na:')}
             </span>
             {[
-              { id: 'debt', label: 'Highest Debt' },
-              { id: 'top_spent', label: 'Top Revenue' },
-              { id: 'most_orders', label: 'Most Frequent' },
-              { id: 'store_credit', label: 'We Owe Credit' },
-              { id: 'name', label: 'Name A–Z' },
+              { id: 'debt', label: tf('Highest Debt', 'Ideni Rinini') },
+              { id: 'top_spent', label: tf('Top Revenue', 'Abaguze Byinshi') },
+              { id: 'most_orders', label: tf('Most Frequent', 'Abaza Kenshi') },
+              { id: 'store_credit', label: tf('We Owe Credit', 'Amavansi Tubereyemo') },
+              { id: 'name', label: tf('Name A–Z', 'Izina A–Z') },
             ].map((opt) => (
               <button
                 key={opt.id}
@@ -386,7 +388,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
       {/* Customers Table (Desktop) & Card List (Mobile) */}
       <div className="rounded-2xl bg-[#121620] border border-slate-800 overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-xs text-slate-400">Loading customer accounts...</div>
+          <div className="p-10 text-center text-xs text-slate-400">{tf('Loading customer accounts...', 'Gutegura konti z’abakiriya...')}</div>
         ) : (
           <>
             {/* Desktop Table */}
@@ -394,12 +396,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               <table className="w-full text-left text-xs">
                 <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
                   <tr>
-                    <th className="py-3 px-4 font-semibold">Customer / Contractor</th>
-                    <th className="py-3 px-4 font-semibold">Phone & ID</th>
-                    <th className="py-3 px-4 font-semibold text-right">Orders & Revenue</th>
-                    <th className="py-3 px-4 font-semibold text-right">Debt Owed to Us</th>
-                    <th className="py-3 px-4 font-semibold text-right">We Owe Client</th>
-                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                    <th className="py-3 px-4 font-semibold">{tf('Customer / Contractor', 'Umukiriya / Rwiyemezamirimo')}</th>
+                    <th className="py-3 px-4 font-semibold">{tf('Phone & ID', 'Telefoni & Indangamuntu')}</th>
+                    <th className="py-3 px-4 font-semibold text-right">{tf('Orders & Revenue', 'Komande & Ibyaguzwe')}</th>
+                    <th className="py-3 px-4 font-semibold text-right">{tf('Debt Owed to Us', 'Ideni Atubereyemo')}</th>
+                    <th className="py-3 px-4 font-semibold text-right">{tf('We Owe Client', 'Amavansi Tumubereyemo')}</th>
+                    <th className="py-3 px-4 font-semibold text-right">{tf('Actions', 'Ibikorwa')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -414,12 +416,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                             <p className="font-bold text-white text-sm">{c.name}</p>
                             {isTopSpender && (
                               <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/30">
-                                Top Spender
+                                {tf('Top Spender', 'Umuguzi Mukuru')}
                               </span>
                             )}
                             {isMostFreq && (
                               <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 text-[10px] font-bold border border-sky-500/30">
-                                Most Frequent
+                                {tf('Most Frequent', 'Uza Kenshi')}
                               </span>
                             )}
                           </div>
@@ -430,12 +432,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
 
                         <td className="py-3 px-4">
                           <p className="font-mono text-amber-400">{c.phone || '—'}</p>
-                          {c.id_number && <p className="text-[10px] font-mono text-slate-400">ID: {c.id_number}</p>}
+                          {c.id_number && <p className="text-[10px] font-mono text-slate-400">{tf('ID:', 'Indangamuntu:')} {c.id_number}</p>}
                         </td>
 
                         <td className="py-3 px-4 text-right">
                           <p className="font-mono font-bold text-white">{formatRwf(Number(c.total_spent || 0))}</p>
-                          <p className="text-[10px] font-mono text-slate-400">{c.order_count || 0} order(s)</p>
+                          <p className="text-[10px] font-mono text-slate-400">{tf(`${c.order_count || 0} order(s)`, `Komande ${c.order_count || 0}`)}</p>
                         </td>
 
                         <td className="py-3 px-4 text-right">
@@ -466,10 +468,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                               type="button"
                               onClick={() => setStatementCustomer(c)}
                               className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-bold flex items-center gap-1 transition"
-                              title="View & print transaction statement for client finance department"
+                              title={tf('View & print transaction statement for client finance department', 'Reba kandi usohore inyandiko y’ibyaguzwe y’umukiriya')}
                             >
                               <FileText className="w-3.5 h-3.5 text-amber-400" />
-                              <span>Statement</span>
+                              <span>{tf('Statement', 'Inyandiko')}</span>
                             </button>
 
                             {canProcessPayments && Number(c.credit_balance || 0) > 0 && (
@@ -477,10 +479,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                                 type="button"
                                 onClick={() => openBulkSettleModal(c)}
                                 className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition"
-                                title="Pay one lump sum to settle multiple unpaid receipts"
+                                title={tf('Pay one lump sum to settle multiple unpaid receipts', 'Ishyura amafaranga hamwe kugira ngo uhure inyemezabuguzi nyinshi zitarishyurwa')}
                               >
                                 <CreditCard className="w-3.5 h-3.5" />
-                                <span>Settle Debt</span>
+                                <span>{tf('Settle Debt', 'Ishyura Ideni')}</span>
                               </button>
                             )}
 
@@ -489,10 +491,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                                 type="button"
                                 onClick={() => openStoreCreditModal(c)}
                                 className="px-2.5 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[11px] font-bold flex items-center gap-1 transition"
-                                title="Record or refund money owed to this client"
+                                title={tf('Record or refund money owed to this client', 'Andika cyangwa usubize amafaranga tubereyemo uyu mukiriya')}
                               >
                                 <Wallet className="w-3.5 h-3.5" />
-                                <span>Credit</span>
+                                <span>{tf('Credit', 'Avansi')}</span>
                               </button>
                             )}
                           </div>
@@ -513,23 +515,23 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-bold text-white text-sm">{c.name}</p>
-                        <p className="text-[11px] font-mono text-amber-400">{c.phone || 'No phone'}</p>
+                        <p className="text-[11px] font-mono text-amber-400">{c.phone || tf('No phone', 'Nta telefoni')}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs font-mono font-bold text-white">{formatRwf(Number(c.total_spent || 0))}</p>
-                        <p className="text-[10px] text-slate-400">{c.order_count || 0} order(s)</p>
+                        <p className="text-[10px] text-slate-400">{tf(`${c.order_count || 0} order(s)`, `Komande ${c.order_count || 0}`)}</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                        <span className="text-[10px] text-slate-400 block">Debt Owed to Us</span>
+                        <span className="text-[10px] text-slate-400 block">{tf('Debt Owed to Us', 'Ideni Atubereyemo')}</span>
                         <span className={`font-mono font-bold ${Number(c.credit_balance || 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                           {formatRwf(Number(c.credit_balance || 0))}
                         </span>
                       </div>
                       <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                        <span className="text-[10px] text-slate-400 block">We Owe Client</span>
+                        <span className="text-[10px] text-slate-400 block">{tf('We Owe Client', 'Amavansi Tumubereyemo')}</span>
                         <span className={`font-mono font-bold ${storeCredit > 0 ? 'text-purple-300' : 'text-slate-500'}`}>
                           {formatRwf(storeCredit)}
                         </span>
@@ -542,7 +544,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                         onClick={() => setStatementCustomer(c)}
                         className="flex-1 py-2 px-3 rounded-xl bg-slate-800 text-slate-100 border border-slate-700 text-xs font-bold flex items-center justify-center gap-1.5"
                       >
-                        <FileText className="w-3.5 h-3.5 text-amber-400" /> Statement / Print
+                        <FileText className="w-3.5 h-3.5 text-amber-400" /> {tf('Statement / Print', 'Inyandiko / Sohora')}
                       </button>
 
                       {canProcessPayments && Number(c.credit_balance || 0) > 0 && (
@@ -551,7 +553,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                           onClick={() => openBulkSettleModal(c)}
                           className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center justify-center gap-1.5"
                         >
-                          <CreditCard className="w-3.5 h-3.5" /> Settle Debt
+                          <CreditCard className="w-3.5 h-3.5" /> {tf('Settle Debt', 'Ishyura Ideni')}
                         </button>
                       )}
 
@@ -561,7 +563,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                           onClick={() => openStoreCreditModal(c)}
                           className="py-2 px-3 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 text-xs font-bold flex items-center justify-center gap-1.5"
                         >
-                          <Wallet className="w-3.5 h-3.5" /> Credit
+                          <Wallet className="w-3.5 h-3.5" /> {tf('Credit', 'Avansi')}
                         </button>
                       )}
                     </div>
@@ -573,7 +575,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
             {filteredCustomers.length === 0 && (
               <div className="py-12 text-center text-slate-400 text-xs">
                 <Users className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                <p className="font-semibold text-slate-300">No matching customers found</p>
+                <p className="font-semibold text-slate-300">{tf('No matching customers found', 'Nta mukiriya uhuye n’ibyo ushakisha wabonetse')}</p>
               </div>
             )}
           </>
@@ -585,17 +587,17 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Register New Customer / Contractor</h3>
+              <h3 className="text-base font-bold text-white">{tf('Register New Customer / Contractor', 'Andika Umukiriya / Rwiyemezamirimo Mushya')}</h3>
               <button type="button" onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleCreateCustomer} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Full Name or Contractor Company *</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Full Name or Contractor Company *', 'Amazina yose cyangwa Sosiyete *')}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Mugisha Construction Ltd"
+                  placeholder={tf('e.g. Mugisha Construction Ltd', 'urugero: Mugisha Construction Ltd')}
                   value={newCustomer.name}
                   onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -603,7 +605,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Phone Number (MTN / Airtel)</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Phone Number (MTN / Airtel)', 'Telefoni (MTN / Airtel)')}</label>
                 <input
                   type="text"
                   placeholder="0788 123 456"
@@ -614,7 +616,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Email Address (Optional)</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Email Address (Optional)', 'Imeyili (Si ngombwa)')}</label>
                 <input
                   type="email"
                   placeholder="contractor@build.rw"
@@ -625,10 +627,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Site Location / Address</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Site Location / Address', 'Aho aherereye / Aderesi')}</label>
                 <input
                   type="text"
-                  placeholder="e.g. Kicukiro, Sonatubes"
+                  placeholder={tf('e.g. Kicukiro, Sonatubes', 'urugero: Kicukiro, Sonatubes')}
                   value={newCustomer.address}
                   onChange={(e) => setNewCustomer({ ...newCustomer, address: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -636,7 +638,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">National ID / TIN Number</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('National ID / TIN Number', 'Indangamuntu / TIN')}</label>
                 <input
                   type="text"
                   placeholder="1199... or 100..."
@@ -654,14 +656,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                   onClick={() => setIsAddModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
-                  {isSubmitting ? 'Registering...' : 'Register Customer'}
+                  {isSubmitting ? tf('Registering...', 'Kwandikisha...') : tf('Register Customer', 'Andika Umukiriya')}
                 </button>
               </div>
             </form>
@@ -675,9 +677,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 my-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-bold text-white">Bulk Debt Settlement</h3>
+                <h3 className="text-base font-bold text-white">{tf('Bulk Debt Settlement', 'Kwishyura Amadeni Icyarimwe')}</h3>
                 <p className="text-[11px] text-slate-400">
-                  Settle oldest unpaid receipts automatically for {bulkCustomer.name}
+                  {tf(`Settle oldest unpaid receipts automatically for ${bulkCustomer.name}`, `Kwishyura inyemezabuguzi za kera zitarishyurwa za ${bulkCustomer.name}`)}
                 </p>
               </div>
               <button type="button" onClick={() => setBulkCustomer(null)} className="text-slate-400 hover:text-white">✕</button>
@@ -685,7 +687,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
 
             <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
               <div>
-                <span className="text-[10px] uppercase font-semibold text-slate-400">Combined Unpaid Debt</span>
+                <span className="text-[10px] uppercase font-semibold text-slate-400">{tf('Combined Unpaid Debt', 'Ideni Yose Irihamye')}</span>
                 <p className="text-lg font-black text-rose-400 font-mono">{formatRwf(bulkCurrentDebt)}</p>
               </div>
               <button
@@ -693,13 +695,13 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                 onClick={() => setBulkAmount(String(Math.round(bulkCurrentDebt)))}
                 className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-bold hover:bg-amber-500/30"
               >
-                Pay Full Debt
+                {tf('Pay Full Debt', 'Ishyura Yose')}
               </button>
             </div>
 
             <form onSubmit={handleBulkSettleSubmit} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Amount Paid Now (RWF) *</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Amount Paid Now (RWF) *', 'Amafaranga Yishyuwe Ubu (RWF) *')}</label>
                 <input
                   type="number"
                   min="1"
@@ -714,20 +716,20 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               {numericBulkAmt > 0 && (
                 <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 text-xs space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Applied to Unpaid Orders:</span>
+                    <span className="text-slate-400">{tf('Applied to Unpaid Orders:', 'Ayakoreshejwe ku Madeni:')}</span>
                     <span className="font-mono font-bold text-emerald-400">
                       {formatRwf(Math.min(numericBulkAmt, bulkCurrentDebt))}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">New Remaining Debt:</span>
+                    <span className="text-slate-400">{tf('New Remaining Debt:', 'Ideni Rishya Risigaye:')}</span>
                     <span className={`font-mono font-bold ${previewRemainingDebt > 0 ? 'text-amber-300' : 'text-emerald-400'}`}>
                       {formatRwf(previewRemainingDebt)}
                     </span>
                   </div>
                   {previewExcessCredit > 0 && (
                     <div className="flex justify-between text-purple-300 pt-1 border-t border-slate-800">
-                      <span>Excess Added to Store Credit:</span>
+                      <span>{tf('Excess Added to Store Credit:', 'Ayasagutse Abaye Avansi y’Umukiriya:')}</span>
                       <span className="font-mono font-bold">{formatRwf(previewExcessCredit)}</span>
                     </div>
                   )}
@@ -736,20 +738,20 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Payment Method</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Payment Method', 'Uburyo bwo Kwishyura')}</label>
                   <select
                     value={bulkMethod}
                     onChange={(e) => setBulkMethod(e.target.value as any)}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
-                    <option value="cash">Cash (RWF)</option>
+                    <option value="cash">{tf('Cash (RWF)', 'Kashi (RWF)')}</option>
                     <option value="momo">MTN MoMo</option>
-                    <option value="bank_transfer">Bank Transfer / Cheque</option>
+                    <option value="bank_transfer">{tf('Bank Transfer / Cheque', 'Banki / Sheki')}</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Receipt / Slip Ref</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Receipt / Slip Ref', 'Nomero ya Inyemezabwishyu')}</label>
                   <input
                     type="text"
                     placeholder="e.g. MOMO-9812"
@@ -761,10 +763,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Notes (Optional)</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Notes (Optional)', 'Ibisobanuro (Si ngombwa)')}</label>
                 <input
                   type="text"
-                  placeholder="e.g. Partial settlement for last 2 weeks invoices"
+                  placeholder={tf('e.g. Partial settlement for last 2 weeks invoices', 'urugero: Igice cy’ishyura rya fakitire z’ibyumweru 2')}
                   value={bulkNotes}
                   onChange={(e) => setBulkNotes(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -779,7 +781,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                     onChange={(e) => setExcessToCredit(e.target.checked)}
                     className="rounded accent-purple-500"
                   />
-                  <span>Keep excess ({formatRwf(previewExcessCredit)}) as Store Credit we owe client</span>
+                  <span>{tf(`Keep excess (${formatRwf(previewExcessCredit)}) as Store Credit we owe client`, `Bika ayasagutse (${formatRwf(previewExcessCredit)}) nk’avansi tubereyemo umukiriya`)}</span>
                 </label>
               )}
 
@@ -796,14 +798,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                   onClick={() => setBulkCustomer(null)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={bulkSubmitting}
                   className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md shadow-emerald-500/20"
                 >
-                  {bulkSubmitting ? 'Settling...' : 'Confirm Bulk Payment'}
+                  {bulkSubmitting ? tf('Settling...', 'Kwishyura...') : tf('Confirm Bulk Payment', 'Emeza Kwishyura')}
                 </button>
               </div>
             </form>
@@ -817,14 +819,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 my-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-bold text-white">Store Credit (Money We Owe Client)</h3>
+                <h3 className="text-base font-bold text-white">{tf('Store Credit (Money We Owe Client)', 'Avansi y’Umukiriya (Amafaranga Tumubereyemo)')}</h3>
                 <p className="text-[11px] text-slate-400">{creditCustomer.name}</p>
               </div>
               <button type="button" onClick={() => setCreditCustomer(null)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
             <div className="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/30 flex items-center justify-between">
-              <span className="text-xs font-semibold text-purple-200">Current Store Credit Owed:</span>
+              <span className="text-xs font-semibold text-purple-200">{tf('Current Store Credit Owed:', 'Avansi Tumubereyemo Ubu:')}</span>
               <span className="text-lg font-black text-purple-300 font-mono">
                 {formatRwf(Number(creditCustomer.store_credit || 0))}
               </span>
@@ -840,7 +842,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                     : 'bg-slate-900 border-slate-800 text-slate-400'
                 }`}
               >
-                + Record Credit We Owe
+                {tf('+ Record Credit We Owe', '+ Andika Avansi Tumubereyemo')}
               </button>
               <button
                 type="button"
@@ -851,13 +853,13 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                     : 'bg-slate-900 border-slate-800 text-slate-400'
                 }`}
               >
-                − Refund / Pay Cash Back
+                {tf('− Refund / Pay Cash Back', '− Subiza Amafaranga Kashi')}
               </button>
             </div>
 
             <form onSubmit={handleStoreCreditSubmit} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Amount (RWF) *</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Amount (RWF) *', 'Amafaranga (RWF) *')}</label>
                 <input
                   type="number"
                   min="1"
@@ -871,22 +873,22 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Method</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Method', 'Uburyo')}</label>
                   <select
                     value={creditMethod}
                     onChange={(e) => setCreditMethod(e.target.value as any)}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
                   >
-                    <option value="cash">Cash (RWF)</option>
+                    <option value="cash">{tf('Cash (RWF)', 'Kashi (RWF)')}</option>
                     <option value="momo">MTN MoMo</option>
-                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="bank_transfer">{tf('Bank Transfer', 'Banki')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Reference (Optional)</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Reference (Optional)', 'Ref / Nomero (Si ngombwa)')}</label>
                   <input
                     type="text"
-                    placeholder="e.g. Advance / Return"
+                    placeholder={tf('e.g. Advance / Return', 'urugero: Avansi / Ibyasubijwe')}
                     value={creditRef}
                     onChange={(e) => setCreditRef(e.target.value)}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
@@ -895,10 +897,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Reason / Notes</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Reason / Notes', 'Impamvu / Ibisobanuro')}</label>
                 <input
                   type="text"
-                  placeholder={creditAction === 'add' ? 'e.g. Advance deposit or returned materials' : 'e.g. Paid cash refund to client'}
+                  placeholder={creditAction === 'add' ? tf('e.g. Advance deposit or returned materials', 'urugero: Avansi cyangwa ibikoresho byasubijwe') : tf('e.g. Paid cash refund to client', 'urugero: Yasubijwe amafaranga kashi')}
                   value={creditNotes}
                   onChange={(e) => setCreditNotes(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
@@ -918,14 +920,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                   onClick={() => setCreditCustomer(null)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={creditSubmitting}
                   className="px-4 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-bold text-xs shadow-md"
                 >
-                  {creditSubmitting ? 'Saving...' : creditAction === 'add' ? 'Record Store Credit' : 'Confirm Cash Payout'}
+                  {creditSubmitting ? tf('Saving...', 'Kubika...') : creditAction === 'add' ? tf('Record Store Credit', 'Bika Avansi') : tf('Confirm Cash Payout', 'Emeza Gusubiza Kashi')}
                 </button>
               </div>
             </form>

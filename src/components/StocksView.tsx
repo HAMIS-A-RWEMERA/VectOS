@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StockLocation, StockTransfer, Product, User } from '../types';
 import { api } from '../services/api';
 import { hasPermission, isFullAccessRole } from '../utils/permissions';
+import { useLanguage } from '../i18n/LanguageContext';
 import { 
   Boxes, 
   Plus, 
@@ -22,6 +23,7 @@ interface StocksViewProps {
 }
 
 export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
+  const { tf } = useLanguage();
   const [stocks, setStocks] = useState<StockLocation[]>([]);
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -90,12 +92,12 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
   const handleCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (fromStockId === toStockId) {
-      setModalError('Origin and Destination warehouse locations must be different.');
+      setModalError(tf('Origin and Destination warehouse locations must be different.', 'Ububiko bubyohereza n’ububyakira bigomba kuba bitandukanye.'));
       return;
     }
     const qtyNum = Number(transferQty) || 0;
     if (qtyNum <= 0) {
-      setModalError('Transfer quantity must be greater than zero.');
+      setModalError(tf('Transfer quantity must be greater than zero.', 'Umubare w’ibyoherezwa ugomba kuba urenze zero.'));
       return;
     }
 
@@ -112,7 +114,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
       setIsTransferModalOpen(false);
       loadData();
     } catch (err: any) {
-      setModalError(err.message || 'Transfer failed. Check warehouse inventory.');
+      setModalError(err.message || tf('Transfer failed. Check warehouse inventory.', 'Kohereza byanze. Reba ibiri mu bubiko.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -121,7 +123,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
   const handleCreateWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStockData.name || !newStockData.code) {
-      setModalError('Warehouse Name and Code are required.');
+      setModalError(tf('Warehouse Name and Code are required.', 'Izina ry’ububiko na Kode birakenewe.'));
       return;
     }
 
@@ -131,7 +133,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
       setIsAddStockModalOpen(false);
       loadData();
     } catch (err: any) {
-      setModalError(err.message || 'Failed to create warehouse.');
+      setModalError(err.message || tf('Failed to create warehouse.', 'Kwandika ububiko byanze.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -146,14 +148,14 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Stores & Warehouses
+              {tf('Stores & Warehouses', 'Amaduka n’Ububiko')}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
-              {stocks.length} Locations Active
+              {stocks.length} {tf('Locations Active', 'Ahakorera')}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Manage store locations and move items between your shops or warehouses.
+            {tf('Manage store locations and move items between your shops or warehouses.', 'Genzura ahantu ububiko buherereye kandi wimure ibicuruzwa hagati y’amaduka.')}
           </p>
         </div>
 
@@ -167,7 +169,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
             >
               <ArrowRightLeft className="w-4 h-4" />
-              <span>Move Stock</span>
+              <span>{tf('Move Stock', 'Imura Ibicuruzwa')}</span>
             </button>
           )}
           {canAddWarehouse && (
@@ -179,7 +181,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 transition"
             >
               <Plus className="w-4 h-4 text-amber-400" />
-              <span>Add Store / Warehouse</span>
+              <span>{tf('Add Store / Warehouse', 'Ongeraho Iduka / Ububiko')}</span>
             </button>
           )}
         </div>
@@ -202,18 +204,18 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                 <div>
                   <h3 className="text-sm font-bold text-white">{stock.name}</h3>
                   <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                    CODE: {stock.code}
+                    {tf('CODE:', 'KODE:')} {stock.code}
                   </span>
                 </div>
               </div>
 
               {stock.is_main ? (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Main Store
+                  {tf('Main Store', 'Ububiko Bukuru')}
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">
-                  Branch
+                  {tf('Branch', 'Ishami')}
                 </span>
               )}
             </div>
@@ -225,14 +227,14 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
               <div className="flex items-center gap-2">
                 <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                <span>In Charge: <strong className="text-slate-200">{stock.manager_name || 'Assigned Storekeeper'}</strong></span>
+                <span>{tf('In Charge:', 'Ubushinzwe:')} <strong className="text-slate-200">{stock.manager_name || tf('Assigned Storekeeper', 'Umubitsi Wabishinzwe')}</strong></span>
               </div>
             </div>
 
             <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800/80 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Status</span>
+              <span className="text-slate-400">{tf('Status', 'Imiterere')}</span>
               <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Active
+                <CheckCircle2 className="w-3.5 h-3.5" /> {tf('Active', 'Burakora')}
               </span>
             </div>
           </div>
@@ -244,22 +246,22 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <History className="w-4 h-4 text-amber-400" />
-            <h2 className="text-base font-bold text-white">Stock Movement History</h2>
+            <h2 className="text-base font-bold text-white">{tf('Stock Movement History', 'Amateka y’Iyimurwa ry’Ububiko')}</h2>
           </div>
-          <span className="text-xs text-slate-400">{transfers.length} movements</span>
+          <span className="text-xs text-slate-400">{transfers.length} {tf('movements', 'ibyimuwe')}</span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
               <tr>
-                <th className="py-2.5 px-4 font-semibold">Date & Time</th>
-                <th className="py-2.5 px-4 font-semibold">Product</th>
-                <th className="py-2.5 px-4 font-semibold">Quantity</th>
-                <th className="py-2.5 px-4 font-semibold">From Store</th>
-                <th className="py-2.5 px-4 font-semibold">To Store</th>
-                <th className="py-2.5 px-4 font-semibold">Moved By</th>
-                <th className="py-2.5 px-4 font-semibold">Notes</th>
+                <th className="py-2.5 px-4 font-semibold">{tf('Date & Time', 'Itariki & Isaha')}</th>
+                <th className="py-2.5 px-4 font-semibold">{tf('Product', 'Igicuruzwa')}</th>
+                <th className="py-2.5 px-4 font-semibold">{tf('Quantity', 'Ingano')}</th>
+                <th className="py-2.5 px-4 font-semibold">{tf('From Store', 'Bivuye')}</th>
+                <th className="py-2.5 px-4 font-semibold">{tf('To Store', 'Bijya')}</th>
+                <th className="py-2.5 px-4 font-semibold">{tf('Moved By', 'Uwabyimuye')}</th>
+                <th className="py-2.5 px-4 font-semibold">{tf('Notes', 'Inyandiko')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -269,22 +271,22 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                     {new Date(t.created_at).toLocaleString()}
                   </td>
                   <td className="py-3 px-4 font-bold text-slate-200">
-                    {t.product_name || `Product #${t.product_id}`}
+                    {t.product_name || `${tf('Product', 'Igicuruzwa')} #${t.product_id}`}
                   </td>
                   <td className="py-3 px-4 font-mono font-bold text-amber-400">
-                    {t.quantity} units
+                    {t.quantity} {tf('units', 'uduce')}
                   </td>
                   <td className="py-3 px-4 text-slate-300">
-                    {t.from_stock_name || `Stock #${t.from_stock_id}`}
+                    {t.from_stock_name || `${tf('Stock', 'Ububiko')} #${t.from_stock_id}`}
                   </td>
                   <td className="py-3 px-4 text-slate-300">
-                    {t.to_stock_name || `Stock #${t.to_stock_id}`}
+                    {t.to_stock_name || `${tf('Stock', 'Ububiko')} #${t.to_stock_id}`}
                   </td>
                   <td className="py-3 px-4 text-slate-400">
-                    {t.transferred_by_name || 'System Operator'}
+                    {t.transferred_by_name || tf('System Operator', 'Umukozi')}
                   </td>
                   <td className="py-3 px-4 text-slate-400 italic">
-                    {t.notes || 'Routine branch balancing'}
+                    {t.notes || tf('Routine branch balancing', 'Kuringaniza amashami')}
                   </td>
                 </tr>
               ))}
@@ -292,7 +294,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               {transfers.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-400">
-                    No warehouse transfers recorded yet.
+                    {tf('No warehouse transfers recorded yet.', 'Nta yimurwa ry’ibicuruzwa rirabaho.')}
                   </td>
                 </tr>
               )}
@@ -306,34 +308,34 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Move Stock Between Stores</h3>
+              <h3 className="text-base font-bold text-white">{tf('Move Stock Between Stores', 'Imura Ibicuruzwa Hagati y’Amaduka')}</h3>
               <button onClick={() => setIsTransferModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleCreateTransfer} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Select Product to Move</label>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">{tf('Select Product to Move', 'Hitamo Igicuruzwa cyo Kwimura')}</label>
                 <SearchableSelect
                   value={selectedProductId || null}
                   onChange={(val) => setSelectedProductId(val ? Number(val) : 0)}
                   options={products.map((p) => ({
                     value: p.id,
                     label: p.name,
-                    sublabel: `Code: ${p.sku} • ${p.stock_name || 'Main Store'}`,
+                    sublabel: `${tf('Code:', 'Kode:')} ${p.sku} • ${p.stock_name || tf('Main Store', 'Ububiko Bukuru')}`,
                     badge: formatPackStock(p.quantity, p.units_per_pack, p.unit, p.pack_unit).short,
                     badgeTone: p.quantity > 0 ? 'emerald' : 'rose',
                     searchText: `${p.name} ${p.sku} ${p.barcode || ''} ${p.category || ''} ${p.stock_name || ''}`,
                   }))}
-                  placeholder="Search and select a product..."
-                  searchPlaceholder="Type any part of product name, code, or barcode..."
-                  noResultsText="No matching products found"
-                  ariaLabel="Select Product to Move"
+                  placeholder={tf('Search and select a product...', 'Shakisha uhitemo igicuruzwa...')}
+                  searchPlaceholder={tf('Type any part of product name, code, or barcode...', 'Andika izina, kode, cyangwa barcode...')}
+                  noResultsText={tf('No matching products found', 'Nta gicuruzwa cyabonetse')}
+                  ariaLabel={tf('Select Product to Move', 'Hitamo Igicuruzwa cyo Kwimura')}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">From Store</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('From Store', 'Bivuye mu Bubiko')}</label>
                   <select
                     value={fromStockId}
                     onChange={(e) => setFromStockId(Number(e.target.value))}
@@ -346,7 +348,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">To Store</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('To Store', 'Bijya mu Bubiko')}</label>
                   <select
                     value={toStockId}
                     onChange={(e) => setToStockId(Number(e.target.value))}
@@ -360,7 +362,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Quantity to Move</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Quantity to Move', 'Ingano Yimurwa')}</label>
                 <input
                   type="number"
                   required
@@ -371,10 +373,10 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Reason / Notes (Optional)</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Reason / Notes (Optional)', 'Impamvu / Inyandiko (Si ngombwa)')}</label>
                 <input
                   type="text"
-                  placeholder="e.g. Restocking branch shelf"
+                  placeholder={tf('e.g. Restocking branch shelf', 'urugero: Kongera ibicuruzwa ku ishami')}
                   value={transferNotes}
                   onChange={(e) => setTransferNotes(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -394,14 +396,14 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                   onClick={() => setIsTransferModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
-                  {isSubmitting ? 'Moving...' : 'Confirm Move'}
+                  {isSubmitting ? tf('Moving...', 'Birimurwa...') : tf('Confirm Move', 'Emeza Kwimura')}
                 </button>
               </div>
             </form>
@@ -414,17 +416,17 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Add Store / Warehouse</h3>
+              <h3 className="text-base font-bold text-white">{tf('Add Store / Warehouse', 'Ongeraho Iduka / Ububiko')}</h3>
               <button onClick={() => setIsAddStockModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleCreateWarehouse} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Warehouse Name *</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Warehouse Name *', 'Izina ry’Ububiko *')}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Nyabugogo Hardware Depot"
+                  placeholder={tf('e.g. Nyabugogo Hardware Depot', 'urugero: Ububiko bwa Nyabugogo')}
                   value={newStockData.name}
                   onChange={(e) => setNewStockData({ ...newStockData, name: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -432,11 +434,11 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Location Code *</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Location Code *', 'Kode y’Ububiko *')}</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. WH-NYAB"
+                  placeholder={tf('e.g. WH-NYAB', 'urugero: WH-NYAB')}
                   value={newStockData.code}
                   onChange={(e) => setNewStockData({ ...newStockData, code: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
@@ -444,7 +446,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Physical Address</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Physical Address', 'Aho Biherereye')}</label>
                 <input
                   type="text"
                   value={newStockData.location}
@@ -454,10 +456,10 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Assigned Storekeeper / Manager</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Assigned Storekeeper / Manager', 'Umubitsi / Umuyobozi Ubushinzwe')}</label>
                 <input
                   type="text"
-                  placeholder="e.g. Jean Damascene"
+                  placeholder={tf('e.g. Jean Damascene', 'urugero: Jean Damascene')}
                   value={newStockData.manager_name}
                   onChange={(e) => setNewStockData({ ...newStockData, manager_name: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -472,14 +474,14 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                   onClick={() => setIsAddStockModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
-                  {isSubmitting ? 'Saving...' : 'Register Warehouse'}
+                  {isSubmitting ? tf('Saving...', 'Birabikwa...') : tf('Register Warehouse', 'Andika Ububiko')}
                 </button>
               </div>
             </form>

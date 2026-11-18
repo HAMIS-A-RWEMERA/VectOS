@@ -19,6 +19,7 @@ import {
   MessageCircle,
   X
 } from 'lucide-react';
+import { LanguageSwitcher, useLanguage } from '../i18n/LanguageContext';
 
 interface SidebarProps {
   activeTab: string;
@@ -39,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   onOpenMobile
 }) => {
+  const { t, tf } = useLanguage();
   const isSuperAdmin = user?.role === 'superadmin' || user?.email === 'rwemera30@gmail.com';
   const canCreateOrders = hasPermission(user, 'can_create_orders');
   const canProcessPayments = hasPermission(user, 'can_process_payments');
@@ -56,24 +58,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canSeeOrders = canCreateOrders || canProcessPayments || canReleaseStock || canVoidOrders || canViewReports;
 
   const navItems = [
-    { id: 'dashboard', label: 'Home', icon: LayoutDashboard, visible: true },
-    { id: 'pos', label: 'Make a Sale (POS)', icon: ShoppingBag, visible: canCreateOrders, highlight: true },
+    { id: 'dashboard', label: t('nav.home'), icon: LayoutDashboard, visible: true },
+    { id: 'pos', label: t('nav.makeSalePos'), icon: ShoppingBag, visible: canCreateOrders, highlight: true },
     { 
       id: 'products', 
-      label: 'Products & Stock', 
+      label: t('nav.productsStock'), 
       icon: Package, 
       visible: canSeeProducts,
       badge: lowStockCount > 0 ? `${lowStockCount}` : undefined,
       badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
     },
-    { id: 'stocks', label: 'Stores & Warehouses', icon: Boxes, visible: canManageStock || canReleaseStock || canCreateOrders },
-    { id: 'orders', label: 'Orders & Receipts', icon: FileText, visible: canSeeOrders },
-    { id: 'customers', label: 'Customers & Debt', icon: Users, visible: canManageCustomers || canCreateOrders || canProcessPayments },
-    { id: 'partners', label: 'Partner Shops', icon: Handshake, visible: canManagePartners },
-    { id: 'reports', label: 'Sales & Profit Reports', icon: BarChart3, visible: canViewReports },
-    { id: 'shop_settings', label: 'Business Info & TIN', icon: Building, visible: canEditCompanySettings },
-    { id: 'users', label: 'Staff & Duties', icon: Settings, visible: canManageUsers },
-    { id: 'superadmin', label: 'Platform Approvals', icon: Crown, visible: isSuperAdmin, highlight: true },
+    { id: 'stocks', label: t('nav.storesWarehouses'), icon: Boxes, visible: canManageStock || canReleaseStock || canCreateOrders },
+    { id: 'orders', label: t('nav.ordersReceipts'), icon: FileText, visible: canSeeOrders },
+    { id: 'customers', label: t('nav.customersDebt'), icon: Users, visible: canManageCustomers || canCreateOrders || canProcessPayments },
+    { id: 'partners', label: t('nav.partnerShops'), icon: Handshake, visible: canManagePartners },
+    { id: 'reports', label: t('nav.salesProfitReports'), icon: BarChart3, visible: canViewReports },
+    { id: 'shop_settings', label: t('nav.businessInfoTin'), icon: Building, visible: canEditCompanySettings },
+    { id: 'users', label: t('nav.staffDuties'), icon: Settings, visible: canManageUsers },
+    { id: 'superadmin', label: t('nav.platformApprovals'), icon: Crown, visible: isSuperAdmin, highlight: true },
   ];
 
   return (
@@ -83,12 +85,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Role Context Chip */}
         <div className="p-4 border-b border-slate-800/60">
           <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800">
-            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Signed In As</p>
-            <p className="text-sm font-bold text-slate-100 truncate mt-0.5">{user?.name || 'Shop Staff'}</p>
+            <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">{t('nav.signedInAs')}</p>
+            <p className="text-sm font-bold text-slate-100 truncate mt-0.5">{user?.name || tf('Shop Staff', 'Umukozi w’Iduka')}</p>
             <div className="flex items-center gap-1.5 mt-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs font-semibold text-amber-400 capitalize">
-                {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
+                {isSuperAdmin ? t('header.platformOwner') : (user?.job_title || user?.role)}
               </span>
             </div>
           </div>
@@ -131,16 +133,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="p-3 mx-3 mb-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-xs">
             <div className="flex items-center gap-2 text-amber-400 font-bold">
               <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Low Stock Warning</span>
+              <span>{tf('Low Stock Warning', 'Ibicuruzwa Bigiye Gushira')}</span>
             </div>
             <p className="text-[11px] text-amber-200/80 mt-1">
-              {lowStockCount} item(s) running low in the store.
+              {tf(`${lowStockCount} item(s) running low in the store.`, `Ibicuruzwa ${lowStockCount} birabura gushira mu bubiko.`)}
             </p>
             <button
               onClick={() => setActiveTab('products')}
               className="mt-2 text-[11px] font-bold text-amber-400 hover:underline inline-block"
             >
-              Check Low Stock &rarr;
+              {tf('Check Low Stock', 'Reba Ibishira')} &rarr;
             </button>
           </div>
         )}
@@ -148,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* System Footer */}
         <div className="p-3 border-t border-slate-800/60 text-center text-[10px] text-slate-400">
           <p className="font-semibold text-slate-300">VectOS Kigali v3.2</p>
-          <p className="text-slate-400">Hardware & Electronics Store</p>
+          <p className="text-slate-400">{tf('Hardware & Electronics Store', "Iduka ry'Ibikoresho by'Ubwubatsi & Elegitoroniki")}</p>
         </div>
       </aside>
 
@@ -170,8 +172,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   V
                 </div>
                 <div>
-                  <p className="font-bold text-sm text-white">VectOS Menu</p>
-                  <p className="text-[10px] text-amber-400 font-semibold uppercase">Store Management</p>
+                  <p className="font-bold text-sm text-white">{tf('VectOS Menu', 'Ibikubiyemo (VectOS)')}</p>
+                  <p className="text-[10px] text-amber-400 font-semibold uppercase">{tf('Store Management', 'Gucunga Iduka')}</p>
                 </div>
               </div>
               <button
@@ -184,16 +186,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             {/* Active User Session Card */}
-            <div className="p-3 border-b border-slate-800/60">
+            <div className="p-3 border-b border-slate-800/60 space-y-2.5">
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Signed In As</p>
-                <p className="text-xs font-bold text-slate-100 truncate mt-0.5">{user?.name || 'Shop Staff'}</p>
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{t('nav.signedInAs')}</p>
+                <p className="text-xs font-bold text-slate-100 truncate mt-0.5">{user?.name || tf('Shop Staff', 'Umukozi w’Iduka')}</p>
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-[11px] font-semibold text-amber-400 capitalize">
-                    {isSuperAdmin ? 'Platform Owner' : (user?.job_title || user?.role)}
+                    {isSuperAdmin ? t('header.platformOwner') : (user?.job_title || user?.role)}
                   </span>
                 </div>
+              </div>
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-semibold text-slate-400">{t('common.switchLanguage')}</span>
+                <LanguageSwitcher variant="compact" />
               </div>
             </div>
 
@@ -241,11 +247,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-[#0F291E] hover:bg-[#143829] border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition"
               >
                 <MessageCircle className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
-                <span>WhatsApp Direct Support</span>
+                <span>{tf('WhatsApp Direct Support', 'Ubufasha kuri WhatsApp')}</span>
               </a>
               <div className="text-center text-[10px] text-slate-400">
                 <p className="font-semibold text-slate-300">VectOS Kigali v3.2</p>
-                <p className="text-slate-400">Hardware & Electronics Store</p>
+                <p className="text-slate-400">{tf('Hardware & Electronics Store', "Iduka ry'Ibikoresho by'Ubwubatsi & Elegitoroniki")}</p>
               </div>
             </div>
           </div>
@@ -263,7 +269,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }`}
         >
           <LayoutDashboard className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5">Home</span>
+          <span className="text-[10px] mt-0.5">{t('nav.mobileHome')}</span>
         </button>
 
         {/* 2. POS Counter (Center highlighted action, only if user can create orders) */}
@@ -278,7 +284,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <ShoppingBag className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5 font-bold">POS Sales</span>
+            <span className="text-[10px] mt-0.5 font-bold">{t('nav.mobilePosSales')}</span>
           </button>
         )}
 
@@ -292,7 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <Package className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Stock</span>
+            <span className="text-[10px] mt-0.5">{t('nav.mobileStock')}</span>
             {lowStockCount > 0 && (
               <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0F131A]" />
             )}
@@ -309,7 +315,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <FileText className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Orders</span>
+            <span className="text-[10px] mt-0.5">{t('nav.mobileOrders')}</span>
           </button>
         )}
 
@@ -320,7 +326,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="flex flex-col items-center justify-center py-1 px-2.5 rounded-xl text-slate-400 hover:text-slate-200 transition"
         >
           <Menu className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5">More</span>
+          <span className="text-[10px] mt-0.5">{t('nav.mobileMore')}</span>
         </button>
       </nav>
     </>

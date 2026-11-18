@@ -20,8 +20,10 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AiHelpModal } from './components/AiHelpModal';
 import { Sparkles } from 'lucide-react';
 import { hasPermission } from './utils/permissions';
+import { useLanguage } from './i18n/LanguageContext';
 
 export const App: React.FC = () => {
+  const { tf } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
   const [shop, setShop] = useState<Shop | null>(null);
   const [availableShops, setAvailableShops] = useState<Shop[]>([]);
@@ -148,11 +150,11 @@ export const App: React.FC = () => {
       const res = await api.switchShop(shopId);
       if (res.success) {
         setShop(res.shop);
-        showToast(`Switched to shop: ${res.shop.name}`);
+        showToast(tf(`Switched to shop: ${res.shop.name}`, `Wahinduye iduka: ${res.shop.name}`));
         loadDashboardStats();
       }
     } catch (err: any) {
-      showToast(err.message || 'Failed to switch shop');
+      showToast(err.message || tf('Failed to switch shop', 'Guhindura iduka byanze'));
     }
   };
 
@@ -170,12 +172,12 @@ export const App: React.FC = () => {
     const canPrint = hasPermission(user, 'can_print_full_receipt');
     const canTakePayment = hasPermission(user, 'can_process_payments');
     if (canPrint && canTakePayment) {
-      showToast(`Order #${order.order_number} processed! Opening receipt...`);
+      showToast(tf(`Order #${order.order_number} processed! Opening receipt...`, `Itegeko #${order.order_number} ryatunganyijwe! Harafungurwa inyemezabuguzi...`));
       setReceiptOrder(order);
     } else if (!canTakePayment) {
-      showToast(`Order #${order.order_number} sent to Cashier for payment & Store for release!`);
+      showToast(tf(`Order #${order.order_number} sent to Cashier for payment & Store for release!`, `Itegeko #${order.order_number} ryoherejwe kwa Keshye ngo ryishyurwe no mu Bubiko ngo risohoke!`));
     } else {
-      showToast(`Order #${order.order_number} saved and sent to Store for release.`);
+      showToast(tf(`Order #${order.order_number} saved and sent to Store for release.`, `Itegeko #${order.order_number} ryabitswe kandi ryoherejwe mu Bubiko ngo risohoke.`));
     }
     loadDashboardStats();
   };
@@ -194,7 +196,7 @@ export const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 text-sm text-slate-400 font-medium">
             <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-            Loading your shop...
+            {tf('Loading your shop...', 'Birimo gufungura iduka ryawe...')}
           </div>
         </div>
       </div>
@@ -312,7 +314,7 @@ export const App: React.FC = () => {
               refreshTrigger={ordersRefreshTick}
               onOrderUpdatedExternal={(updated) => {
                 loadDashboardStats();
-                showToast(`Order #${updated.order_number} updated!`);
+                showToast(tf(`Order #${updated.order_number} updated!`, `Itegeko #${updated.order_number} ryavuguruwe!`));
               }}
             />
           )}
@@ -341,7 +343,7 @@ export const App: React.FC = () => {
                 if (user && Number(user.shop_id) === updatedShop.id) {
                   setUser({ ...user, shop_name: updatedShop.name });
                 }
-                showToast(`Updated business details for ${updatedShop.name}!`);
+                showToast(tf(`Updated business details for ${updatedShop.name}!`, `Amakuru y'iduka ${updatedShop.name} yavuguruwe!`));
               }}
             />
           )}
@@ -372,10 +374,10 @@ export const App: React.FC = () => {
         type="button"
         onClick={() => setIsAiHelpOpen(true)}
         className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-30 flex items-center gap-2 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-xl shadow-amber-500/25 transition-all duration-200 hover:scale-105 active:scale-95 group border border-amber-400/40"
-        title="Ask VectOS AI Assistant"
+        title={tf('Ask VectOS AI Assistant', 'Baza Umufasha wa VectOS AI')}
       >
         <Sparkles className="w-4 h-4 transition-transform group-hover:rotate-12" />
-        <span className="tracking-tight hidden xs:inline">AI Help</span>
+        <span className="tracking-tight hidden xs:inline">{tf('AI Help', 'Ubufasha bwa AI')}</span>
       </button>
 
       {/* VectOS Scoped AI Assistant Modal */}
@@ -395,7 +397,7 @@ export const App: React.FC = () => {
             setReceiptOrder(updated);
             setOrdersRefreshTick(t => t + 1);
             loadDashboardStats();
-            showToast(`Order #${updated.order_number} successfully updated!`);
+            showToast(tf(`Order #${updated.order_number} successfully updated!`, `Itegeko #${updated.order_number} ryavuguruwe neza!`));
           }}
         />
       )}
@@ -409,7 +411,7 @@ export const App: React.FC = () => {
           onSuccess={() => {
             setIsChangePasswordOpen(false);
             setUser((prev) => (prev ? { ...prev, force_password_change: 0 } : prev));
-            setToastMessage('Password updated successfully!');
+            setToastMessage(tf('Password updated successfully!', 'Ijambo ry’ibanga ryahinduwe neza!'));
             setTimeout(() => setToastMessage(null), 4000);
           }}
         />

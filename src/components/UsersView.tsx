@@ -19,6 +19,7 @@ import {
   X
 } from 'lucide-react';
 import { matchesSearch } from '../utils/searchMatch';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface UsersViewProps {
   currentUser: User | null;
@@ -228,7 +229,91 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
+  const { tf } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
+
+  const permissionGroups = PERMISSION_GROUPS.map((g) => ({
+    ...g,
+    displayName:
+      g.name === 'Selling & Customer Orders'
+        ? tf('Selling & Customer Orders', 'Gucuruza & Komande z’Abakiriya')
+        : g.name === 'Money, Payments & Profits'
+        ? tf('Money, Payments & Profits', 'Amafaranga, Ubwishyu & Inyungu')
+        : g.name === 'Store Room & Stock Handling'
+        ? tf('Store Room & Stock Handling', 'Ububiko & Gutanga Ibicuruzwa')
+        : g.name === 'Customers & Partner Shops'
+        ? tf('Customers & Partner Shops', 'Abakiriya & Amaduka Dukuraho')
+        : tf('Staff & Store Settings', 'Abakozi & Igenamiterere ry’Iduka'),
+    displayDesc:
+      g.name === 'Selling & Customer Orders'
+        ? tf('Taking customer orders, giving price discounts, and printing documents', 'Gufata komande z’abakiriya, kugabanya ibiciro, no gusohora inyemezabuguzi')
+        : g.name === 'Money, Payments & Profits'
+        ? tf('Receiving Cash, MoMo & Bank payments and viewing profit reports', 'Kwakira Kashi, MoMo & Banki no kureba raporo z’inyungu')
+        : g.name === 'Store Room & Stock Handling'
+        ? tf('Handing out sold items, counting stock, and importing stock lists', 'Gutanga ibicuruzwa byaguzwe, kubara sitoki, no kwinjiza ibicuruzwa')
+        : g.name === 'Customers & Partner Shops'
+        ? tf('Managing regular buyers, credit accounts, and neighboring partner shops', 'Gucunga abakiriya bahoraho, amadeni, n’amaduka dutiranaho')
+        : tf('Managing staff accounts, passwords, activity history, and shop info', 'Gucunga konti z’abakozi, amagambo y’ibanga, amateka y’ibikorwa, n’amakuru y’iduka'),
+    items: g.items.map((it) => ({
+      ...it,
+      displayLabel:
+        it.key === 'can_create_orders' ? tf('Create new customer orders', 'Gukora komande nshya z’abakiriya') :
+        it.key === 'can_give_discounts' ? tf('Give discounts or lower item prices', 'Kugabanya ibiciro ku bicuruzwa') :
+        it.key === 'can_print_full_receipt' ? tf('Print full payment receipts', 'Gusohora inyemezabuguzi yuzuye (iriho ibiciro)') :
+        it.key === 'can_print_delivery_note' ? tf('Print delivery notes (quantities only)', 'Gusohora urupapuro rw’ibitangwa (ingano gusa)') :
+        it.key === 'can_void_orders' ? tf('Cancel mistaken orders', 'Guhagarika komande zibeshyewe') :
+        it.key === 'can_process_payments' ? tf('Take Cash, MoMo & Bank payments', 'Kwakira ubwishyu bwa Kashi, MoMo & Banki') :
+        it.key === 'can_view_reports' ? tf('View sales reports', 'Kureba raporo z’igurisha') :
+        it.key === 'can_view_buying_prices' ? tf('See supplier buying prices & profit', 'Kureba ibiciro biranguza n’inyungu') :
+        it.key === 'can_release_stock' ? tf('Hand out / release items from the store', 'Gusohora ibicuruzwa muri sitoki') :
+        it.key === 'can_manage_stock' ? tf('Add products & adjust stock counts', 'Kongera ibicuruzwa no guhindura umubare muri sitoki') :
+        it.key === 'can_import_export_stock' ? tf('Upload / download stock lists (Excel/CSV)', 'Kwinjiza / gukuramo urutonde rwa sitoki (Excel/CSV)') :
+        it.key === 'can_partner_borrow' ? tf('Borrow items from partner shops', 'Gutira ibicuruzwa ku maduka dutiranaho') :
+        it.key === 'can_manage_customers' ? tf('Add & edit customers', 'Kongera no guhindura abakiriya') :
+        it.key === 'can_manage_partners' ? tf('Manage partner shops', 'Gucunga amaduka dutiranaho') :
+        it.key === 'can_manage_users' ? tf('Add staff & change staff duties', 'Kongera abakozi no guhindura inshingano') :
+        it.key === 'can_reset_passwords' ? tf('Reset staff passwords', 'Guhindura amagambo y’ibanga y’abakozi') :
+        it.key === 'can_view_audit_trail' ? tf('View staff activity history', 'Kureba amateka y’ibikorwa by’abakozi') :
+        tf('Edit shop name, phone & TIN', 'Guhindura izina ry’iduka, telefoni & TIN')
+    }))
+  }));
+
+  const roleLabels: Record<string, string> = {
+    superadmin: tf('Platform Owner', 'Nyir’Urubuga'),
+    platform_ops: tf('Platform Support', 'Ubufasha bw’Urubuga'),
+    manager: tf('Store Manager', 'Umuyobozi w’Iduka'),
+    salesperson: tf('Salesperson', 'Umucuruzi'),
+    accountant: tf('Cashier / Accountant', 'Umukeshye / Umubaruramari'),
+    storekeeper: tf('Storekeeper', 'Umurinzi w’Ububiko'),
+    employee: tf('Shop Staff', 'Umukozi w’Iduka')
+  };
+
+  const getTemplateDisplay = (tpl: RoleTemplate) => {
+    if (tpl.id === 'solo') return {
+      title: tf('Solo Operator', 'Ukora Wenyine'),
+      desc: tf('Runs the whole shop alone: sells, takes payments, releases stock & sees reports', 'Akora byose wenyine: acuruza, yakira amafaranga, atanga ibicuruzwa kandi akareba raporo')
+    };
+    if (tpl.id === 'salesperson') return {
+      title: tf('Salesperson', 'Umucuruzi'),
+      desc: tf('Helps buyers, makes orders & edits customers; sends orders to Cashier & Store', 'Afasha abaguzi, akora komande akayohereza ku Mukeshye no mu Bubiko')
+    };
+    if (tpl.id === 'cashier') return {
+      title: tf('Cashier / Accountant', 'Umukeshye / Umubaruramari'),
+      desc: tf('Takes Cash/MoMo/Bank payments, prints receipts, cancels orders & checks profits', 'Yakira Kashi/MoMo/Banki, asohora fakitire, akagenzura n’inyungu')
+    };
+    if (tpl.id === 'storekeeper') return {
+      title: tf('Storekeeper', 'Umurinzi w’Ububiko'),
+      desc: tf('Checks & releases physical items, updates stock counts & prints delivery notes', 'Asura kandi agatanga ibicuruzwa, akabara sitoki, agasohora urupapuro rw’ibitangwa')
+    };
+    if (tpl.id === 'manager') return {
+      title: tf('Store Manager', 'Umuyobozi w’Iduka'),
+      desc: tf('Full access to everything in the shop including staff duties and store settings', 'Afite uburenganzira bwose mu iduka harimo gucunga abakozi n’igenamiterere')
+    };
+    return {
+      title: tf('Platform Support', 'Ubufasha bw’Urubuga'),
+      desc: tf('Platform support staff across shops', 'Umukozi ufasha amaduka atandukanye')
+    };
+  };
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -371,11 +456,11 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.email.trim()) {
-      setModalError('Staff name and sign-in email are required.');
+      setModalError(tf('Staff name and sign-in email are required.', 'Izina ry’umukozi n’imeyili yo kwinjira birakenewe.'));
       return;
     }
     if (!isEditing && (!formData.password || formData.password.trim().length < 6)) {
-      setModalError('Initial temporary password must be at least 6 characters.');
+      setModalError(tf('Initial temporary password must be at least 6 characters.', 'Ijambo ry’ibanga ry’agateganyo rigomba kugira nibura inyuguti 6.'));
       return;
     }
 
@@ -401,7 +486,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           ...explicitPermissions
         };
         await api.updateUser(editingUserId, updatePayload);
-        setActionFeedback({ type: 'success', message: `Updated duties for ${formData.name.trim()}. Changes apply right away.` });
+        setActionFeedback({ type: 'success', message: tf(`Updated duties for ${formData.name.trim()}. Changes apply right away.`, `Inshingano za ${formData.name.trim()} zahinduwe. Zitangiye gukora ako kanya.`) });
       } else {
         const createPayload: any = {
           name: formData.name.trim(),
@@ -415,12 +500,12 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           ...explicitPermissions
         };
         await api.createUser(createPayload);
-        setActionFeedback({ type: 'success', message: `Added ${formData.name.trim()} to your team.` });
+        setActionFeedback({ type: 'success', message: tf(`Added ${formData.name.trim()} to your team.`, `${formData.name.trim()} yongewe mu bakozi bawe.`) });
       }
       setIsModalOpen(false);
       fetchUsers();
     } catch (err: any) {
-      setModalError(err.message || 'Failed to save staff details.');
+      setModalError(err.message || tf('Failed to save staff details.', 'Kubika amakuru y’umukozi byanze.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -439,13 +524,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
       setActionFeedback({
         type: 'success',
         message: nextActive === 1
-          ? `${u.name}'s account is active again.`
-          : `${u.name}'s access is paused (for leave or time off). Their duties stay saved.`
+          ? tf(`${u.name}'s account is active again.`, `Konti ya ${u.name} yongeye gukora.`)
+          : tf(`${u.name}'s access is paused (for leave or time off). Their duties stay saved.`, `Uburenganzira bwa ${u.name} bwahagaritswe by’agateganyo. Inshingano ze zigumaho.`)
       });
     } catch (err: any) {
       setActionFeedback({
         type: 'error',
-        message: err.message || 'Could not update staff access status.'
+        message: err.message || tf('Could not update staff access status.', 'Guhindura imimerere ya konti byanze.')
       });
     } finally {
       setTogglingUserId(null);
@@ -460,14 +545,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
       setResetting(true);
       setResetError('');
       const res = await api.resetUserPassword(resetModalUser.id, tempPassword);
-      setResetSuccess(res.message || `Password reset successfully for ${resetModalUser.name}`);
+      setResetSuccess(res.message || tf(`Password reset successfully for ${resetModalUser.name}`, `Ijambo ry’ibanga rya ${resetModalUser.name} ryahinduwe neza`));
       setTimeout(() => {
         setResetModalUser(null);
         setResetSuccess('');
         setTempPassword('');
       }, 1800);
     } catch (err: any) {
-      setResetError(err.message || 'Failed to reset staff password');
+      setResetError(err.message || tf('Failed to reset staff password', 'Guhindura ijambo ry’ibanga byanze'));
     } finally {
       setResetting(false);
     }
@@ -493,14 +578,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Staff & Duty Management
+              {tf('Staff & Duty Management', 'Gucunga Abakozi n’Inshingano')}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {users.length} Staff Accounts
+              {tf(`${users.length} Staff Accounts`, `Konti z’Abakozi ${users.length}`)}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Set what each person can do in your shop — whether one person runs everything or a team splits the work.
+            {tf('Set what each person can do in your shop — whether one person runs everything or a team splits the work.', 'Hitamo ibyo buri mukozi yemerewe gukora mu iduka — yaba umwe ukora byose cyangwa ikipe ifatanya.')}
           </p>
         </div>
 
@@ -509,7 +594,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
         >
           <Plus className="w-4 h-4" />
-          <span>Add New Staff Member</span>
+          <span>{tf('Add New Staff Member', 'Ongeramo Umukozi Mushya')}</span>
         </button>
       </div>
 
@@ -521,10 +606,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           </div>
           <div>
             <h4 className="text-xs font-bold text-white flex items-center gap-2">
-              Flexible Duties — Ready for Busy Hours, Tax Week, or Sick Leave
+              {tf('Flexible Duties — Ready for Busy Hours, Tax Week, or Sick Leave', 'Inshingano Zihindurwa — Ziteguye Igihe cy’Akazi Kenshi cyangwa Ikiruhuko')}
             </h4>
             <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-              Need someone to cover for a sick colleague, help during busy weekends, or handle tax reporting? Click <strong className="text-amber-300">Change Duties</strong> on their card — updates take effect right away without anyone sharing passwords. You can also pause access while a staff member is on leave without losing their setup.
+              {tf('Need someone to cover for a sick colleague, help during busy weekends, or handle tax reporting? Click Change Duties on their card — updates take effect right away without anyone sharing passwords. You can also pause access while a staff member is on leave without losing their setup.', 'Ukeneye ko umukozi asimbura mugenzi we urwaye, afashe mu minsi y’akazi kenshi, cyangwa akore imisoro? Kanda Hindura Inshingano kuri konti ye — bihita bikora ako kanya nta gusangira amagambo y’ibanga. Ushobora no guhagarika uburenganzira bwe igihe ari mu kiruhuko.')}
             </p>
           </div>
         </div>
@@ -560,7 +645,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
           <input
             type="text"
-            placeholder="Search by name, email, phone, or job title..."
+            placeholder={tf('Search by name, email, phone, or job title...', 'Shakisha izina, imeyili, telefoni, cyangwa umwanya...')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-9 py-2 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
@@ -570,7 +655,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
               type="button"
               onClick={() => setSearch('')}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
-              title="Clear search"
+              title={tf('Clear search', 'Siba ishakisha')}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -580,12 +665,12 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 overflow-x-auto">
             {[
-              { id: 'all', label: 'All Roles' },
-              { id: 'manager', label: 'Managers' },
-              { id: 'salesperson', label: 'Sales' },
-              { id: 'accountant', label: 'Cashiers' },
-              { id: 'storekeeper', label: 'Storekeepers' },
-              { id: 'employee', label: 'Solo / Custom' }
+              { id: 'all', label: tf('All Roles', 'Inshingano Zose') },
+              { id: 'manager', label: tf('Managers', 'Abayobozi') },
+              { id: 'salesperson', label: tf('Sales', 'Abacuruzi') },
+              { id: 'accountant', label: tf('Cashiers', 'Abakeshye') },
+              { id: 'storekeeper', label: tf('Storekeepers', 'AbUbubiko') },
+              { id: 'employee', label: tf('Solo / Custom', 'Umwe / Ibindi') }
             ].map((r) => (
               <button
                 key={r.id}
@@ -603,9 +688,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
 
           <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800 text-[11px]">
             {[
-              { id: 'all', label: 'All' },
-              { id: 'active', label: 'Active' },
-              { id: 'paused', label: 'Paused' }
+              { id: 'all', label: tf('All', 'Bose') },
+              { id: 'active', label: tf('Active', 'Bakora') },
+              { id: 'paused', label: tf('Paused', 'Bahagaritswe') }
             ].map((st) => (
               <button
                 key={st.id}
@@ -625,10 +710,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
 
       {/* Users Grid */}
       {loading ? (
-        <div className="p-12 text-center text-slate-400 text-xs">Loading staff accounts...</div>
+        <div className="p-12 text-center text-slate-400 text-xs">{tf('Loading staff accounts...', 'Gutegura konti z’abakozi...')}</div>
       ) : filteredUsers.length === 0 ? (
         <div className="p-12 text-center text-slate-400 text-xs rounded-2xl bg-slate-900/50 border border-slate-800">
-          No staff accounts found matching your filters.
+          {tf('No staff accounts found matching your filters.', 'Nta mukozi uhuye n’ibyo ushakisha wabonetse.')}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -663,16 +748,16 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                           <h3 className="text-sm font-bold text-white truncate">{u.name}</h3>
                           {!isAccountActive && (
                             <span className="px-1.5 py-0.5 rounded text-[9px] bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">
-                              Paused / On Leave
+                              {tf('Paused / On Leave', 'Yahagaritswe / Ikiruhuko')}
                             </span>
                           )}
                           {Number(u.force_password_change) === 1 && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-400 font-semibold" title="Must change password on next login">
-                              Password Change Pending
+                            <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-400 font-semibold" title={tf('Must change password on next login', 'Agomba guhindura ijambo ry’ibanga niyongera kwinjira')}>
+                              {tf('Password Change Pending', 'Guhindura Ijambo ry’Ibanga Birategerejwe')}
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-400 truncate">{u.job_title || ROLE_LABELS[u.role] || u.role}</p>
+                        <p className="text-xs text-slate-400 truncate">{u.job_title || roleLabels[u.role] || u.role}</p>
                       </div>
                     </div>
 
@@ -683,7 +768,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                         ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                         : 'bg-slate-800 text-slate-300 border-slate-700'
                     }`}>
-                      {ROLE_LABELS[u.role] || u.role}
+                      {roleLabels[u.role] || u.role}
                     </span>
                   </div>
 
@@ -703,39 +788,39 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   {/* Permission Count & Highlights */}
                   <div className="pt-3 mt-3 border-t border-slate-800/60">
                     <div className="flex items-center justify-between text-[11px] mb-2">
-                      <span className="text-slate-400 font-semibold">Assigned Duties</span>
+                      <span className="text-slate-400 font-semibold">{tf('Assigned Duties', 'Inshingano Afite')}</span>
                       <span className="px-1.5 py-0.5 rounded bg-slate-800 font-mono text-amber-400 font-bold text-[10px]">
-                        {isFullRole ? 'Full Shop Access' : `${activePermCount} of ${ALL_SHOP_PERMISSION_KEYS.length} Duties`}
+                        {isFullRole ? tf('Full Shop Access', 'Uburenganzira Bwose') : tf(`${activePermCount} of ${ALL_SHOP_PERMISSION_KEYS.length} Duties`, `${activePermCount} kuri ${ALL_SHOP_PERMISSION_KEYS.length}`)}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {(isFullRole || u.can_create_orders) && (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">Make Sales</span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">{tf('Make Sales', 'Gucuruza')}</span>
                       )}
                       {(isFullRole || u.can_process_payments) && (
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 text-[10px] border border-emerald-800/40">Take Payments</span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 text-[10px] border border-emerald-800/40">{tf('Take Payments', 'Kwakira Ubwishyu')}</span>
                       )}
                       {(isFullRole || u.can_release_stock) && (
-                        <span className="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 text-[10px] border border-blue-800/40">Release Stock</span>
+                        <span className="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 text-[10px] border border-blue-800/40">{tf('Release Stock', 'Gutanga Sitoki')}</span>
                       )}
                       {(isFullRole || u.can_manage_stock) && (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">Manage Stock</span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">{tf('Manage Stock', 'Gucunga Sitoki')}</span>
                       )}
                       {(isFullRole || u.can_view_reports) && (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">Sales Reports</span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">{tf('Sales Reports', 'Raporo')}</span>
                       )}
                       {(isFullRole || u.can_view_buying_prices) && (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">Buying Prices</span>
+                        <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">{tf('Buying Prices', 'Ibiciro Biranguza')}</span>
                       )}
                       {(isFullRole || u.can_view_audit_trail) && (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 text-[10px] border border-amber-800/40">Activity History</span>
+                        <span className="px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 text-[10px] border border-amber-800/40">{tf('Activity History', 'Amateka y’Ibikorwa')}</span>
                       )}
                       {(isFullRole || u.can_edit_company_settings) && (
-                        <span className="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 text-[10px] border border-purple-800/40">Edit Shop Info</span>
+                        <span className="px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 text-[10px] border border-purple-800/40">{tf('Edit Shop Info', 'Guhindura Iduka')}</span>
                       )}
                       {!isFullRole && activePermCount === 0 && (
                         <span className="px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 text-[10px] italic">
-                          No duties assigned yet
+                          {tf('No duties assigned yet', 'Nta nshingano arahabwa')}
                         </span>
                       )}
                     </div>
@@ -749,7 +834,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                     className="flex-1 min-w-[115px] flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
                   >
                     <Edit2 className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Change Duties</span>
+                    <span>{tf('Change Duties', 'Hindura Inshingano')}</span>
                   </button>
 
                   {canTogglePause && (
@@ -762,10 +847,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                           ? 'bg-slate-800/60 hover:bg-rose-500/10 border-slate-700/60 hover:border-rose-500/30 text-slate-300 hover:text-rose-300'
                           : 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300'
                       }`}
-                      title={isAccountActive ? 'Temporarily pause access (e.g. sick leave or time off)' : 'Restore access'}
+                      title={isAccountActive ? tf('Temporarily pause access (e.g. sick leave or time off)', 'Hagarika by’agateganyo (nk’igihe arwaye cyangwa ari mu kiruhuko)') : tf('Restore access', 'Subizaho uburenganzira')}
                     >
                       {isAccountActive ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
-                      <span>{isAccountActive ? 'Pause' : 'Activate'}</span>
+                      <span>{isAccountActive ? tf('Pause', 'Hagarika') : tf('Activate', 'Fungura')}</span>
                     </button>
                   )}
 
@@ -777,10 +862,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                       setResetSuccess('');
                     }}
                     className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800/60 hover:bg-amber-500/10 border border-slate-700/60 hover:border-amber-500/30 text-amber-300 text-xs font-semibold transition"
-                    title="Reset password for this staff member"
+                    title={tf('Reset password for this staff member', 'Hindura ijambo ry’ibanga ry’uyu mukozi')}
                   >
                     <KeyRound className="w-3.5 h-3.5" />
-                    <span>Password</span>
+                    <span>{tf('Password', 'Ijambo ry’Ibanga')}</span>
                   </button>
                 </div>
               </div>
@@ -800,10 +885,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">
-                    {isEditing ? `Change Staff Duties: ${formData.name}` : 'Add New Staff Member'}
+                    {isEditing ? tf(`Change Staff Duties: ${formData.name}`, `Hindura Inshingano za: ${formData.name}`) : tf('Add New Staff Member', 'Ongeramo Umukozi Mushya')}
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Pick a ready template, start empty to choose duties one by one, or adjust what they can do right now.
+                    {tf('Pick a ready template, start empty to choose duties one by one, or adjust what they can do right now.', 'Hitamo icyitegererezo cyateguwe, tangira ubusa uhitemo inshingano imwe ku yindi, cyangwa uhindure ibyo akora.')}
                   </p>
                 </div>
               </div>
@@ -820,7 +905,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Quick Role Templates (Optional — you can edit any checkbox below)</span>
+                  <span>{tf('Quick Role Templates (Optional — you can edit any checkbox below)', 'Ibyitegererezo by’Inshingano (Si ngombwa — ushobora guhindura hasi)')}</span>
                 </label>
                 <button
                   type="button"
@@ -832,13 +917,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   }`}
                 >
                   <Eraser className="w-3 h-3" />
-                  <span>Start Empty (Nothing Checked)</span>
+                  <span>{tf('Start Empty (Nothing Checked)', 'Tangira Ubusa (Nta na kimwe)')}</span>
                 </button>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {visibleTemplates.map((tpl) => {
                   const isSelected = selectedTemplateId === tpl.id;
+                  const tplDisplay = getTemplateDisplay(tpl);
                   return (
                     <button
                       key={tpl.id}
@@ -850,8 +936,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                           : 'bg-slate-900 hover:bg-slate-800 border-slate-800 hover:border-amber-500/40'
                       }`}
                     >
-                      <p className="text-[11px] font-bold text-amber-400">{tpl.title}</p>
-                      <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5 leading-snug">{tpl.desc}</p>
+                      <p className="text-[11px] font-bold text-amber-400">{tplDisplay.title}</p>
+                      <p className="text-[10px] text-slate-400 line-clamp-2 mt-0.5 leading-snug">{tplDisplay.desc}</p>
                     </button>
                   );
                 })}
@@ -868,7 +954,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
             <form onSubmit={handleSaveUser} className="space-y-4 overflow-y-auto pr-1 flex-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Full Name *</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Full Name *', 'Amazina Yose *')}</label>
                   <input
                     type="text"
                     required
@@ -880,7 +966,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Sign-In Email *</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Sign-In Email *', 'Imeyili yo Kwinjira *')}</label>
                   <input
                     type="email"
                     required
@@ -891,31 +977,31 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500 disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                   {isEditing && (
-                    <p className="text-[10px] text-slate-400 mt-1">Sign-in email cannot be changed after creation.</p>
+                    <p className="text-[10px] text-slate-400 mt-1">{tf('Sign-in email cannot be changed after creation.', 'Imeyili yo kwinjira ntishobora guhindurwa imaze gukorwa.')}</p>
                   )}
                 </div>
               </div>
 
               {!isEditing && (
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Temporary Password *</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Temporary Password *', 'Ijambo ry’Ibanga ry’Agateganyo *')}</label>
                   <input
                     type="password"
                     required
-                    placeholder="At least 6 characters"
+                    placeholder={tf('At least 6 characters', 'Nibura inyuguti 6')}
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    They will be asked to choose their own password on their first sign-in.
+                    {tf('They will be asked to choose their own password on their first sign-in.', 'Azasabwa kwishyiriraho ijambo rye ry’ibanga akimara kwinjira bwa mbere.')}
                   </p>
                 </div>
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Main Role</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Main Role', 'Uruhare Rukuru')}</label>
                   <select
                     value={formData.role}
                     onChange={(e) => {
@@ -931,29 +1017,29 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                     }}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
-                    <option value="employee">Shop Staff / Custom</option>
-                    <option value="salesperson">Salesperson</option>
-                    <option value="accountant">Cashier / Accountant</option>
-                    <option value="storekeeper">Storekeeper</option>
-                    <option value="manager">Store Manager (Full Access)</option>
-                    {isSuperAdmin && <option value="platform_ops">Platform Support Staff</option>}
-                    {isSuperAdmin && <option value="superadmin">Platform Owner</option>}
+                    <option value="employee">{tf('Shop Staff / Custom', 'Umukozi w’Iduka / Ibindi')}</option>
+                    <option value="salesperson">{tf('Salesperson', 'Umucuruzi')}</option>
+                    <option value="accountant">{tf('Cashier / Accountant', 'Umukeshye / Umubaruramari')}</option>
+                    <option value="storekeeper">{tf('Storekeeper', 'Umurinzi w’Ububiko')}</option>
+                    <option value="manager">{tf('Store Manager (Full Access)', 'Umuyobozi w’Iduka (Uburenganzira Bwose)')}</option>
+                    {isSuperAdmin && <option value="platform_ops">{tf('Platform Support Staff', 'Umukozi w’Ubufasha bw’Urubuga')}</option>}
+                    {isSuperAdmin && <option value="superadmin">{tf('Platform Owner', 'Nyir’Urubuga')}</option>}
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Job Title</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Job Title', 'Umwanya w’Akazi')}</label>
                   <input
                     type="text"
                     value={formData.job_title}
                     onChange={(e) => setFormData({ ...formData, job_title: e.target.value })}
-                    placeholder="e.g. Weekend Cashier"
+                    placeholder={tf('e.g. Weekend Cashier', 'urugero: Umukeshye wo muri Weekend')}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Phone Number</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Phone Number', 'Nomero ya Telefoni')}</label>
                   <input
                     type="text"
                     value={formData.phone}
@@ -966,16 +1052,16 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
 
               {formData.role === 'manager' && (
                 <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300">
-                  <strong>Store Manager</strong> automatically gets full access to everything in the shop. To limit what a staff member can do, choose <strong>Shop Staff / Custom</strong> or a specific role above.
+                  <strong>{tf('Store Manager', 'Umuyobozi w’Iduka')}</strong> {tf('automatically gets full access to everything in the shop. To limit what a staff member can do, choose Shop Staff / Custom or a specific role above.', 'ahita ahabwa uburenganzira kuri byose mu iduka. Kugira ngo ugabanye ibyo akora, hitamo Umukozi w’Iduka cyangwa urundi ruhare hejuru.')}
                 </div>
               )}
 
               {isEditing && formData.role !== 'superadmin' && currentUser?.id !== editingUserId && (
                 <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold text-slate-200">Account Access Status</p>
+                    <p className="text-xs font-semibold text-slate-200">{tf('Account Access Status', 'Imimerere yo Kwinjira kwa Konti')}</p>
                     <p className="text-[11px] text-slate-400">
-                      Pause access while they are away or on sick leave, without deleting their duties.
+                      {tf('Pause access while they are away or on sick leave, without deleting their duties.', 'Hagarika uburenganzira igihe adahari cyangwa ari mu kiruhuko, utasibye inshingano ze.')}
                     </p>
                   </div>
                   <button
@@ -987,14 +1073,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                         : 'bg-rose-500/15 text-rose-300 border-rose-500/40'
                     }`}
                   >
-                    {Number(formData.is_active) === 1 ? 'Active (Can Sign In)' : 'Paused (Blocked)'}
+                    {Number(formData.is_active) === 1 ? tf('Active (Can Sign In)', 'Irakora (Yinjira)') : tf('Paused (Blocked)', 'Yahagaritswe (Ntayinjira)')}
                   </button>
                 </div>
               )}
 
               {isSuperAdmin && shops.length > 0 && (
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Assigned Shop</label>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Assigned Shop', 'Iduka Abarizwamo')}</label>
                   <select
                     value={formData.shop_id}
                     onChange={(e) => setFormData({ ...formData, shop_id: Number(e.target.value) })}
@@ -1012,10 +1098,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <label className="text-xs font-bold text-white uppercase tracking-wider">
-                      What This Staff Member Can Do
+                      {tf('What This Staff Member Can Do', 'Ibyo Uyu Mukozi Yemerewe Gukora')}
                     </label>
                     <p className="text-[11px] text-slate-400">
-                      {checkedCountInForm} of {ALL_SHOP_PERMISSION_KEYS.length} duties selected
+                      {tf(`${checkedCountInForm} of ${ALL_SHOP_PERMISSION_KEYS.length} duties selected`, `Inshingano ${checkedCountInForm} kuri ${ALL_SHOP_PERMISSION_KEYS.length} zatoranyijwe`)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-[11px]">
@@ -1027,7 +1113,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                       }}
                       className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition"
                     >
-                      Check All
+                      {tf('Check All', 'Hitamo Byose')}
                     </button>
                     <button
                       type="button"
@@ -1041,16 +1127,16 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                       }}
                       className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 font-semibold transition"
                     >
-                      Clear All
+                      {tf('Clear All', 'Kuraho Byose')}
                     </button>
                   </div>
                 </div>
 
-                {PERMISSION_GROUPS.map((group) => (
+                {permissionGroups.map((group) => (
                   <div key={group.name} className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 space-y-2.5">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-200">{group.name}</h4>
-                      <p className="text-[10px] text-slate-400">{group.description}</p>
+                      <h4 className="text-xs font-bold text-slate-200">{group.displayName}</h4>
+                      <p className="text-[10px] text-slate-400">{group.displayDesc}</p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300">
@@ -1078,10 +1164,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                               className="mt-0.5 rounded accent-amber-500"
                             />
                             <div className="leading-tight">
-                              <span className="text-xs text-slate-200">{item.label}</span>
+                              <span className="text-xs text-slate-200">{item.displayLabel}</span>
                               {isLockedOwnerSetting && (
                                 <p className="text-[10px] text-amber-400 mt-0.5">
-                                  Shop Owner / Manager always keeps this duty
+                                  {tf('Shop Owner / Manager always keeps this duty', 'Nyir’iduka / Umuyobozi ahorana iyi nshingano')}
                                 </p>
                               )}
                             </div>
@@ -1099,14 +1185,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700 transition"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition"
                 >
-                  {isSubmitting ? 'Saving...' : isEditing ? 'Save Duty Changes' : 'Create Staff Account'}
+                  {isSubmitting ? tf('Saving...', 'Kubika...') : isEditing ? tf('Save Duty Changes', 'Bika Impinduka') : tf('Create Staff Account', 'Kora Konti y’Umukozi')}
                 </button>
               </div>
             </form>
@@ -1124,8 +1210,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   <KeyRound className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">Reset Staff Password</h3>
-                  <p className="text-xs text-slate-400">Set a temporary password for {resetModalUser.name}</p>
+                  <h3 className="text-base font-bold text-white">{tf('Reset Staff Password', 'Hindura Ijambo ry’Ibanga ry’Umukozi')}</h3>
+                  <p className="text-xs text-slate-400">{tf(`Set a temporary password for ${resetModalUser.name}`, `Shyiriraho ijambo ry’ibanga ry’agateganyo ${resetModalUser.name}`)}</p>
                 </div>
               </div>
               <button
@@ -1151,18 +1237,18 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
             <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1">
-                  New Temporary Password *
+                  {tf('New Temporary Password *', 'Ijambo ry’Ibanga Rishya ry’Agateganyo *')}
                 </label>
                 <input
                   type="text"
                   required
                   value={tempPassword}
                   onChange={(e) => setTempPassword(e.target.value)}
-                  placeholder="Enter new temporary password"
+                  placeholder={tf('Enter new temporary password', 'Andika ijambo ry’ibanga rishya')}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  They will be asked to set their own new password the next time they sign in.
+                  {tf('They will be asked to set their own new password the next time they sign in.', 'Azasabwa kwishyiriraho ijambo rye rishya niyongera kwinjira.')}
                 </p>
               </div>
 
@@ -1172,14 +1258,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   onClick={() => setResetModalUser(null)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={resetting || Boolean(resetSuccess)}
                   className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
-                  {resetting ? 'Resetting...' : 'Reset Password'}
+                  {resetting ? tf('Resetting...', 'Guhindura...') : tf('Reset Password', 'Hindura Ijambo ry’Ibanga')}
                 </button>
               </div>
             </form>

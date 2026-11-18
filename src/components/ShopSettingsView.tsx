@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shop, User } from '../types';
 import { api } from '../services/api';
 import { hasPermission } from '../utils/permissions';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   Building2,
   Phone,
@@ -28,6 +29,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
   user,
   onShopUpdated
 }) => {
+  const { tf } = useLanguage();
   const canEdit = hasPermission(user, 'can_edit_company_settings');
 
   const [name, setName] = useState(shop?.name || '');
@@ -57,7 +59,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
   if (!shop) {
     return (
       <div className="p-8 text-center text-slate-400 text-sm">
-        No active shop selected.
+        {tf('No active shop selected.', 'Nta duka rihiswemo.')}
       </div>
     );
   }
@@ -66,7 +68,12 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
     return (
       <div className="p-8 max-w-2xl mx-auto">
         <div className="p-6 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm">
-          You do not have permission to change business details for this shop. Ask the shop owner or manager to enable <strong>Edit shop name, phone &amp; TIN</strong> under Staff &amp; Duties.
+          {tf(
+            'You do not have permission to change business details for this shop. Ask the shop owner or manager to enable',
+            'Nta ruhushya ufite rwo guhindura amakuru y’iri duka. Saba nyir’iduka cyangwa umuyobozi kwemeza'
+          )}{' '}
+          <strong>{tf('Edit shop name, phone & TIN', 'Guhindura izina ry’iduka, telefoni & TIN')}</strong>{' '}
+          {tf('under Staff & Duties.', 'muri Abakozi n’Inshingano.')}
         </div>
       </div>
     );
@@ -79,7 +86,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
     if (!name.trim() || !phone.trim() || !email.trim()) {
       setFeedback({
         type: 'error',
-        message: 'Business name, phone number, and email address are required.'
+        message: tf('Business name, phone number, and email address are required.', 'Izina ry’iduka, telefoni, na imeri birakenewe.')
       });
       return;
     }
@@ -100,13 +107,16 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
         onShopUpdated(res.shop);
         setFeedback({
           type: 'success',
-          message: 'Business details saved! All receipts, delivery notes, and print sheets now use this updated info.'
+          message: tf(
+            'Business details saved! All receipts, delivery notes, and print sheets now use this updated info.',
+            'Amakuru y’iduka yabitswe! Inyemezabuguzi zose n’impapuro zo gusohora ubu bikoresha aya makuru mashya.'
+          )
         });
       }
     } catch (err: any) {
       setFeedback({
         type: 'error',
-        message: err?.message || 'Failed to save business details.'
+        message: err?.message || tf('Failed to save business details.', 'Kubika amakuru y’iduka byanze.')
       });
     } finally {
       setSaving(false);
@@ -121,14 +131,17 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-            Business Info &amp; Receipt Details
+            {tf('Business Info & Receipt Details', 'Amakuru y’Iduka & Inyemezabuguzi')}
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Update your shop name, contact phone, email, address, and optional TIN shown on printed receipts, A4 invoices, and stock sheets.
+            {tf(
+              'Update your shop name, contact phone, email, address, and optional TIN shown on printed receipts, A4 invoices, and stock sheets.',
+              'Vugurura izina ry’iduka, telefoni, imeri, aho rikorera, na TIN igaragara ku nyemezabuguzi n’impapuro za A4.'
+            )}
           </p>
         </div>
         <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 self-start sm:self-auto">
-          Shop Code: {shop.code}
+          {tf('Shop Code:', 'Kode y’Iduka:')} {shop.code}
         </span>
       </div>
 
@@ -168,14 +181,14 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
             <div>
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-1.5">
                 <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                <span>Business / Shop Name *</span>
+                <span>{tf('Business / Shop Name *', 'Izina ry’Ubucuruzi / Iduka *')}</span>
               </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Kigali Builders Quincaille"
+                placeholder={tf('e.g. Kigali Builders Quincaille', 'urugero: Kigali Builders Quincaille')}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -183,13 +196,13 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
             <div>
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-1.5">
                 <UserIcon className="w-3.5 h-3.5 text-amber-400" />
-                <span>Owner / Manager Name</span>
+                <span>{tf('Owner / Manager Name', 'Izina rya Nyir’iduka / Umuyobozi')}</span>
               </label>
               <input
                 type="text"
                 value={ownerName}
                 onChange={(e) => setOwnerName(e.target.value)}
-                placeholder="e.g. Jean Claude Habimana"
+                placeholder={tf('e.g. Jean Claude Habimana', 'urugero: Jean Claude Habimana')}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -197,7 +210,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
             <div>
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-1.5">
                 <Phone className="w-3.5 h-3.5 text-amber-400" />
-                <span>Business Phone Number *</span>
+                <span>{tf('Business Phone Number *', 'Telefoni y’Iduka *')}</span>
               </label>
               <input
                 type="text"
@@ -212,7 +225,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
             <div>
               <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-1.5">
                 <Mail className="w-3.5 h-3.5 text-amber-400" />
-                <span>Business Email *</span>
+                <span>{tf('Business Email *', 'Imeri y’Iduka *')}</span>
               </label>
               <input
                 type="email"
@@ -228,13 +241,13 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
           <div>
             <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-1.5">
               <MapPin className="w-3.5 h-3.5 text-amber-400" />
-              <span>Shop Address / Location</span>
+              <span>{tf('Shop Address / Location', 'Aho Iduka Riherereye')}</span>
             </label>
             <input
               type="text"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              placeholder="e.g. Nyabugogo Commercial Center, Kigali"
+              placeholder={tf('e.g. Nyabugogo Commercial Center, Kigali', 'urugero: Nyabugogo, Kigali')}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -243,7 +256,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                 <Hash className="w-3.5 h-3.5 text-amber-400" />
-                <span>TIN Number (Optional)</span>
+                <span>{tf('TIN Number (Optional)', 'Nomero ya TIN (Si ngombwa)')}</span>
               </label>
               {trimmedTin && (
                 <button
@@ -252,7 +265,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
                   className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-rose-300 transition"
                 >
                   <Eraser className="w-3 h-3" />
-                  <span>Clear TIN</span>
+                  <span>{tf('Clear TIN', 'Siba TIN')}</span>
                 </button>
               )}
             </div>
@@ -260,24 +273,27 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
               type="text"
               value={tinNumber}
               onChange={(e) => setTinNumber(e.target.value)}
-              placeholder="Leave blank if you do not want a TIN printed on receipts"
+              placeholder={tf('Leave blank if you do not want a TIN printed on receipts', 'Bireke birimo ubusa niba udashaka ko TIN igaragara ku nyemezabuguzi')}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Only enter a TIN if this shop prints one on receipts. When left blank, the TIN line is completely hidden — only your shop name, location, and phone appear.
+              {tf(
+                'Only enter a TIN if this shop prints one on receipts. When left blank, the TIN line is completely hidden — only your shop name, location, and phone appear.',
+                'Shyiramo TIN gusa niba iri duka riyisohora ku nyemezabuguzi. Niba irimo ubusa, umurongo wa TIN urahishwa.'
+              )}
             </p>
           </div>
 
           <div>
             <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-1.5">
               <FileText className="w-3.5 h-3.5 text-amber-400" />
-              <span>Receipt Bottom Thank-You Message (Optional)</span>
+              <span>{tf('Receipt Bottom Thank-You Message (Optional)', 'Ubutumwa bwo Hasi ku Nyemezabuguzi (Si ngombwa)')}</span>
             </label>
             <input
               type="text"
               value={receiptFooterText}
               onChange={(e) => setReceiptFooterText(e.target.value)}
-              placeholder="e.g. Murakoze cyane! / Thank you for shopping with us."
+              placeholder={tf('e.g. Murakoze cyane! / Thank you for shopping with us.', 'urugero: Murakoze cyane kugura natwe!')}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -289,7 +305,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition active:scale-95"
             >
               <Save className="w-4 h-4" />
-              <span>{saving ? 'Saving Changes...' : 'Save Business Details'}</span>
+              <span>{saving ? tf('Saving Changes...', 'Birabikwa...') : tf('Save Business Details', 'Bika Amakuru y’Iduka')}</span>
             </button>
           </div>
         </form>
@@ -299,15 +315,15 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold text-white">
               <Receipt className="w-4 h-4 text-amber-400" />
-              <span>Live Receipt Header Preview</span>
+              <span>{tf('Live Receipt Header Preview', 'Uko Inyemezabuguzi Izagaragara')}</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              How the top and bottom of your 58mm, 80mm, and A4 receipts will look:
+              {tf('How the top and bottom of your 58mm, 80mm, and A4 receipts will look:', 'Uko hejuru na hasi ku nyemezabuguzi za 58mm, 80mm, na A4 hazagaragara:')}
             </p>
 
             <div className="bg-white text-black font-mono p-4 rounded-lg border border-slate-300 shadow-inner text-center space-y-1">
               <p className="font-black text-xs uppercase tracking-tight font-sans">
-                {name.trim() || 'YOUR SHOP NAME'}
+                {name.trim() || tf('YOUR SHOP NAME', 'IZINA RY’IDUKA')}
               </p>
               {location.trim() && (
                 <p className="text-[10px] text-slate-800">{location.trim()}</p>
@@ -339,11 +355,15 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
           <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] text-slate-400">
             {trimmedTin ? (
               <span>
-                TIN <strong className="text-amber-300 font-mono">{trimmedTin}</strong> will appear on receipts and PDFs for this shop.
+                TIN <strong className="text-amber-300 font-mono">{trimmedTin}</strong>{' '}
+                {tf('will appear on receipts and PDFs for this shop.', 'izagaragara ku nyemezabuguzi na PDF z’iri duka.')}
               </span>
             ) : (
               <span>
-                No TIN entered — receipts will show only your shop name{location.trim() ? ', location,' : ''} and phone number with no empty TIN space.
+                {tf(
+                  `No TIN entered — receipts will show only your shop name${location.trim() ? ', location,' : ''} and phone number with no empty TIN space.`,
+                  `Nta TIN yashyizwemo — inyemezabuguzi zizagaragaza gusa izina ry’iduka${location.trim() ? ', aho riherereye,' : ''} na telefoni.`
+                )}
               </span>
             )}
           </div>

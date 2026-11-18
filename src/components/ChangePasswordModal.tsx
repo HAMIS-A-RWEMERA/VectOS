@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../services/api';
 import { Lock, CheckCircle2, AlertCircle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { User } from '../types';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface ChangePasswordModalProps {
   user: User;
@@ -16,6 +17,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   onClose,
   onSuccess
 }) => {
+  const { tf } = useLanguage();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -29,29 +31,29 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     setError('');
 
     if (!currentPassword || !newPassword || !confirmPassword) {
-      setError('All fields are required.');
+      setError(tf('All fields are required.', 'Uzuza ahantu hose hasabwa.'));
       return;
     }
 
     if (newPassword.length < 6) {
-      setError('New password must be at least 6 characters.');
+      setError(tf('New password must be at least 6 characters.', 'Ijambo ry’ibanga rishya rigomba kugira nibura inyuguti 6.'));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('New password and confirmation do not match.');
+      setError(tf('New password and confirmation do not match.', 'Ijambo ry’ibanga rishya n’iryo kwemeza ntibihura.'));
       return;
     }
 
     try {
       setLoading(true);
       const res = await api.changePassword(currentPassword, newPassword);
-      setSuccessMsg(res.message || 'Password changed successfully!');
+      setSuccessMsg(res.message || tf('Password changed successfully!', 'Ijambo ry’ibanga ryahinduwe neza!'));
       setTimeout(() => {
         onSuccess();
       }, 1500);
     } catch (err: any) {
-      setError(err.message || 'Failed to change password. Ensure current password is correct.');
+      setError(err.message || tf('Failed to change password. Ensure current password is correct.', 'Guhindura ijambo ry’ibanga byanze. Reba niba irya kera ari ryo.'));
     } finally {
       setLoading(false);
     }
@@ -67,12 +69,12 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white">
-                {isForced ? 'Password Update Required' : 'Change Your Password'}
+                {isForced ? tf('Password Update Required', 'Birakenewe ko Uhindura Ijambo ry’Ibanga') : tf('Change Your Password', 'Hindura Ijambo ry’Ibanga')}
               </h3>
               <p className="text-xs text-slate-400">
                 {isForced
-                  ? 'Your administrator requested you change your password on first login.'
-                  : `Update credentials for ${user.email}`}
+                  ? tf('Your administrator requested you change your password on first login.', 'Umuyobozi yasabye ko uhindura ijambo ry’ibanga winjira bwa mbere.')
+                  : tf(`Update credentials for ${user.email}`, `Vugurura ijambo ry’ibanga rya ${user.email}`)}
               </p>
             </div>
           </div>
@@ -103,7 +105,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="text-xs font-semibold text-slate-300 block mb-1">
-              Current Password *
+              {tf('Current Password *', 'Ijambo ry’Ibanga rya Kera *')}
             </label>
             <div className="relative">
               <input
@@ -111,7 +113,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
                 required
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter current password"
+                placeholder={tf('Enter current password', 'Andika ijambo ry’ibanga rya kera')}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
               />
             </div>
@@ -119,7 +121,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
           <div>
             <label className="text-xs font-semibold text-slate-300 block mb-1">
-              New Password (min 6 characters) *
+              {tf('New Password (min 6 characters) *', 'Ijambo ry’Ibanga Rishya (nibura inyuguti 6) *')}
             </label>
             <div className="relative">
               <input
@@ -127,7 +129,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
                 required
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter strong new password"
+                placeholder={tf('Enter strong new password', 'Andika ijambo ry’ibanga rishya rikomeye')}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
               />
               <button
@@ -142,14 +144,14 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
           <div>
             <label className="text-xs font-semibold text-slate-300 block mb-1">
-              Confirm New Password *
+              {tf('Confirm New Password *', 'Emeza Ijambo ry’Ibanga Rishya *')}
             </label>
             <input
               type={showPass ? 'text' : 'password'}
               required
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Confirm new password"
+              placeholder={tf('Confirm new password', 'Ongera wandike ijambo ry’ibanga rishya')}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
             />
           </div>
@@ -161,7 +163,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
                 onClick={onClose}
                 className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-semibold text-xs hover:bg-slate-700 transition"
               >
-                Cancel
+                {tf('Cancel', 'Hagarika')}
               </button>
             )}
             <button
@@ -172,7 +174,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
               }`}
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>{loading ? 'Updating Password...' : 'Save New Password'}</span>
+              <span>{loading ? tf('Updating Password...', 'Birimo guhindurwa...') : tf('Save New Password', 'Bika Ijambo ry’Ibanga Rishya')}</span>
             </button>
           </div>
         </form>

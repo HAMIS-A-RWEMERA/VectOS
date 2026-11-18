@@ -15,6 +15,7 @@ import {
 import { EditOrderModal } from './EditOrderModal';
 import { hasPermission } from '../utils/permissions';
 import { exportSingleOrderPdf, exportDeliveryNoticePdf } from '../services/pdfExport';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface ReceiptModalProps {
   order: Order | null;
@@ -35,6 +36,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   initialMode = 'receipt',
   onOrderUpdated
 }) => {
+  const { tf } = useLanguage();
   const [activeOrder, setActiveOrder] = useState<Order | null>(initialOrder);
   const [orderPayments, setOrderPayments] = useState<any[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -694,14 +696,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs sm:text-sm font-black text-white">
-                  {docType === 'receipt' ? "Client's Order" : 'Delivery Notice (Bon de Livraison)'}
+                  {docType === 'receipt' ? "Client's Order" : tf('Delivery Notice (Bon de Livraison)', 'Inyandiko yo Gusohora (Delivery Notice)')}
                 </span>
                 <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   {rollSize}
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">
-                Order #{order.order_number} • {docType === 'receipt' ? 'Itemized prices & totals (Non-EBM)' : 'Warehouse stock release (Quantities only, no prices)'}
+                {tf('Order #', 'Itegeko #')}{order.order_number} • {docType === 'receipt' ? tf('Itemized prices & totals (Non-EBM)', 'Ibiciro n’igiteranyo (Non-EBM)') : tf('Warehouse stock release (Quantities only, no prices)', 'Inyandiko yo gusohora ububiko (imibare gusa, nta biciro)')}
               </p>
             </div>
           </div>
@@ -741,7 +743,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                     ? 'bg-amber-500 text-slate-950 font-bold shadow'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="Full A4 Office Sheet"
+                title={tf('Full A4 Office Sheet', 'Urupapuro Rurambuye rwa A4')}
               >
                 A4
               </button>
@@ -752,10 +754,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 type="button"
                 onClick={() => setIsEditModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-bold transition active:scale-95"
-                title="Edit items, quantities, or replace out-of-stock items"
+                title={tf('Edit items, quantities, or replace out-of-stock items', 'Hindura ibicuruzwa, ingano, cyangwa usimbuze ibishize')}
               >
                 <Edit3 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Edit Receipt</span>
+                <span className="hidden sm:inline">{tf('Edit Receipt', 'Hindura Inyemezabuguzi')}</span>
               </button>
             )}
 
@@ -781,7 +783,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             }`}
           >
             <Receipt className="w-4 h-4 shrink-0" />
-            <span className="truncate">{shopTin ? "Client's Order (Prices & TIN)" : "Client's Order (Prices)"}</span>
+            <span className="truncate">
+              {shopTin
+                ? tf("Client's Order (Prices & TIN)", 'Itegeko ry’Umukiriya (Ibiciro & TIN)')
+                : tf("Client's Order (Prices)", 'Itegeko ry’Umukiriya (Ibiciro)')}
+            </span>
           </button>
 
           <button
@@ -794,7 +800,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             }`}
           >
             <Truck className="w-4 h-4 shrink-0" />
-            <span className="truncate">Delivery Notice (Stock Release)</span>
+            <span className="truncate">{tf('Delivery Notice (Stock Release)', 'Urupapuro rwo Gusohora (Ububiko)')}</span>
           </button>
         </div>
 
@@ -805,7 +811,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
             <span>
               {printNotice || (
                 <>
-                  <strong>Storekeeper View:</strong> Showing Delivery Notice (quantities only). Financial receipts require Manager or Cashier permission.
+                  <strong>{tf('Storekeeper View:', 'Ibireba Umubitsi:')}</strong>{' '}
+                  {tf(
+                    'Showing Delivery Notice (quantities only). Financial receipts require Manager or Cashier permission.',
+                    'Herekana urupapuro rwo gusohora (ingano gusa). Inyemezabuguzi z’amafaranga bisaba uruhushya rw’Umuyobozi cyangwa Keshye.'
+                  )}
                 </>
               )}
             </span>
@@ -819,8 +829,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <span className="text-sm">💡</span>
               <p>
                 {docType === 'delivery_notice'
-                  ? `Hand this Delivery Notice (${rollSize}) to the storekeeper or driver to release products without revealing commercial prices.`
-                  : `Client's Order (${rollSize}) with itemized prices and totals (taxes excluded).${shopTin ? ` Shop TIN: ${shopTin}.` : ''}`}
+                  ? tf(
+                      `Hand this Delivery Notice (${rollSize}) to the storekeeper or driver to release products without revealing commercial prices.`,
+                      `Ha umubitsi cyangwa umushoferi uru rupapuro (${rollSize}) asohore ibicuruzwa bitagaragaje ibiciro by’ubucuruzi.`
+                    )
+                  : tf(
+                      `Client's Order (${rollSize}) with itemized prices and totals (taxes excluded).${shopTin ? ` Shop TIN: ${shopTin}.` : ''}`,
+                      `Itegeko ry’umukiriya (${rollSize}) ririho ibiciro n’igiteranyo (hatarimo imisoro).${shopTin ? ` TIN y’iduka: ${shopTin}.` : ''}`
+                    )}
               </p>
             </div>
             <button
@@ -1253,8 +1269,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
           <p className="text-[11px] text-slate-400 mt-3 text-center">
             {docType === 'delivery_notice'
-              ? `Delivery Notice (${rollSize}): Quantities and items only for warehouse release & transport.`
-              : `Client's Order (${rollSize}): Itemized prices and payments (taxes excluded).`}
+              ? tf(
+                  `Delivery Notice (${rollSize}): Quantities and items only for warehouse release & transport.`,
+                  `Urupapuro rwo Gusohora (${rollSize}): Ingano n’ibicuruzwa gusa byo gusohora mu bubiko no gutwara.`
+                )
+              : tf(
+                  `Client's Order (${rollSize}): Itemized prices and payments (taxes excluded).`,
+                  `Itegeko ry’Umukiriya (${rollSize}): Ibiciro bya buri gicuruzwa n’ubwishyu (hatarimo imisoro).`
+                )}
           </p>
         </div>
 
@@ -1265,20 +1287,30 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               type="button"
               onClick={() => handleCopyText(docType)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300 transition active:scale-95"
-              title="Copy text for WhatsApp / SMS sharing"
+              title={tf('Copy text for WhatsApp / SMS sharing', 'Koporora inyandiko yo kohereza kuri WhatsApp / SMS')}
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-400" />}
-              <span>{copied ? 'Copied Text!' : `Copy ${docType === 'delivery_notice' ? 'Delivery Note' : 'Receipt'}`}</span>
+              <span>
+                {copied
+                  ? tf('Copied Text!', 'Byakoporowe!')
+                  : docType === 'delivery_notice'
+                  ? tf('Copy Delivery Note', 'Koporora Urupapuro rwo Gusohora')
+                  : tf('Copy Receipt', 'Koporora Inyemezabuguzi')}
+              </span>
             </button>
 
             <button
               type="button"
               onClick={handleDownloadA4Pdf}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-rose-500/30 text-xs font-bold text-rose-300 transition active:scale-95"
-              title={`Download A4 PDF (${docType === 'delivery_notice' ? 'Delivery Notice' : 'Full Receipt'})`}
+              title={
+                docType === 'delivery_notice'
+                  ? tf('Download A4 PDF (Delivery Notice)', 'Kuramo PDF ya A4 (Urupapuro rwo Gusohora)')
+                  : tf('Download A4 PDF (Full Receipt)', 'Kuramo PDF ya A4 (Inyemezabuguzi Yuzuye)')
+              }
             >
               <FileText className="w-3.5 h-3.5 text-rose-400" />
-              <span>Save A4 PDF</span>
+              <span>{tf('Save A4 PDF', 'Bika PDF ya A4')}</span>
             </button>
 
             {canEditOrder && (
@@ -1286,10 +1318,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 type="button"
                 onClick={() => setIsEditModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-500/30 text-xs font-bold text-amber-400 transition active:scale-95"
-                title="Edit items, change quantities, or remove out of stock products"
+                title={tf('Edit items, change quantities, or remove out of stock products', 'Hindura ibicuruzwa, ingano, cyangwa ukuremo ibishize')}
               >
                 <Edit3 className="w-3.5 h-3.5" />
-                <span>Edit Receipt</span>
+                <span>{tf('Edit Receipt', 'Hindura Inyemezabuguzi')}</span>
               </button>
             )}
           </div>
@@ -1300,7 +1332,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               onClick={onClose}
               className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
             >
-              Close
+              {tf('Close', 'Funga')}
             </button>
 
             <button
@@ -1308,10 +1340,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               onClick={() => executePrint('delivery_notice')}
               disabled={isPrinting}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/40 font-bold text-xs transition active:scale-95"
-              title={`Print Delivery Notice (${rollSize})`}
+              title={tf(`Print Delivery Notice (${rollSize})`, `Sohora Urupapuro rwo Gusohora (${rollSize})`)}
             >
               <Truck className="w-3.5 h-3.5" />
-              <span>Print Delivery ({rollSize})</span>
+              <span>{tf(`Print Delivery (${rollSize})`, `Sohora Gusohora (${rollSize})`)}</span>
             </button>
 
             <button
@@ -1319,10 +1351,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               onClick={() => executePrint('receipt')}
               disabled={isPrinting || !canPrintReceipt}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
-              title={`Print Full Receipt (${rollSize})`}
+              title={tf(`Print Full Receipt (${rollSize})`, `Sohora Inyemezabuguzi Yuzuye (${rollSize})`)}
             >
               <Printer className="w-4 h-4" />
-              <span>{isPrinting ? 'Printing...' : `Print Receipt (${rollSize})`}</span>
+              <span>
+                {isPrinting
+                  ? tf('Printing...', 'Birasohorwa...')
+                  : tf(`Print Receipt (${rollSize})`, `Sohora Inyemezabuguzi (${rollSize})`)}
+              </span>
             </button>
           </div>
         </div>

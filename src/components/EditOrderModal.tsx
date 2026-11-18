@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Order, OrderItem, Product, User } from '../types';
 import { api } from '../services/api';
 import { hasPermission } from '../utils/permissions';
+import { useLanguage } from '../i18n/LanguageContext';
 import { 
   X, 
   Trash2, 
@@ -54,6 +55,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   onClose,
   onOrderUpdated,
 }) => {
+  const { tf } = useLanguage();
   const canProcessPayments = !user || hasPermission(user, 'can_process_payments');
   const canGiveDiscounts = !user || hasPermission(user, 'can_give_discounts');
   const [customerName, setCustomerName] = useState('');
@@ -177,7 +179,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   // Remove item (e.g. out of stock or accidental entry)
   const handleRemoveItem = (tempId: string) => {
     if (items.length <= 1) {
-      setError('An order must have at least one product. If the whole order is invalid, please void or cancel it.');
+      setError(tf('An order must have at least one product. If the whole order is invalid, please void or cancel it.', 'Itegeko rigomba kugira nibura igicuruzwa kimwe. Niba ritakenewe, rihagarike.'));
       return;
     }
     setError(null);
@@ -244,7 +246,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (items.length === 0) {
-      setError('Please add at least one item to the order.');
+      setError(tf('Please add at least one item to the order.', 'Nyamuneka ongeramo nibura igicuruzwa kimwe mu itegeko.'));
       return;
     }
 
@@ -275,11 +277,11 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
         onOrderUpdated(res.order);
         onClose();
       } else {
-        throw new Error(res?.message || 'Failed to update order');
+        throw new Error(res?.message || tf('Failed to update order', 'Kuvugurura itegeko byanze'));
       }
     } catch (err: any) {
       console.error('Error updating order:', err);
-      setError(err?.message || 'Failed to update order. Please check inputs and stock availability.');
+      setError(err?.message || tf('Failed to update order. Please check inputs and stock availability.', 'Kuvugurura itegeko byanze. Reba ibyo wanditse n’ibiri mu bubiko.'));
     } finally {
       setLoading(false);
     }
@@ -291,12 +293,12 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
     const stockView = formatPackStock(p.quantity, p.units_per_pack, getRetailUnitLabel(p), getPackUnitLabel(p));
     const priceDesc = isPackProduct(p)
       ? `${getPackUnitLabel(p)}: ${formatRwf(getPackSellingPrice(p))} | ${getRetailUnitLabel(p)}: ${formatRwf(getRetailSellingPrice(p))}`
-      : `Price: ${formatRwf(getRetailSellingPrice(p))}`;
+      : `${tf('Price', 'Igiciro')}: ${formatRwf(getRetailSellingPrice(p))}`;
     return {
       value: p.id,
       label: p.name,
-      sublabel: `Code: ${p.sku} • ${priceDesc}`,
-      badge: `Stock: ${stockView.short}`,
+      sublabel: `${tf('Code', 'Kode')}: ${p.sku} • ${priceDesc}`,
+      badge: `${tf('Stock', 'Ububiko')}: ${stockView.short}`,
       badgeTone: (p.quantity > 0 ? 'emerald' : 'rose') as 'emerald' | 'rose',
       searchText: `${p.name} ${p.sku} ${p.barcode || ''} ${p.category || ''}`,
     };
@@ -314,13 +316,16 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white">Edit Receipt & Order</h2>
+                <h2 className="text-base font-bold text-white">{tf('Edit Receipt & Order', 'Hindura Inyemezabuguzi & Itegeko')}</h2>
                 <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   {order.order_number}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Adjust quantities, remove out-of-stock items, or add new items. Physical stock & receipt totals adjust automatically.
+                {tf(
+                  'Adjust quantities, remove out-of-stock items, or add new items. Physical stock & receipt totals adjust automatically.',
+                  'Hindura ingano, kura ibicuruzwa byashize, cyangwa ongeramo ibishya. Ububiko n’igiteranyo bihita bihinduka.'
+                )}
               </p>
             </div>
           </div>
@@ -346,25 +351,25 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-slate-900/80 border border-slate-800">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Customer Name
+                {tf('Customer Name', 'Izina ry’Umukiriya')}
               </label>
               <input
                 type="text"
                 value={customerName}
                 onChange={e => setCustomerName(e.target.value)}
-                placeholder="Walk-in Client"
+                placeholder={tf('Walk-in Client', 'Umukiriya usanzwe')}
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-amber-500"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Phone Number <span className="text-slate-500 font-normal">(Optional)</span>
+                {tf('Phone Number', 'Nomero ya Telefoni')} <span className="text-slate-500 font-normal">({tf('Optional', 'Si ngombwa')})</span>
               </label>
               <input
                 type="text"
                 value={customerPhone}
                 onChange={e => setCustomerPhone(e.target.value)}
-                placeholder="e.g. 0788123456"
+                placeholder={tf('e.g. 0788123456', 'urugero: 0788123456')}
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm text-white focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -376,10 +381,10 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Package className="w-4 h-4 text-amber-400" />
-                  Order Items ({items.length})
+                  {tf('Order Items', 'Ibicuruzwa by’Itegeko')} ({items.length})
                 </h3>
                 <span className="text-[11px] text-slate-400">
-                  Delete any item that was out of stock, or update quantity & selling price.
+                  {tf('Delete any item that was out of stock, or update quantity & selling price.', 'Siba igicuruzwa cyashize, cyangwa uhindure ingano n’igiciro.')}
                 </span>
               </div>
               <button
@@ -388,7 +393,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-bold transition"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{isAddingProduct ? 'Close Selector' : '+ Add Product to Order'}</span>
+                <span>{isAddingProduct ? tf('Close Selector', 'Funga Guhitamo') : tf('+ Add Product to Order', '+ Ongeramo Igicuruzwa')}</span>
               </button>
             </div>
 
@@ -406,11 +411,11 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                         setAddSaleMode(prod && isPackProduct(prod) ? 'pack' : 'retail');
                       }}
                       options={catalogOptions}
-                      placeholder={`Search & pick a product (${catalogProducts.length} available)...`}
-                      searchPlaceholder="Type any part of product name, code, or category..."
-                      noResultsText="No matching inventory products"
+                      placeholder={tf(`Search & pick a product (${catalogProducts.length} available)...`, `Shakisha uhitemo igicuruzwa (${catalogProducts.length} bihari)...`)}
+                      searchPlaceholder={tf('Type any part of product name, code, or category...', 'Andika izina, kode, cyangwa icyiciro...')}
+                      noResultsText={tf('No matching inventory products', 'Nta gicuruzwa cyabonetse')}
                       allowClear
-                      ariaLabel="Select product to add to order"
+                      ariaLabel={tf('Select product to add to order', 'Hitamo igicuruzwa cyo kongeramo')}
                     />
                   </div>
 
@@ -420,13 +425,13 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                     disabled={!selectedProductId}
                     className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs transition shrink-0"
                   >
-                    Add Item
+                    {tf('Add Item', 'Ongeramo')}
                   </button>
                 </div>
 
                 {selectedCatalogProduct && isPackProduct(selectedCatalogProduct) && (
                   <div className="flex items-center gap-2 pt-1">
-                    <span className="text-[11px] font-semibold text-slate-400">Sell as:</span>
+                    <span className="text-[11px] font-semibold text-slate-400">{tf('Sell as:', 'Gurisha nka:')}</span>
                     <button
                       type="button"
                       onClick={() => setAddSaleMode('pack')}
@@ -447,7 +452,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                           : 'bg-slate-950 text-slate-300 border-slate-700'
                       }`}
                     >
-                      {getRetailUnitLabel(selectedCatalogProduct)} (Retail) — {formatRwf(getRetailSellingPrice(selectedCatalogProduct))}
+                      {getRetailUnitLabel(selectedCatalogProduct)} ({tf('Retail', 'Uduce')}) — {formatRwf(getRetailSellingPrice(selectedCatalogProduct))}
                     </button>
                   </div>
                 )}
@@ -459,11 +464,11 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold border-b border-slate-800 text-[10px]">
                   <tr>
-                    <th className="py-2.5 px-3">Item Description</th>
-                    <th className="py-2.5 px-3 text-center">Qty</th>
-                    <th className="py-2.5 px-3 text-right">Unit Price (RWF)</th>
-                    <th className="py-2.5 px-3 text-right">Subtotal (RWF)</th>
-                    <th className="py-2.5 px-3 text-center w-12">Action</th>
+                    <th className="py-2.5 px-3">{tf('Item Description', 'Igicuruzwa')}</th>
+                    <th className="py-2.5 px-3 text-center">{tf('Qty', 'Ingano')}</th>
+                    <th className="py-2.5 px-3 text-right">{tf('Unit Price (RWF)', 'Igiciro (RWF)')}</th>
+                    <th className="py-2.5 px-3 text-right">{tf('Subtotal (RWF)', 'Igiteranyo (RWF)')}</th>
+                    <th className="py-2.5 px-3 text-center w-12">{tf('Action', 'Igikorwa')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -472,7 +477,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                       <td colSpan={5} className="py-8 text-center text-slate-400">
                         <div className="flex items-center justify-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
-                          <span>Loading order line items & prices...</span>
+                          <span>{tf('Loading order line items & prices...', 'Biratunganywa ibicuruzwa n’ibiciro...')}</span>
                         </div>
                       </td>
                     </tr>
@@ -480,7 +485,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                   {!fetchingDetails && items.length === 0 && (
                     <tr>
                       <td colSpan={5} className="py-8 text-center text-slate-400">
-                        <p>No items in this order. Click "+ Add Product to Order" above to add products.</p>
+                        <p>{tf('No items in this order. Click "+ Add Product to Order" above to add products.', 'Nta gicuruzwa kiri muri iri tegeko. Kanda "+ Ongeramo Igicuruzwa" hejuru.')}</p>
                       </td>
                     </tr>
                   )}
@@ -530,7 +535,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                           disabled={!canGiveDiscounts}
                           value={it.selling_price}
                           onChange={e => handlePriceChange(it.tempId, Math.max(0, parseFloat(e.target.value) || 0))}
-                          title={canGiveDiscounts ? 'Edit unit price' : 'Price locked — discount permission required'}
+                          title={canGiveDiscounts ? tf('Edit unit price', 'Hindura igiciro') : tf('Price locked — discount permission required', 'Igiciro kirafunze — bisaba uruhushya rwo kugabanya')}
                           className={`w-24 text-right py-0.5 px-1.5 rounded border font-mono font-bold ${
                             canGiveDiscounts
                               ? 'bg-slate-950 border-slate-700 text-white'
@@ -538,7 +543,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                           }`}
                         />
                         {!canGiveDiscounts && (
-                          <p className="text-[9px] text-slate-400 mt-0.5">Price locked</p>
+                          <p className="text-[9px] text-slate-400 mt-0.5">{tf('Price locked', 'Igiciro kirafunze')}</p>
                         )}
                       </td>
 
@@ -553,7 +558,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                           type="button"
                           onClick={() => handleRemoveItem(it.tempId)}
                           className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                          title="Remove item (e.g. out of stock)"
+                          title={tf('Remove item (e.g. out of stock)', 'Kuramo igicuruzwa (urugero: cyashize)')}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -569,7 +574,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-slate-900/90 border border-slate-800">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Amount Paid by Customer (RWF)
+                {tf('Amount Paid by Customer (RWF)', 'Amafaranga Yishyuwe n’Umukiriya (RWF)')}
               </label>
               <input
                 type="number"
@@ -591,45 +596,45 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                       onClick={() => setPaidAmount(totalAmount)}
                       className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition"
                     >
-                      Pay Full ({formatRwf(totalAmount)})
+                      {tf('Pay Full', 'Yishyure Yose')} ({formatRwf(totalAmount)})
                     </button>
                     <button
                       type="button"
                       onClick={() => setPaidAmount(Math.min(totalAmount, Number(order.paid_amount || 0)))}
                       className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[10px] font-medium transition"
                     >
-                      Original ({formatRwf(order.paid_amount || 0)})
+                      {tf('Original', 'Ayambere')} ({formatRwf(order.paid_amount || 0)})
                     </button>
                     <button
                       type="button"
                       onClick={() => setPaidAmount(0)}
                       className="px-2 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-[10px] font-medium transition"
                     >
-                      Unpaid (0 RWF)
+                      {tf('Unpaid (0 RWF)', 'Ntacyo Yishyuye (0 RWF)')}
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Set to equal order total if paid in full, or enter partial deposit.
+                    {tf('Set to equal order total if paid in full, or enter partial deposit.', 'Shyiramo yose niba yishyuwe yose, cyangwa avansi yishyuwe.')}
                   </p>
                 </>
               ) : (
                 <p className="text-[10px] text-amber-400/90 mt-1.5">
-                  Only Cashier / Accountant can change the paid amount.
+                  {tf('Only Cashier / Accountant can change the paid amount.', 'Keshye cyangwa Umubaruramari gusa nibo bahindura amafaranga yishyuwe.')}
                 </p>
               )}
             </div>
 
             <div className="space-y-1.5 text-right flex flex-col justify-center">
               <div className="flex justify-between text-xs text-slate-400">
-                <span>New Order Total:</span>
+                <span>{tf('New Order Total:', 'Igiteranyo Gishya:')}</span>
                 <span className="font-mono font-bold text-white text-sm">{formatRwf(totalAmount)}</span>
               </div>
               <div className="flex justify-between text-xs text-slate-400">
-                <span>Paid Amount:</span>
+                <span>{tf('Paid Amount:', 'Ayishyuwe:')}</span>
                 <span className="font-mono font-semibold text-emerald-400">{formatRwf(paidAmount)}</span>
               </div>
               <div className="flex justify-between text-xs text-slate-400 border-t border-slate-800 pt-1">
-                <span>Balance Due (Debt):</span>
+                <span>{tf('Balance Due (Debt):', 'Ideni Risigaye:')}</span>
                 <span className={`font-mono font-bold text-sm ${balanceDue > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
                   {formatRwf(balanceDue)}
                 </span>
@@ -640,13 +645,13 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
           {/* Revision Notes */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Revision Notes <span className="text-slate-500 font-normal">(Optional explanation for changes)</span>
+              {tf('Revision Notes', 'Impamvu y’Impinduka')} <span className="text-slate-500 font-normal">({tf('Optional explanation for changes', 'Ibisobanuro by’impinduka')})</span>
             </label>
             <input
               type="text"
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. Removed out-of-stock attache 14m, replaced with 16m"
+              placeholder={tf('e.g. Removed out-of-stock attache 14m, replaced with 16m', 'urugero: Twakuyemo iyashize, dusimbuza indi')}
               className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -655,7 +660,10 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
           <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2">
             <RefreshCw className="w-4 h-4 shrink-0 text-amber-400 animate-spin-slow" />
             <span>
-              Real-time synchronization: Submitting this will automatically replenish the stock of removed items and deduct the newly added items from your warehouse inventory.
+              {tf(
+                'Real-time synchronization: Submitting this will automatically replenish the stock of removed items and deduct the newly added items from your warehouse inventory.',
+                'Ivugurura ry’ako kanya: Kubika ibi bihita bisubiza mu bubiko ibicuruzwa byakuwemo kandi bikavanamo ibyongewemo.'
+              )}
             </span>
           </div>
 
@@ -667,7 +675,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
               disabled={loading}
               className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
             >
-              Cancel
+              {tf('Cancel', 'Hagarika')}
             </button>
             <button
               type="submit"
@@ -675,7 +683,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition active:scale-95 disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              <span>{loading ? 'Saving Changes...' : 'Save & Update Receipt'}</span>
+              <span>{loading ? tf('Saving Changes...', 'Birabikwa...') : tf('Save & Update Receipt', 'Bika & Uvugurure Inyemezabuguzi')}</span>
             </button>
           </div>
         </form>

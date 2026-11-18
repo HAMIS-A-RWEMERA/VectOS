@@ -20,6 +20,7 @@ import {
   Menu,
   Pencil
 } from 'lucide-react';
+import { LanguageSwitcher, useLanguage } from '../i18n/LanguageContext';
 
 interface HeaderProps {
   user: User | null;
@@ -54,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAiHelp,
   onToggleMobileMenu
 }) => {
+  const { t, tf } = useLanguage();
   const [showShopMenu, setShowShopMenu] = useState(false);
   const canEditShopInfo = hasPermission(user, 'can_edit_company_settings');
 
@@ -86,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
                   Rwanda
                 </span>
               </div>
-              <p className="hidden sm:block text-xs text-slate-400 font-medium">Hardware & Electronics Store</p>
+              <p className="hidden sm:block text-xs text-slate-400 font-medium">{tf('Hardware & Electronics Store', "Iduka ry'Ibikoresho by'Ubwubatsi & Elegitoroniki")}</p>
             </div>
           </div>
 
@@ -114,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
                       type="button"
                       onClick={onOpenShopSettings}
                       className="ml-0.5 p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-amber-400 transition shrink-0"
-                      title="Edit Business Info & TIN"
+                      title={tf('Edit Business Info & TIN', "Hindura Amakuru y'Iduka na TIN")}
                     >
                       <Pencil className="w-3 h-3" />
                     </button>
@@ -126,7 +128,7 @@ export const Header: React.FC<HeaderProps> = ({
               {showShopMenu && (
                 <div className="absolute left-0 mt-2 w-64 rounded-xl bg-[#161B22] border border-slate-700 shadow-2xl py-2 z-50 animate-in fade-in zoom-in-95">
                   <div className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
-                    Switch Active Shop
+                    {tf('Switch Active Shop', 'Hindura Iduka Ririmo Gukoreshwa')}
                   </div>
                   {availableShops.map((s) => (
                     <button
@@ -143,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
                         <p className="truncate font-medium">{s.name}</p>
                         <p className="text-[10px] text-slate-400 truncate">{s.location}</p>
                       </div>
-                      {s.id === shop.id && <span className="text-[10px] text-amber-400">Active</span>}
+                      {s.id === shop.id && <span className="text-[10px] text-amber-400">{tf('Active', 'Rikoreshwa')}</span>}
                     </button>
                   ))}
                 </div>
@@ -159,10 +161,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onOpenAiHelp}
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-600/25 hover:from-amber-500/25 hover:to-amber-600/40 border border-amber-500/40 text-amber-300 text-xs font-bold transition shadow-sm cursor-pointer"
-              title="Open VectOS AI Assistant"
+              title={tf('Open VectOS AI Assistant', 'Fungura Umufasha wa VectOS AI')}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">AI Help Guide</span>
+              <span className="hidden sm:inline">{t('header.aiHelpGuide')}</span>
             </button>
           )}
 
@@ -172,7 +174,7 @@ export const Header: React.FC<HeaderProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0F291E]/70 hover:bg-[#0F291E] border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition"
-            title="Chat with Customer Support on WhatsApp (+250 781 549 993)"
+            title={tf('Chat with Customer Support on WhatsApp (+250 781 549 993)', 'Vugana n’ubufasha kuri WhatsApp (+250 781 549 993)')}
           >
             <MessageCircle className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" />
             <span>WhatsApp</span>
@@ -184,15 +186,18 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
           >
             <ShoppingBag className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Make a Sale</span>
-            <span className="sm:hidden">Sell</span>
+            <span className="hidden sm:inline">{t('header.makeSale')}</span>
+            <span className="sm:hidden">{t('header.sell')}</span>
           </button>
+
+          {/* Compact Language Switcher (EN | RW) */}
+          <LanguageSwitcher variant="compact" />
 
           {/* Theme Toggle Button */}
           <button
             onClick={onToggleTheme}
             className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition cursor-pointer"
-            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            title={isDarkMode ? tf('Switch to Light Mode', 'Hindura ku Rumuri') : tf('Switch to Dark Mode', 'Hindura ku Mwijima')}
           >
             {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
           </button>
@@ -203,17 +208,17 @@ export const Header: React.FC<HeaderProps> = ({
               {user.role === 'superadmin' ? (
                 <>
                   <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-amber-400">Platform Owner</span>
+                  <span className="text-amber-400">{t('header.platformOwner')}</span>
                 </>
               ) : user.role === 'platform_ops' ? (
                 <>
                   <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="text-indigo-300">Support Staff</span>
+                  <span className="text-indigo-300">{t('header.supportStaff')}</span>
                 </>
               ) : (
                 <>
                   <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{user.job_title || (user.role === 'manager' ? 'Store Manager' : user.role)}</span>
+                  <span>{user.job_title || (user.role === 'manager' ? t('header.storeManager') : user.role)}</span>
                 </>
               )}
             </div>
@@ -233,7 +238,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={onOpenChangePassword}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
-                  title="Change Password"
+                  title={t('header.changePasswordTitle')}
                 >
                   <KeyRound className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </button>
@@ -242,7 +247,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={onLogout}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
-                title="Sign Out"
+                title={tf('Sign Out', 'Sohoka muri konti')}
               >
                 <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>

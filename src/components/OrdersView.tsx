@@ -26,6 +26,7 @@ import {
 import { EditOrderModal } from './EditOrderModal';
 import { hasPermission } from '../utils/permissions';
 import { matchesSearch } from '../utils/searchMatch';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface OrdersViewProps {
   user: User | null;
@@ -46,6 +47,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   refreshTrigger = 0,
   onOrderUpdatedExternal,
 }) => {
+  const { tf, trPaymentStatus, trFulfillmentStatus } = useLanguage();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -256,10 +258,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
   const getPeriodLabel = (p: string) => {
     switch (p) {
-      case 'day': return 'Daily (Today)';
-      case 'week': return 'Weekly (Past 7 Days)';
-      case 'month': return 'Monthly (Past 30 Days)';
-      default: return 'All Time';
+      case 'day': return tf('Daily (Today)', 'Uyu Munsi');
+      case 'week': return tf('Weekly (Past 7 Days)', 'Icyumweru (Iminsi 7)');
+      case 'month': return tf('Monthly (Past 30 Days)', 'Ukwezi (Iminsi 30)');
+      default: return tf('All Time', 'Igihe Cyose');
     }
   };
 
@@ -401,14 +403,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              Orders & Receipts
+              {tf('Orders & Receipts', "Amategeko n'Inyemezabuguzi")}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {filteredOrders.length} Orders ({getPeriodLabel(period)})
+              {filteredOrders.length} {tf('Orders', 'Amategeko')} ({getPeriodLabel(period)})
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Track customer orders, confirm payments, release items from the store, or edit receipts.
+            {tf('Track customer orders, confirm payments, release items from the store, or edit receipts.', "Kurikirana amategeko y'abakiriya, wemeze ubwishyu, usohore ububiko, cyangwa uhindure inyemezabuguzi.")}
           </p>
         </div>
 
@@ -417,10 +419,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           {/* Period Selector */}
           <div className="flex items-center bg-[#121620] p-1 rounded-xl border border-slate-800 text-xs">
             {[
-              { id: 'day', label: 'Daily (Today)' },
-              { id: 'week', label: 'Weekly (7d)' },
-              { id: 'month', label: 'Monthly (30d)' },
-              { id: 'all', label: 'All Time' },
+              { id: 'day', label: tf('Daily (Today)', 'Uyu Munsi') },
+              { id: 'week', label: tf('Weekly (7d)', 'Iminsi 7') },
+              { id: 'month', label: tf('Monthly (30d)', 'Iminsi 30') },
+              { id: 'all', label: tf('All Time', 'Byose') },
             ].map((p) => (
               <button
                 key={p.id}
@@ -442,7 +444,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/20 border border-rose-500/30 transition"
           >
             <FileText className="w-4 h-4 text-white" />
-            <span>Download Orders PDF</span>
+            <span>{tf('Download Orders PDF', 'Kuramo Raporo PDF')}</span>
           </button>
         </div>
       </div>
@@ -454,7 +456,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search orders by Order Number (e.g. ORD-...), Customer Name, or Phone..."
+              placeholder={tf('Search orders by Order Number (e.g. ORD-...), Customer Name, or Phone...', 'Shakisha nomero y’itegeko (ORD-...), izina ry’umukiriya, cyangwa telefone...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-9 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-amber-500"
@@ -464,7 +466,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-white transition"
-                title="Clear search"
+                title={tf('Clear search', 'Siba')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -474,12 +476,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           {/* Status Tabs */}
           <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto text-xs">
             {[
-              { id: 'all', label: 'All', count: queueCounts.all },
-              { id: 'waiting_payment', label: 'Waiting Payment', count: queueCounts.waiting_payment },
-              { id: 'pending_store', label: 'Waiting Store', count: queueCounts.pending_store },
-              { id: 'released', label: 'Released', count: queueCounts.released },
-              { id: 'completed', label: 'Completed', count: queueCounts.completed },
-              { id: 'cancelled', label: 'Cancelled', count: queueCounts.cancelled },
+              { id: 'all', label: tf('All', 'Byose'), count: queueCounts.all },
+              { id: 'waiting_payment', label: tf('Waiting Payment', 'Bitegereje Kwishyurwa'), count: queueCounts.waiting_payment },
+              { id: 'pending_store', label: tf('Waiting Store', 'Bitegereje Ububiko'), count: queueCounts.pending_store },
+              { id: 'released', label: tf('Released', 'Byasohowe'), count: queueCounts.released },
+              { id: 'completed', label: tf('Completed', 'Byarangiye'), count: queueCounts.completed },
+              { id: 'cancelled', label: tf('Cancelled', 'Byahagaritswe'), count: queueCounts.cancelled },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -512,14 +514,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">
               <tr>
-                <th className="py-3 px-4 font-semibold">Order #</th>
-                <th className="py-3 px-4 font-semibold">Date & Time</th>
-                <th className="py-3 px-4 font-semibold">Customer</th>
-                <th className="py-3 px-4 font-semibold">Total</th>
-                <th className="py-3 px-4 font-semibold">Paid / Balance</th>
-                <th className="py-3 px-4 font-semibold">Payment</th>
-                <th className="py-3 px-4 font-semibold">Store Status</th>
-                <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                <th className="py-3 px-4 font-semibold">{tf('Order #', 'Itegeko #')}</th>
+                <th className="py-3 px-4 font-semibold">{tf('Date & Time', 'Itariki & Igihe')}</th>
+                <th className="py-3 px-4 font-semibold">{tf('Customer', 'Umukiriya')}</th>
+                <th className="py-3 px-4 font-semibold">{tf('Total', 'Igiteranyo')}</th>
+                <th className="py-3 px-4 font-semibold">{tf('Paid / Balance', 'Ayishyuwe / Asigaye')}</th>
+                <th className="py-3 px-4 font-semibold">{tf('Payment', 'Ubwishyu')}</th>
+                <th className="py-3 px-4 font-semibold">{tf('Store Status', 'Ububiko')}</th>
+                <th className="py-3 px-4 font-semibold text-right">{tf('Actions', 'Ibikorwa')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -534,7 +536,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       {new Date(ord.created_at).toLocaleString()}
                     </td>
                     <td className="py-3 px-4">
-                      <p className="font-bold text-slate-200">{ord.customer_name || 'Walk-in Cash Client'}</p>
+                      <p className="font-bold text-slate-200">{ord.customer_name || tf('Walk-in Cash Client', 'Umukiriya usanzwe')}</p>
                       {ord.customer_phone && <p className="text-[10px] text-slate-400 font-mono">{ord.customer_phone}</p>}
                     </td>
                     <td className="py-3 px-4 font-bold font-mono">
@@ -542,7 +544,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         <div>
                           <span className="text-slate-200">RWF 0</span>
                           <p className="text-[10px] text-rose-400 font-bold">
-                            (Cancelled: {formatRwf(ord.total_amount)})
+                            ({tf('Cancelled:', 'Yahagaritswe:')} {formatRwf(ord.total_amount)})
                           </p>
                         </div>
                       ) : (
@@ -555,7 +557,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           <p className="text-slate-200 font-mono font-semibold">RWF 0</p>
                           {Number(ord.paid_amount || 0) > 0 && (
                             <p className="text-rose-400 font-mono text-[10px] font-bold">
-                              (Cancelled: {formatRwf(ord.paid_amount)})
+                              ({tf('Cancelled:', 'Yahagaritswe:')} {formatRwf(ord.paid_amount)})
                             </p>
                           )}
                         </div>
@@ -563,7 +565,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         <>
                           <p className="text-emerald-400 font-mono font-semibold">{formatRwf(ord.paid_amount)}</p>
                           {ord.debt_amount > 0 && (
-                            <p className="text-rose-400 font-mono text-[10px]">Due: {formatRwf(ord.debt_amount)}</p>
+                            <p className="text-rose-400 font-mono text-[10px]">{tf('Due:', 'Asigaye:')} {formatRwf(ord.debt_amount)}</p>
                           )}
                         </>
                       )}
@@ -571,7 +573,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     <td className="py-3 px-4">
                       {isCancelled ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          CANCELLED
+                          {trFulfillmentStatus('cancelled')}
                         </span>
                       ) : (
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -581,13 +583,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                             : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                         }`}>
-                          {ord.payment_status}
+                          {trPaymentStatus(ord.payment_status)}
                         </span>
                       )}
                     </td>
                     <td className="py-3 px-4">
                       <span className={`text-[11px] font-medium capitalize ${isCancelled ? 'text-rose-400 font-bold' : 'text-slate-300'}`}>
-                        {ord.fulfillment_status.replace('_', ' ')}
+                        {ord.fulfillment_status === 'approved' ? tf('Released', 'Byasohowe') : trFulfillmentStatus(ord.fulfillment_status)}
                       </span>
                     </td>
                   <td className="py-3 px-4 text-right">
@@ -596,23 +598,23 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         onClick={() => handleViewOrder(ord.id)}
                         className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-[11px] font-semibold border border-slate-700 transition"
                       >
-                        Open
+                        {tf('Open', 'Fungura')}
                       </button>
                       {canEditAnyOrder && ord.fulfillment_status !== 'cancelled' && (
                         <button
                           onClick={() => setEditingOrder(ord)}
                           className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-300 text-[11px] font-semibold border border-slate-700 transition flex items-center gap-1"
-                          title="Edit Receipt / Order items (quantities, replace out-of-stock items)"
+                          title={tf('Edit Receipt / Order items (quantities, replace out-of-stock items)', 'Hindura inyemezabuguzi cyangwa ibicuruzwa')}
                         >
                           <Edit3 className="w-3 h-3 text-amber-400" />
-                          <span>Edit</span>
+                          <span>{tf('Edit', 'Hindura')}</span>
                         </button>
                       )}
                       {(canPrintReceipt || canPrintDeliveryNote) && (
                         <button
                           onClick={() => onPrintReceipt(ord)}
                           className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-                          title={canPrintReceipt ? 'Print Receipt / Delivery Note' : 'Print Delivery Note'}
+                          title={canPrintReceipt ? tf('Print Receipt / Delivery Note', 'Sohora Inyemezabuguzi / Delivery Notice') : tf('Print Delivery Note', 'Sohora Delivery Notice')}
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
@@ -627,7 +629,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
                     <FileText className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                    <p className="font-semibold text-slate-300">No orders found</p>
+                    <p className="font-semibold text-slate-300">{tf('No orders found', 'Nta tegeko ryabonetse')}</p>
                   </td>
                 </tr>
               )}
@@ -644,7 +646,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <span className="text-[11px] uppercase font-mono tracking-wider text-slate-400">
-                  Order Details
+                  {tf('Order Details', 'Amakuru y’Itegeko')}
                 </span>
                 <h2 className="text-xl font-bold text-white font-mono mt-0.5">
                   {selectedOrder.order_number}
@@ -655,10 +657,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <button
                     onClick={() => setEditingOrder(selectedOrder)}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-400 font-black text-xs transition shadow-md shadow-amber-500/20 active:scale-95"
-                    title="Edit items, change quantities, replace products, or modify prices"
+                    title={tf('Edit items, change quantities, replace products, or modify prices', 'Hindura ibicuruzwa, imibare, cyangwa ibiciro')}
                   >
                     <Edit3 className="w-3.5 h-3.5" />
-                    <span>Edit Receipt & Items</span>
+                    <span>{tf('Edit Receipt & Items', 'Hindura Inyemezabuguzi')}</span>
                   </button>
                 )}
                 {canVoidOrders && selectedOrder.fulfillment_status !== 'cancelled' && (
@@ -668,25 +670,25 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       setIsVoidModalOpen(true);
                     }}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-bold text-xs transition"
-                    title="Cancel order and return all stock"
+                    title={tf('Cancel order and return all stock', 'Hagarika itegeko usubize ibicuruzwa mu bubiko')}
                   >
                     <Ban className="w-3.5 h-3.5" />
-                    <span>Cancel Order</span>
+                    <span>{tf('Cancel Order', 'Hagarika Itegeko')}</span>
                   </button>
                 )}
                 <button
                   onClick={() => exportSingleOrderPdf({ order: selectedOrder, items: orderItems, payments: orderPayments, shop })}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-red-600/20 to-rose-600/20 hover:from-red-600/30 hover:to-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs transition shadow-sm"
-                  title="Download Official Commercial Invoice PDF"
+                  title={tf('Download Official Commercial Invoice PDF', 'Kuramo Fagitire PDF')}
                 >
                   <FileText className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Invoice PDF</span>
+                  <span>{tf('Invoice PDF', 'Fagitire PDF')}</span>
                 </button>
                 {(canPrintReceipt || canPrintDeliveryNote) && (
                   <button
                     onClick={() => onPrintReceipt(selectedOrder)}
                     className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-                    title={canPrintReceipt ? 'Print Thermal Receipt / Delivery Note' : 'Print Delivery Note'}
+                    title={canPrintReceipt ? tf('Print Thermal Receipt / Delivery Note', 'Sohora Inyemezabuguzi / Delivery Notice') : tf('Print Delivery Note', 'Sohora Delivery Notice')}
                   >
                     <Printer className="w-4 h-4" />
                   </button>
@@ -730,13 +732,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               {selectedOrder.fulfillment_status === 'cancelled' ? (
                 <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-2">
                   <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>This order was cancelled and all items were returned to stock.</span>
+                  <span>{tf('This order was cancelled and all items were returned to stock.', 'Iri tegeko ryarahagaritswe kandi ibicuruzwa byose byasubijwe mu bubiko.')}</span>
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-2 text-[11px]">
                   <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
-                    <p className="text-[10px] font-bold uppercase text-emerald-400">1. Ordered</p>
-                    <p className="font-semibold text-white mt-0.5 truncate">{selectedOrder.salesperson_name || 'Staff'}</p>
+                    <p className="text-[10px] font-bold uppercase text-emerald-400">{tf('1. Ordered', '1. Byasabwe')}</p>
+                    <p className="font-semibold text-white mt-0.5 truncate">{selectedOrder.salesperson_name || tf('Staff', 'Umukozi')}</p>
                   </div>
                   <div className={`p-2.5 rounded-xl border ${
                     selectedOrder.payment_status === 'paid'
@@ -752,16 +754,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         ? 'text-amber-400'
                         : 'text-rose-400'
                     }`}>
-                      2. Payment
+                      {tf('2. Payment', '2. Ubwishyu')}
                     </p>
                     <p className="font-semibold text-white mt-0.5 truncate">
                       {selectedOrder.payment_status === 'paid'
-                        ? 'Paid'
+                        ? tf('Paid', 'Yishyuwe')
                         : selectedOrder.payment_status === 'partial'
-                        ? 'Partial'
+                        ? tf('Partial', 'Yishyuwe Igice')
                         : selectedOrder.payment_status === 'debt'
-                        ? 'Credit'
-                        : 'Waiting Payment'}
+                        ? tf('Credit', 'Ideni')
+                        : tf('Waiting Payment', 'Bitegereje Kwishyurwa')}
                     </p>
                   </div>
                   <div className={`p-2.5 rounded-xl border ${
@@ -774,16 +776,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         ? 'text-amber-400'
                         : 'text-emerald-400'
                     }`}>
-                      3. Store Release
+                      {tf('3. Store Release', '3. Ububiko')}
                     </p>
                     <p className="font-semibold text-white mt-0.5 truncate">
                       {selectedOrder.fulfillment_status === 'pending_store'
-                        ? 'Waiting Store'
+                        ? tf('Waiting Store', 'Bitegereje Ububiko')
                         : selectedOrder.fulfillment_status === 'approved'
-                        ? 'Released'
+                        ? tf('Released', 'Byasohowe')
                         : selectedOrder.fulfillment_status === 'dispatched'
-                        ? 'Dispatched'
-                        : 'Completed'}
+                        ? tf('Dispatched', 'Byoherejwe')
+                        : tf('Completed', 'Byarangiye')}
                     </p>
                   </div>
                 </div>
@@ -803,7 +805,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-1.5 active:scale-95"
                     >
                       <DollarSign className="w-4 h-4" />
-                      <span>Confirm Payment ({formatRwf(selectedOrder.debt_amount)})</span>
+                      <span>{tf('Confirm Payment', 'Emeza Ubwishyu')} ({formatRwf(selectedOrder.debt_amount)})</span>
                     </button>
                   )}
 
@@ -812,11 +814,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       onClick={() => handleExecuteSelectiveRelease(true)}
                       disabled={isReleasingItems || isSubmitting}
                       className="flex-1 py-2 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
-                      title="Release ticked items from warehouse and automatically adjust receipt and stock"
+                      title={tf('Release ticked items from warehouse and automatically adjust receipt and stock', 'Sohora ibicuruzwa wahisemo mu bubiko')}
                     >
                       <CheckCircle2 className="w-4 h-4" />
                       <span>
-                        {isReleasingItems ? 'Releasing Stock...' : 'Release Checked Products & Update Receipt'}
+                        {isReleasingItems ? tf('Releasing Stock...', 'Birimo gusohoka...') : tf('Release Checked Products & Update Receipt', 'Sohora Ibyahiswemo & Uvugurure Inyemezabuguzi')}
                       </span>
                     </button>
                   )}
@@ -824,7 +826,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   {selectedOrder.fulfillment_status === 'pending_store' && !canReleaseStock && (
                     <div className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
                       <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span>Waiting for Storekeeper to check and release items.</span>
+                      <span>{tf('Waiting for Storekeeper to check and release items.', 'Bitegereje umubitsi ngo asuzume kandi asohore ibicuruzwa.')}</span>
                     </div>
                   )}
 
@@ -835,7 +837,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
                     >
                       <Truck className="w-4 h-4" />
-                      <span>Mark Dispatched</span>
+                      <span>{tf('Mark Dispatched', 'Emeza ko Byoherejwe')}</span>
                     </button>
                   )}
 
@@ -846,7 +848,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className="flex-1 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow transition flex items-center justify-center gap-1.5"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>Mark Order Completed</span>
+                      <span>{tf('Mark Order Completed', 'Emeza ko Byarangiye')}</span>
                     </button>
                   )}
 
@@ -856,7 +858,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 flex items-center gap-1.5"
                     >
                       <Printer className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{canPrintReceipt ? 'Print Receipt' : 'Print Delivery Note'}</span>
+                      <span>{canPrintReceipt ? tf('Print Receipt', 'Sohora Inyemezabuguzi') : tf('Print Delivery Note', 'Sohora Delivery Notice')}</span>
                     </button>
                   )}
                 </div>
@@ -866,29 +868,29 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             {/* Financial Summary */}
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Total Amount</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">{tf('Total Amount', 'Igiteranyo')}</p>
                 <p className="text-sm font-bold text-white font-mono mt-1">
                   {selectedOrder.fulfillment_status === 'cancelled' ? 'RWF 0' : formatRwf(selectedOrder.total_amount)}
                 </p>
                 {selectedOrder.fulfillment_status === 'cancelled' && (
                   <p className="text-[10px] font-mono text-rose-400 font-bold mt-0.5">
-                    (Cancelled: {formatRwf(selectedOrder.total_amount)})
+                    ({tf('Cancelled:', 'Yahagaritswe:')} {formatRwf(selectedOrder.total_amount)})
                   </p>
                 )}
               </div>
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Paid So Far</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">{tf('Paid So Far', 'Ayishyuwe')}</p>
                 <p className={`text-sm font-bold font-mono mt-1 ${selectedOrder.fulfillment_status === 'cancelled' ? 'text-slate-200' : 'text-emerald-400'}`}>
                   {selectedOrder.fulfillment_status === 'cancelled' ? 'RWF 0' : formatRwf(selectedOrder.paid_amount)}
                 </p>
                 {selectedOrder.fulfillment_status === 'cancelled' && Number(selectedOrder.paid_amount || 0) > 0 && (
                   <p className="text-[10px] font-mono text-rose-400 font-bold mt-0.5">
-                    (Cancelled: {formatRwf(selectedOrder.paid_amount)})
+                    ({tf('Cancelled:', 'Yahagaritswe:')} {formatRwf(selectedOrder.paid_amount)})
                   </p>
                 )}
               </div>
               <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Debt Outstanding</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">{tf('Debt Outstanding', 'Ideni Risigaye')}</p>
                 <p className={`text-sm font-bold font-mono mt-1 ${selectedOrder.fulfillment_status === 'cancelled' ? 'text-slate-300' : 'text-rose-400'}`}>
                   {selectedOrder.fulfillment_status === 'cancelled' ? 'RWF 0' : formatRwf(selectedOrder.debt_amount)}
                 </p>
@@ -898,53 +900,53 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             {/* Customer Details & Audit Signatures */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Client Profile</p>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{tf('Client Profile', 'Umwirondoro w’Umukiriya')}</p>
                 <div className="flex justify-between text-slate-300">
-                  <span>Name:</span>
-                  <strong className="text-white">{selectedOrder.customer_name || 'Walk-in Cash Client'}</strong>
+                  <span>{tf('Name:', 'Izina:')}</span>
+                  <strong className="text-white">{selectedOrder.customer_name || tf('Walk-in Cash Client', 'Umukiriya usanzwe')}</strong>
                 </div>
                 {selectedOrder.customer_phone && (
                   <div className="flex justify-between text-slate-300">
-                    <span>Telephone:</span>
+                    <span>{tf('Telephone:', 'Telefone:')}</span>
                     <span className="font-mono text-amber-400">{selectedOrder.customer_phone}</span>
                   </div>
                 )}
                 {selectedOrder.notes && (
                   <div className="pt-2 border-t border-slate-800 text-slate-400 italic">
-                    Notes: {selectedOrder.notes}
+                    {tf('Notes:', 'Icyitonderwa:')} {selectedOrder.notes}
                   </div>
                 )}
               </div>
 
               <div className="p-4 rounded-xl bg-gradient-to-br from-slate-900 via-[#141A25] to-slate-900 border border-slate-800 space-y-2 text-xs">
                 <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-                  Staff Who Handled This Order
+                  {tf('Staff Who Handled This Order', 'Abakozi Bakiriye iri Tegeko')}
                 </p>
                 
                 <div className="space-y-1 text-slate-300">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Sold By:</span>
-                    <span className="font-semibold text-white">{selectedOrder.salesperson_name || 'Staff'}</span>
+                    <span className="text-slate-400">{tf('Sold By:', 'Uwagurishije:')}</span>
+                    <span className="font-semibold text-white">{selectedOrder.salesperson_name || tf('Staff', 'Umukozi')}</span>
                   </div>
 
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Payment Confirmed By:</span>
+                    <span className="text-slate-400">{tf('Payment Confirmed By:', 'Uwemeje Ubwishyu:')}</span>
                     <span className="font-semibold text-emerald-300">
                       {selectedOrder.payment_approved_by_name ? (
                         `${selectedOrder.payment_approved_by_name}`
                       ) : (
-                        <span className="text-slate-400 italic">Waiting for Cashier</span>
+                        <span className="text-slate-400 italic">{tf('Waiting for Cashier', 'Ategereje Keshye')}</span>
                       )}
                     </span>
                   </div>
 
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Items Released By:</span>
+                    <span className="text-slate-400">{tf('Items Released By:', 'Uwabikuye mu Bubiko:')}</span>
                     <span className="font-semibold text-blue-300">
                       {selectedOrder.stock_released_by_name ? (
                         `${selectedOrder.stock_released_by_name}`
                       ) : (
-                        <span className="text-slate-400 italic">Waiting for Storekeeper</span>
+                        <span className="text-slate-400 italic">{tf('Waiting for Storekeeper', 'Ategereje Umubitsi')}</span>
                       )}
                     </span>
                   </div>
@@ -959,14 +961,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
                       <Truck className="w-4 h-4 text-amber-400" />
-                      Items to Release from Store
+                      {tf('Items to Release from Store', 'Ibicuruzwa Bisohoka mu Bubiko')}
                     </h3>
                     <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                      {orderItems.filter(it => releaseSelection[it.id]?.checked).length} of {orderItems.length} Checked
+                      {orderItems.filter(it => releaseSelection[it.id]?.checked).length} / {orderItems.length} {tf('Checked', 'Byatoranyijwe')}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Tick each item that is available in the store. Unchecked items will be removed and the receipt updates automatically.
+                    {tf('Tick each item that is available in the store. Unchecked items will be removed and the receipt updates automatically.', 'Hitamo buri gicuruzwa kiboneka mu bubiko. Ibitatoranyijwe biravanwaho kandi inyemezabuguzi ihinduke ako kanya.')}
                   </p>
                 </div>
 
@@ -978,7 +980,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         onClick={() => handleSelectAllRelease(true)}
                         className="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white font-semibold transition"
                       >
-                        Check All
+                        {tf('Check All', 'Hitamo Byose')}
                       </button>
                       <span className="text-slate-600">|</span>
                       <button
@@ -986,7 +988,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         onClick={() => handleSelectAllRelease(false)}
                         className="px-2 py-1 rounded hover:bg-slate-800 text-slate-300 hover:text-white font-semibold transition"
                       >
-                        Uncheck All
+                        {tf('Uncheck All', 'Kura Byose')}
                       </button>
                     </div>
                   )}
@@ -996,10 +998,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       type="button"
                       onClick={() => setEditingOrder(selectedOrder)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 transition active:scale-95"
-                      title="Edit line items, add replacement products, or adjust prices"
+                      title={tf('Edit line items, add replacement products, or adjust prices', 'Hindura ibicuruzwa cyangwa ibiciro')}
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      <span>Edit Receipt</span>
+                      <span>{tf('Edit Receipt', 'Hindura Inyemezabuguzi')}</span>
                     </button>
                   )}
                 </div>
@@ -1011,7 +1013,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
                   <span>
-                    Notice: This order has <strong>{formatRwf(selectedOrder.debt_amount)}</strong> unpaid. Confirm payment with Cashier or approved credit before handing over goods.
+                    {tf('Notice: This order has', 'Icyitonderwa: Iri tegeko rifite')} <strong>{formatRwf(selectedOrder.debt_amount)}</strong> {tf('unpaid. Confirm payment with Cashier or approved credit before handing over goods.', 'atarishyurwa. Emeza ubwishyu cyangwa ideni mbere yo gutanga ibicuruzwa.')}
                   </span>
                 </div>
               )}
@@ -1020,13 +1022,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 text-[10px] uppercase tracking-wider">
                     <tr>
-                      <th className="p-2.5 text-center w-12">Release</th>
-                      <th className="p-2.5">Product</th>
-                      <th className="p-2.5 text-center">Ordered</th>
-                      <th className="p-2.5 text-center">Release Qty</th>
-                      <th className="p-2.5 text-right">Price</th>
-                      <th className="p-2.5 text-right">Subtotal</th>
-                      <th className="p-2.5 text-center">Status</th>
+                      <th className="p-2.5 text-center w-12">{tf('Release', 'Sohora')}</th>
+                      <th className="p-2.5">{tf('Product', 'Igicuruzwa')}</th>
+                      <th className="p-2.5 text-center">{tf('Ordered', 'Byasabwe')}</th>
+                      <th className="p-2.5 text-center">{tf('Release Qty', 'Ibisohoka')}</th>
+                      <th className="p-2.5 text-right">{tf('Price', 'Igiciro')}</th>
+                      <th className="p-2.5 text-right">{tf('Subtotal', 'Igiteranyo')}</th>
+                      <th className="p-2.5 text-center">{tf('Status', 'Imiterere')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-sans">
@@ -1118,16 +1120,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                             {isChecked ? (
                               isPartial ? (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                                  Partial ({releaseQty}/{item.quantity})
+                                  {tf('Partial', 'Igice')} ({releaseQty}/{item.quantity})
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                                  Full Release
+                                  {tf('Full Release', 'Byose')}
                                 </span>
                               )
                             ) : (
                               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                                Excluded / Out of Stock
+                                {tf('Excluded / Out of Stock', 'Byakuwemo / Byashize')}
                               </span>
                             )}
                           </td>
@@ -1142,16 +1144,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs">
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-white">Release Calculation:</span>
+                    <span className="font-bold text-white">{tf('Release Calculation:', 'Imibare y’Ibisohorwa:')}</span>
                     <span className="font-mono font-bold text-amber-400">
-                      {orderItems.filter(it => releaseSelection[it.id]?.checked).length} of {orderItems.length} Products Checked
+                      {orderItems.filter(it => releaseSelection[it.id]?.checked).length} {tf('of', 'kuri')} {orderItems.length} {tf('Products Checked', 'Ibicuruzwa Byemejwe')}
                     </span>
                     <span className="text-slate-400">
-                      ({orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + (releaseSelection[it.id]?.releaseQty || it.quantity) : acc, 0)} Units)
+                      ({orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + (releaseSelection[it.id]?.releaseQty || it.quantity) : acc, 0)} {tf('Units', 'Ingano')})
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400">
-                    Adjusted Order Subtotal: <strong className="text-emerald-400 font-mono">{formatRwf(orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + ((Number(it.selling_price) || 0) * (releaseSelection[it.id]?.releaseQty || it.quantity)) : acc, 0))}</strong>
+                    {tf('Adjusted Order Subtotal:', 'Igiteranyo Gishya cy’Itegeko:')}{' '}
+                    <strong className="text-emerald-400 font-mono">{formatRwf(orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + ((Number(it.selling_price) || 0) * (releaseSelection[it.id]?.releaseQty || it.quantity)) : acc, 0))}</strong>
                   </p>
                 </div>
 
@@ -1164,7 +1167,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 transition active:scale-95 disabled:opacity-50"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>{isReleasingItems ? 'Releasing Stock...' : 'Release Checked & Update Receipt'}</span>
+                      <span>
+                        {isReleasingItems
+                          ? tf('Releasing Stock...', 'Ububiko Burasohoka...')
+                          : tf('Release Checked & Update Receipt', 'Sohora Ibyemejwe & Uvugurure Inyemezabuguzi')}
+                      </span>
                     </button>
                   </div>
                 )}
@@ -1174,7 +1181,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             {/* Payment Transactions & Record Payment Button */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Payment History</h3>
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">{tf('Payment History', 'Amateka y’Ubwishyu')}</h3>
                 {selectedOrder.debt_amount > 0 && selectedOrder.fulfillment_status !== 'cancelled' && canProcessPayments && (
                   <button
                     onClick={() => {
@@ -1185,7 +1192,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     }}
                     className="flex items-center gap-1 text-xs font-bold text-amber-400 hover:underline"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Add Payment
+                    <Plus className="w-3.5 h-3.5" /> {tf('Add Payment', 'Ongeraho Ubwishyu')}
                   </button>
                 )}
               </div>
@@ -1199,18 +1206,18 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </span>
                       {selectedOrder.fulfillment_status === 'cancelled' && (
                         <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          CANCELLED
+                          {tf('CANCELLED', 'CYAHAGARITSWE')}
                         </span>
                       )}
                       {p.reference_no && (
-                        <p className="text-[10px] text-slate-400 font-mono">Ref: {p.reference_no}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">{tf('Ref:', 'Nomero:')} {p.reference_no}</p>
                       )}
                     </div>
                     <div className="text-right">
                       {selectedOrder.fulfillment_status === 'cancelled' ? (
                         <div>
                           <span className="font-mono font-bold text-slate-200">RWF 0</span>
-                          <p className="text-[10px] font-mono text-rose-400 font-bold">(Cancelled: {formatRwf(p.amount)})</p>
+                          <p className="text-[10px] font-mono text-rose-400 font-bold">({tf('Cancelled:', 'Cyakuweho:')} {formatRwf(p.amount)})</p>
                         </div>
                       ) : (
                         <span className="font-mono font-bold text-emerald-400">{formatRwf(p.amount)}</span>
@@ -1221,7 +1228,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 ))}
 
                 {orderPayments.length === 0 && (
-                  <p className="text-xs text-slate-400 text-center py-3">No payments logged yet.</p>
+                  <p className="text-xs text-slate-400 text-center py-3">{tf('No payments logged yet.', 'Nta bwishyu burandikwa.')}</p>
                 )}
               </div>
             </div>
@@ -1234,13 +1241,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Record Payment for {selectedOrder.order_number}</h3>
+              <h3 className="text-base font-bold text-white">{tf('Record Payment for', 'Andika Ubwishyu bwa')} {selectedOrder.order_number}</h3>
               <button onClick={() => setIsPaymentModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
             </div>
 
             <form onSubmit={handleRecordPayment} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Payment Amount (RWF)</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Payment Amount (RWF)', 'Umubare w’Amafaranga Yishyuwe (RWF)')}</label>
                 <input
                   type="number"
                   required
@@ -1251,23 +1258,23 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Payment Channel</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Payment Channel', 'Uburyo bwo Kwishyura')}</label>
                 <select
                   value={payMethod}
                   onChange={(e) => setPayMethod(e.target.value as any)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                 >
-                  <option value="momo">MTN Mobile Money</option>
-                  <option value="cash">Cash (RWF)</option>
-                  <option value="bank_transfer">Bank Transfer (BK / I&M / Equity)</option>
+                  <option value="momo">{tf('MTN Mobile Money', 'MTN Mobile Money')}</option>
+                  <option value="cash">{tf('Cash (RWF)', 'Cash (RWF)')}</option>
+                  <option value="bank_transfer">{tf('Bank Transfer (BK / I&M / Equity)', 'Kuri Banki (BK / I&M / Equity)')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300">Transaction ID / SMS Reference</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Transaction ID / SMS Reference', 'Nomero ya Transakisi / SMS')}</label>
                 <input
                   type="text"
-                  placeholder="e.g. TXN4820921"
+                  placeholder={tf('e.g. TXN4820921', 'urugero: TXN4820921')}
                   value={payRef}
                   onChange={(e) => setPayRef(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -1282,14 +1289,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   onClick={() => setIsPaymentModalOpen(false)}
                   className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
                 >
-                  Cancel
+                  {tf('Cancel', 'Hagarika')}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
                   className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
-                  {isSubmitting ? 'Recording...' : 'Confirm Receipt'}
+                  {isSubmitting ? tf('Recording...', 'Birandikwa...') : tf('Confirm Receipt', 'Emeza Kwishyurwa')}
                 </button>
               </div>
             </form>
@@ -1303,9 +1310,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-amber-500/40 shadow-2xl p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-black text-white">Confirm Partial Stock Release</h3>
+                <h3 className="text-base font-black text-white">{tf('Confirm Partial Stock Release', 'Emeza Gusohora Igice cy’Ububiko')}</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Order <span className="font-mono text-amber-400 font-bold">{selectedOrder.order_number}</span> will be updated to match only what was physically released.
+                  {tf('Order', 'Itegeko')} <span className="font-mono text-amber-400 font-bold">{selectedOrder.order_number}</span> {tf('will be updated to match only what was physically released.', 'rirahindurwa rihure n’ibyasohotse mu bubiko gusa.')}
                 </p>
               </div>
               <button
@@ -1328,7 +1335,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     <div className="min-w-0">
                       <p className="font-bold text-slate-100 truncate">{it.product_name || `Product #${it.product_id}`}</p>
                       <p className="text-[10px] text-slate-400">
-                        {isChecked ? `Releasing ${qtyReleased} of ${it.quantity}` : `Unchecked — returning all ${it.quantity} to stock`}
+                        {isChecked ? tf(`Releasing ${qtyReleased} of ${it.quantity}`, `Hasohoka ${qtyReleased} muri ${it.quantity}`) : tf(`Unchecked — returning all ${it.quantity} to stock`, `Ntikihisemo — byose (${it.quantity}) birasubira mu bubiko`)}
                       </p>
                     </div>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
@@ -1338,7 +1345,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                         : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                     }`}>
-                      {!isChecked ? 'Removed & Returned' : diff > 0 ? `Partial (-${diff} returned)` : 'Full Release'}
+                      {!isChecked ? tf('Removed & Returned', 'Byavanywemo & Byasubijwe') : diff > 0 ? tf(`Partial (-${diff} returned)`, `Igice (-${diff} byasubijwe)`) : tf('Full Release', 'Byose Bisohoka')}
                     </span>
                   </div>
                 );
@@ -1346,7 +1353,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             </div>
 
             <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Updated Receipt Total:</span>
+              <span className="text-slate-400">{tf('Updated Receipt Total:', 'Igiteranyo Gishya cy’Inyemezabuguzi:')}</span>
               <span className="font-mono font-black text-emerald-400 text-sm">
                 {formatRwf(orderItems.reduce((acc, it) => releaseSelection[it.id]?.checked ? acc + ((Number(it.selling_price) || 0) * (releaseSelection[it.id]?.releaseQty || it.quantity)) : acc, 0))}
               </span>
@@ -1359,7 +1366,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 disabled={isReleasingItems}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300"
               >
-                Go Back
+                {tf('Go Back', 'Subira Inyuma')}
               </button>
               <button
                 type="button"
@@ -1367,7 +1374,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 disabled={isReleasingItems}
                 className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 disabled:opacity-50"
               >
-                {isReleasingItems ? 'Releasing Stock...' : 'Confirm Release & Update Receipt'}
+                {isReleasingItems ? tf('Releasing Stock...', 'Birimo gusohoka...') : tf('Confirm Release & Update Receipt', 'Emeza Gusohora & Inyemezabuguzi')}
               </button>
             </div>
           </div>
@@ -1380,9 +1387,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-rose-500/40 shadow-2xl p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-black text-white">Cancel Order {selectedOrder.order_number}?</h3>
+                <h3 className="text-base font-black text-white">{tf(`Cancel Order ${selectedOrder.order_number}?`, `Uhagarike Itegeko ${selectedOrder.order_number}?`)}</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  All products in this order will be returned to store stock and any unpaid balance on the customer account will be cleared.
+                  {tf('All products in this order will be returned to store stock and any unpaid balance on the customer account will be cleared.', 'Ibicuruzwa byose biri muri iri tegeko birasubizwa mu bubiko kandi umwenda utarishyurwa urasibwa.')}
                 </p>
               </div>
               <button
@@ -1396,10 +1403,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
             <form onSubmit={handleVoidOrder} className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-slate-300">Reason for Cancelling (Optional)</label>
+                <label className="text-xs font-semibold text-slate-300">{tf('Reason for Cancelling (Optional)', 'Impamvu yo guhagarika (si itegeko)')}</label>
                 <input
                   type="text"
-                  placeholder="e.g. Customer changed mind / duplicate order"
+                  placeholder={tf('e.g. Customer changed mind / duplicate order', 'urugero: Umukiriya yahinduye ibitekerezo')}
                   value={voidReason}
                   onChange={(e) => setVoidReason(e.target.value)}
                   className="w-full mt-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-rose-500"
@@ -1413,14 +1420,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   disabled={isVoiding}
                   className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300"
                 >
-                  Keep Order
+                  {tf('Keep Order', 'Reka Rihagume')}
                 </button>
                 <button
                   type="submit"
                   disabled={isVoiding}
                   className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-900/30 disabled:opacity-50"
                 >
-                  {isVoiding ? 'Cancelling...' : 'Confirm Cancel Order'}
+                  {isVoiding ? tf('Cancelling...', 'Birimo guhagarikwa...') : tf('Confirm Cancel Order', 'Emeza Guhagarika')}
                 </button>
               </div>
             </form>
