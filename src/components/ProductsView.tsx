@@ -6,6 +6,14 @@ import { AiInvoiceScannerModal } from './AiInvoiceScannerModal';
 import { exportStockPdf } from '../services/pdfExport';
 import { hasPermission } from '../utils/permissions';
 import { matchesSearch } from '../utils/searchMatch';
+import {
+  formatPackStock,
+  getPackSize,
+  getPackUnitLabel,
+  getPackSellingPrice,
+  getRetailUnitLabel,
+  isPackProduct
+} from '../utils/unitConversion';
 import { 
   Package, 
   Plus, 
@@ -87,14 +95,22 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     barcode: '',
     category: 'Building Materials',
     unit: 'pcs',
+    units_per_pack: 1,
+    pack_unit: 'Carton',
     buying_price: 0,
     selling_price: 0,
+    pack_buying_price: 0,
+    pack_selling_price: 0,
     quantity: 0,
     low_stock_threshold: 5,
     description: ''
   });
+  const [sellInBothModes, setSellInBothModes] = useState(false);
+  const [stockPacksInput, setStockPacksInput] = useState<number>(0);
+  const [stockLooseInput, setStockLooseInput] = useState<number>(0);
 
   const [adjustQty, setAdjustQty] = useState<string>('10');
+  const [adjustUnitMode, setAdjustUnitMode] = useState<'retail' | 'pack'>('retail');
   const [adjustType, setAdjustType] = useState<string>('purchase_restock');
   const [adjustNotes, setAdjustNotes] = useState<string>('');
   const [modalError, setModalError] = useState('');
@@ -274,17 +290,27 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     const rowsHtml = list.map((p, idx) => {
       const sellPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
       const qty = Number(p.quantity || 0);
+      const breakdown = formatPackStock(qty, p.units_per_pack, p.unit, p.pack_unit);
       const status = qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy';
+      const unitCell = breakdown.isMultiUnit
+        ? `${escapeHtml(breakdown.retailUnit)}<br><span class="muted">1 ${escapeHtml(breakdown.packUnit)} = ${breakdown.packSize}</span>`
+        : escapeHtml(p.unit || 'pcs');
+      const priceCell = breakdown.isMultiUnit
+        ? `${formatRwf(sellPrice)} / ${escapeHtml(breakdown.retailUnit)}<br><span class="muted">${formatRwf(getPackSellingPrice(p))} / ${escapeHtml(breakdown.packUnit)}</span>`
+        : formatRwf(sellPrice);
+      const stockCell = breakdown.isMultiUnit
+        ? `${escapeHtml(breakdown.primary)}<br><span class="muted">(${breakdown.totalText})</span>`
+        : qty.toLocaleString();
       return `
         <tr>
           <td class="center">${idx + 1}</td>
           <td class="mono">${escapeHtml(p.sku || '-')}</td>
           <td><strong>${escapeHtml(p.name)}</strong><br><span class="muted">${escapeHtml(p.category)}</span></td>
           <td>${escapeHtml(p.stock_name || 'Main')}</td>
-          <td class="center">${escapeHtml(p.unit || 'pcs')}</td>
+          <td class="center">${unitCell}</td>
           ${canViewBuyingPrices ? `<td class="right mono">${formatRwf(p.buying_price)}</td>` : ''}
-          <td class="right mono">${formatRwf(sellPrice)}</td>
-          <td class="right mono bold">${qty.toLocaleString()}</td>
+          <td class="right mono">${priceCell}</td>
+          <td class="right mono bold">${stockCell}</td>
           <td class="right mono">${Number(p.total_units_sold || 0).toLocaleString()}</td>
           <td class="center">${escapeHtml(status)}</td>
           <td class="center">${escapeHtml(formatShortDate(p.last_stocked_at || p.created_at))}</td>
@@ -385,18 +411,20 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     setIsExportMenuOpen(false);
     const list = filteredProducts;
     const headers = canViewBuyingPrices
-      ? ['Item Code', 'Product Name', 'Category', 'Location', 'Unit', 'Buying Cost (RWF)', 'Selling Price (RWF)', 'In Stock', 'Units Sold', 'Status', 'Date Entered']
-      : ['Item Code', 'Product Name', 'Category', 'Location', 'Unit', 'Selling Price (RWF)', 'In Stock', 'Units Sold', 'Status', 'Date Entered'];
+      ? ['Item Code', 'Product Name', 'Category', 'Location', 'Retail Unit', 'Pack Unit', 'Units Per Pack', 'Buying Cost (RWF)', 'Selling Price (RWF)', 'Pack Selling Price (RWF)', 'In Stock (Base)', 'Stock Breakdown', 'Units Sold', 'Status', 'Date Entered']
+      : ['Item Code', 'Product Name', 'Category', 'Location', 'Retail Unit', 'Pack Unit', 'Units Per Pack', 'Selling Price (RWF)', 'Pack Selling Price (RWF)', 'In Stock (Base)', 'Stock Breakdown', 'Units Sold', 'Status', 'Date Entered'];
 
     const csvSafe = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = list.map((p) => {
       const sellPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
+      const packSellPrice = isPackProduct(p) ? getPackSellingPrice(p) : '';
       const qty = Number(p.quantity || 0);
+      const breakdown = formatPackStock(qty, p.units_per_pack, p.unit, p.pack_unit);
       const status = qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy';
       const dateStr = formatShortDate(p.last_stocked_at || p.created_at);
       const cols = canViewBuyingPrices
-        ? [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, Number(p.buying_price || 0), sellPrice, qty, Number(p.total_units_sold || 0), status, dateStr]
-        : [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, sellPrice, qty, Number(p.total_units_sold || 0), status, dateStr];
+        ? [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, breakdown.isMultiUnit ? breakdown.packUnit : '', breakdown.packSize, Number(p.buying_price || 0), sellPrice, packSellPrice, qty, breakdown.primary, Number(p.total_units_sold || 0), status, dateStr]
+        : [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, breakdown.isMultiUnit ? breakdown.packUnit : '', breakdown.packSize, sellPrice, packSellPrice, qty, breakdown.primary, Number(p.total_units_sold || 0), status, dateStr];
       return cols.map(csvSafe).join(',');
     });
 
@@ -413,14 +441,21 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
   };
 
   const handleOpenAdd = () => {
+    setSellInBothModes(false);
+    setStockPacksInput(0);
+    setStockLooseInput(10);
     setFormData({
       name: '',
       sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
       barcode: '',
       category: categories[1] || 'Building Materials',
-      unit: 'cartons',
+      unit: 'pcs',
+      units_per_pack: 1,
+      pack_unit: 'Carton',
       buying_price: 1000,
       selling_price: 1000,
+      pack_buying_price: 0,
+      pack_selling_price: 0,
       quantity: 10,
       low_stock_threshold: 5,
       description: ''
@@ -431,18 +466,36 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
   const handleOpenEdit = (p: Product) => {
     setCurrentProduct(p);
+    const multi = isPackProduct(p);
+    const packSize = getPackSize(p);
+    const qty = Math.max(0, Math.round(Number(p.quantity || 0)));
+    setSellInBothModes(multi);
+    setStockPacksInput(multi ? Math.floor(qty / packSize) : 0);
+    setStockLooseInput(multi ? qty % packSize : qty);
+
     const sellVal = p.selling_price && Number(p.selling_price) > 0
       ? Number(p.selling_price)
       : Number(p.buying_price || 0);
+    const buyVal = Number(p.buying_price || 0);
+    const packSellVal = Number(p.pack_selling_price || 0) > 0
+      ? Number(p.pack_selling_price)
+      : (multi ? sellVal * packSize : 0);
+    const packBuyVal = Number(p.pack_buying_price || 0) > 0
+      ? Number(p.pack_buying_price)
+      : (multi ? buyVal * packSize : 0);
+
     setFormData({
       name: p.name,
       sku: p.sku,
       barcode: p.barcode || '',
       category: p.category,
-      unit: p.unit,
-      ...(canViewBuyingPrices ? { buying_price: Number(p.buying_price || 0) } : {}),
+      unit: p.unit || 'pcs',
+      units_per_pack: packSize,
+      pack_unit: p.pack_unit || 'Carton',
+      ...(canViewBuyingPrices ? { buying_price: buyVal, pack_buying_price: packBuyVal } : {}),
       selling_price: sellVal,
-      quantity: p.quantity,
+      pack_selling_price: packSellVal,
+      quantity: qty,
       low_stock_threshold: p.low_stock_threshold,
       description: p.description || ''
     });
@@ -452,11 +505,48 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
   const handleOpenAdjust = (p: Product) => {
     setCurrentProduct(p);
-    setAdjustQty('10');
+    setAdjustQty(isPackProduct(p) ? '1' : '10');
+    setAdjustUnitMode(isPackProduct(p) ? 'pack' : 'retail');
     setAdjustType('purchase_restock');
     setAdjustNotes('');
     setModalError('');
     setIsAdjustModalOpen(true);
+  };
+
+  const buildProductSubmitPayload = (): Partial<Product> => {
+    if (!sellInBothModes) {
+      return {
+        ...formData,
+        units_per_pack: 1,
+        pack_unit: null,
+        pack_buying_price: 0,
+        pack_selling_price: 0,
+        quantity: Math.max(0, Math.round(Number(formData.quantity || 0))),
+        low_stock_threshold: Math.max(0, Math.round(Number(formData.low_stock_threshold || 0)))
+      };
+    }
+
+    const packSize = Math.max(2, Math.round(Number(formData.units_per_pack || 100)));
+    const totalBaseQty =
+      Math.max(0, Math.round(Number(stockPacksInput || 0))) * packSize +
+      Math.max(0, Math.round(Number(stockLooseInput || 0)));
+
+    const packBuy = canViewBuyingPrices ? Math.max(0, Number(formData.pack_buying_price || 0)) : undefined;
+    const retailBuy = canViewBuyingPrices
+      ? (packBuy && packBuy > 0 ? Number((packBuy / packSize).toFixed(2)) : Math.max(0, Number(formData.buying_price || 0)))
+      : undefined;
+
+    return {
+      ...formData,
+      unit: (formData.unit || 'pcs').trim() || 'pcs',
+      units_per_pack: packSize,
+      pack_unit: (formData.pack_unit || 'Carton').trim() || 'Carton',
+      ...(canViewBuyingPrices ? { buying_price: retailBuy, pack_buying_price: packBuy } : {}),
+      selling_price: Math.max(0, Number(formData.selling_price || 0)),
+      pack_selling_price: Math.max(0, Number(formData.pack_selling_price || 0)),
+      quantity: totalBaseQty,
+      low_stock_threshold: Math.max(0, Math.round(Number(formData.low_stock_threshold || 0)))
+    };
   };
 
   const handleSaveAdd = async (e: React.FormEvent) => {
@@ -465,9 +555,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       setModalError('Product Name and Item Code are required.');
       return;
     }
+    if (sellInBothModes && (!formData.units_per_pack || Number(formData.units_per_pack) < 2)) {
+      setModalError('Items per Pack must be at least 2 when selling in both Wholesale Packs & Retail.');
+      return;
+    }
     try {
       setIsSubmitting(true);
-      await api.createProduct(formData);
+      await api.createProduct(buildProductSubmitPayload());
       setIsAddModalOpen(false);
       fetchProducts();
     } catch (err: any) {
@@ -480,9 +574,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentProduct) return;
+    if (sellInBothModes && (!formData.units_per_pack || Number(formData.units_per_pack) < 2)) {
+      setModalError('Items per Pack must be at least 2 when selling in both Wholesale Packs & Retail.');
+      return;
+    }
     try {
       setIsSubmitting(true);
-      await api.updateProduct(currentProduct.id, formData);
+      await api.updateProduct(currentProduct.id, buildProductSubmitPayload());
       setIsEditModalOpen(false);
       fetchProducts();
     } catch (err: any) {
@@ -497,8 +595,17 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     if (!currentProduct) return;
     try {
       setIsSubmitting(true);
-      const qtyNum = Number(adjustQty) || 0;
-      await api.adjustStock(currentProduct.id, qtyNum, adjustType, adjustNotes);
+      const rawQty = Math.round(Number(adjustQty) || 0);
+      const packSize = isPackProduct(currentProduct) && adjustUnitMode === 'pack'
+        ? getPackSize(currentProduct)
+        : 1;
+      const baseQtyDelta = rawQty * packSize;
+      const unitDesc = adjustUnitMode === 'pack' && isPackProduct(currentProduct)
+        ? `${rawQty > 0 ? '+' : ''}${rawQty} ${getPackUnitLabel(currentProduct)} (${baseQtyDelta > 0 ? '+' : ''}${baseQtyDelta} ${getRetailUnitLabel(currentProduct)})`
+        : `${rawQty > 0 ? '+' : ''}${rawQty} ${getRetailUnitLabel(currentProduct)}`;
+      const fullNotes = adjustNotes ? `${adjustNotes} [${unitDesc}]` : unitDesc;
+
+      await api.adjustStock(currentProduct.id, baseQtyDelta, adjustType, fullNotes);
       setIsAdjustModalOpen(false);
       fetchProducts();
     } catch (err: any) {
@@ -809,24 +916,75 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 const sellingPrice = p.selling_price && Number(p.selling_price) > 0
                   ? Number(p.selling_price)
                   : Number(p.buying_price || 0);
+                const breakdown = formatPackStock(p.quantity, p.units_per_pack, p.unit, p.pack_unit);
+                const packSellPrice = breakdown.isMultiUnit ? getPackSellingPrice(p) : 0;
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-800/40 transition">
                     <td className="py-3 px-4 font-mono font-bold text-amber-400">{p.sku}</td>
                     <td className="py-3 px-4">
-                      <p className="font-bold text-slate-100">{p.name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-bold text-slate-100">{p.name}</p>
+                        {breakdown.isMultiUnit && (
+                          <span className="px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[9px] font-bold">
+                            Wholesale + Retail
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-slate-400">
                         {p.category}{p.stock_name ? ` • ${p.stock_name}` : ''}
                       </p>
                     </td>
-                    <td className="py-3 px-4 text-slate-300 font-mono">{p.unit}</td>
+                    <td className="py-3 px-4 text-slate-300 font-mono">
+                      {breakdown.isMultiUnit ? (
+                        <div>
+                          <p className="text-slate-200 font-semibold">{breakdown.retailUnit}</p>
+                          <p className="text-[10px] text-indigo-300">
+                            1 {breakdown.packUnit} = {breakdown.packSize} {breakdown.retailUnit}
+                          </p>
+                        </div>
+                      ) : (
+                        p.unit
+                      )}
+                    </td>
                     {canViewBuyingPrices && (
-                      <td className="py-3 px-4 text-slate-400 font-mono">{formatRwf(p.buying_price)}</td>
+                      <td className="py-3 px-4 text-slate-400 font-mono">
+                        {breakdown.isMultiUnit ? (
+                          <div>
+                            <p>{formatRwf(p.buying_price)}/{breakdown.retailUnit}</p>
+                            {Number(p.pack_buying_price || 0) > 0 && (
+                              <p className="text-[10px] text-slate-400">
+                                {formatRwf(p.pack_buying_price)}/{breakdown.packUnit}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          formatRwf(p.buying_price)
+                        )}
+                      </td>
                     )}
-                    <td className="py-3 px-4 font-bold text-slate-200 font-mono">{formatRwf(sellingPrice)}</td>
-                    <td className="py-3 px-4 font-mono font-black text-white">{p.quantity}</td>
+                    <td className="py-3 px-4 font-bold text-slate-200 font-mono">
+                      {breakdown.isMultiUnit ? (
+                        <div>
+                          <p className="text-sky-300">{formatRwf(sellingPrice)} <span className="text-[10px] font-normal text-slate-400">/{breakdown.retailUnit}</span></p>
+                          <p className="text-[11px] text-amber-400">{formatRwf(packSellPrice)} <span className="text-[10px] font-normal text-slate-400">/{breakdown.packUnit}</span></p>
+                        </div>
+                      ) : (
+                        formatRwf(sellingPrice)
+                      )}
+                    </td>
+                    <td className="py-3 px-4 font-mono">
+                      {breakdown.isMultiUnit ? (
+                        <div>
+                          <p className="font-black text-white">{breakdown.primary}</p>
+                          <p className="text-[10px] text-slate-400">({breakdown.totalText} total)</p>
+                        </div>
+                      ) : (
+                        <span className="font-black text-white">{p.quantity}</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 font-mono font-semibold text-sky-300">
-                      {Number(p.total_units_sold || 0).toLocaleString()}
+                      {Number(p.total_units_sold || 0).toLocaleString()} {breakdown.isMultiUnit ? breakdown.retailUnit : ''}
                     </td>
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap">
                       {formatShortDate(p.last_stocked_at || p.created_at)}
@@ -884,13 +1042,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
       {/* Add / Edit Product Modal */}
       {(isAddModalOpen || isEditModalOpen) && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-5 sm:p-6 space-y-4 animate-in fade-in zoom-in-95 my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-bold text-white">
                 {isAddModalOpen ? 'Register New Product' : `Edit Product: ${currentProduct?.name}`}
               </h3>
               <button
+                type="button"
                 onClick={() => {
                   setIsAddModalOpen(false);
                   setIsEditModalOpen(false);
@@ -902,6 +1061,53 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             </div>
 
             <form onSubmit={isAddModalOpen ? handleSaveAdd : handleSaveEdit} className="space-y-4">
+              {/* Dual Wholesale + Retail Mode Toggle */}
+              <label className="flex items-start gap-3 p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/30 cursor-pointer hover:bg-indigo-500/15 transition">
+                <input
+                  type="checkbox"
+                  checked={sellInBothModes}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setSellInBothModes(checked);
+                    if (checked) {
+                      const packSize = Math.max(2, Math.round(Number(formData.units_per_pack || 1) > 1 ? Number(formData.units_per_pack) : 100));
+                      const currentQty = Math.max(0, Math.round(Number(formData.quantity || 0)));
+                      setFormData((prev) => ({
+                        ...prev,
+                        unit: prev.unit === 'cartons' || prev.unit === 'boxes' ? 'pcs' : (prev.unit || 'pcs'),
+                        units_per_pack: packSize,
+                        pack_unit: prev.pack_unit || 'Carton',
+                        pack_selling_price: prev.pack_selling_price && Number(prev.pack_selling_price) > 0
+                          ? prev.pack_selling_price
+                          : Number(prev.selling_price || 0) * packSize,
+                        pack_buying_price: prev.pack_buying_price && Number(prev.pack_buying_price) > 0
+                          ? prev.pack_buying_price
+                          : Number(prev.buying_price || 0) * packSize
+                      }));
+                      setStockPacksInput(Math.floor(currentQty / packSize));
+                      setStockLooseInput(currentQty % packSize);
+                    } else {
+                      const packSize = Math.max(1, Math.round(Number(formData.units_per_pack || 1)));
+                      const total = stockPacksInput * packSize + stockLooseInput;
+                      setFormData((prev) => ({
+                        ...prev,
+                        units_per_pack: 1,
+                        quantity: total
+                      }));
+                    }
+                  }}
+                  className="mt-0.5 w-4 h-4 rounded accent-indigo-500 cursor-pointer"
+                />
+                <div className="min-w-0">
+                  <span className="text-xs font-bold text-indigo-200 block">
+                    Sell in Both Wholesale Packs (Cartons/Boxes) &amp; Retail Pieces
+                  </span>
+                  <span className="text-[11px] text-slate-300 block mt-0.5">
+                    Keep one unified stock pool. Selling full cartons or loose retail items will automatically break cartons when needed and keep exact inventory.
+                  </span>
+                </div>
+              </label>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-300">Product Name *</label>
@@ -934,76 +1140,226 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   >
                     <option value="Building Materials">Building Materials (Cement, Iron bars)</option>
                     <option value="Electrical Supplies">Electrical Supplies (Cables, Sockets)</option>
-                    <option value="Plumbing & Pipes">Plumbing & Pipes (PVC, Taps)</option>
-                    <option value="Paints & Finishes">Paints & Finishes (Exterior, Primer)</option>
-                    <option value="Power Tools & Hardware">Power Tools & Hardware</option>
-                    <option value="Solar & Electronics">Solar & Electronics</option>
+                    <option value="Plumbing & Pipes">Plumbing &amp; Pipes (PVC, Taps)</option>
+                    <option value="Paints & Finishes">Paints &amp; Finishes (Exterior, Primer)</option>
+                    <option value="Power Tools & Hardware">Power Tools &amp; Hardware</option>
+                    <option value="Solar & Electronics">Solar &amp; Electronics</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Unit of Measure</label>
+                  <label className="text-xs font-semibold text-slate-300">
+                    {sellInBothModes ? 'Retail Unit (Base Unit)' : 'Unit of Measure'}
+                  </label>
                   <select
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
-                    <option value="cartons">Cartons (ctn)</option>
                     <option value="pcs">Pieces (pcs)</option>
-                    <option value="bags">Bags (50kg)</option>
+                    <option value="kg">Kilograms (kg)</option>
                     <option value="meters">Meters (m)</option>
-                    <option value="rolls">Rolls</option>
                     <option value="liters">Liters (L)</option>
-                    <option value="boxes">Boxes</option>
+                    {!sellInBothModes && <option value="cartons">Cartons (ctn)</option>}
+                    {!sellInBothModes && <option value="bags">Bags (50kg)</option>}
+                    {!sellInBothModes && <option value="rolls">Rolls</option>}
+                    {!sellInBothModes && <option value="boxes">Boxes</option>}
                   </select>
                 </div>
 
-                {canViewBuyingPrices && (
-                  <div>
-                    <label className="text-xs font-semibold text-slate-300">Buying Cost (RWF)</label>
-                    <input
-                      type="number"
-                      value={formData.buying_price ?? ''}
-                      onChange={(e) => {
-                        const newBuy = Number(e.target.value);
-                        setFormData((prev) => ({
-                          ...prev,
-                          buying_price: newBuy,
-                          selling_price: prev.selling_price ? prev.selling_price : newBuy
-                        }));
-                      }}
-                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
+                {sellInBothModes ? (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-indigo-300">Wholesale Pack Unit</label>
+                      <select
+                        value={formData.pack_unit || 'Carton'}
+                        onChange={(e) => setFormData({ ...formData, pack_unit: e.target.value })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-indigo-500/40 text-xs text-white focus:outline-none focus:border-indigo-400"
+                      >
+                        <option value="Carton">Carton</option>
+                        <option value="Box">Box</option>
+                        <option value="Sack">Sack</option>
+                        <option value="Bag">Bag</option>
+                        <option value="Roll">Roll</option>
+                        <option value="Bundle">Bundle</option>
+                        <option value="Packet">Packet</option>
+                        <option value="Dozen">Dozen</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-indigo-300">
+                        Retail {formData.unit || 'pcs'} Inside 1 {formData.pack_unit || 'Carton'} *
+                      </label>
+                      <input
+                        type="number"
+                        min="2"
+                        step="1"
+                        required
+                        value={formData.units_per_pack || ''}
+                        onChange={(e) => {
+                          const newSize = Math.max(2, Math.round(Number(e.target.value) || 2));
+                          setFormData((prev) => ({
+                            ...prev,
+                            units_per_pack: newSize,
+                            buying_price: prev.pack_buying_price && Number(prev.pack_buying_price) > 0
+                              ? Number((Number(prev.pack_buying_price) / newSize).toFixed(2))
+                              : prev.buying_price
+                          }));
+                        }}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-indigo-500/40 text-xs text-white font-mono focus:outline-none focus:border-indigo-400"
+                      />
+                    </div>
+
+                    {canViewBuyingPrices && (
+                      <div>
+                        <label className="text-xs font-semibold text-slate-300">
+                          Wholesale Buying Cost / {formData.pack_unit || 'Carton'} (RWF)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={formData.pack_buying_price ?? ''}
+                          onChange={(e) => {
+                            const pBuy = Math.max(0, Number(e.target.value) || 0);
+                            const size = Math.max(2, Math.round(Number(formData.units_per_pack || 100)));
+                            const rBuy = Number((pBuy / size).toFixed(2));
+                            setFormData((prev) => ({
+                              ...prev,
+                              pack_buying_price: pBuy,
+                              buying_price: rBuy
+                            }));
+                          }}
+                          className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                          Derived cost per {formData.unit || 'pcs'}: {formatRwf(formData.buying_price)}
+                        </p>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-xs font-semibold text-amber-300">
+                        Wholesale Selling Price / {formData.pack_unit || 'Carton'} (RWF) *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={formData.pack_selling_price || ''}
+                        placeholder="Price for 1 full carton/pack"
+                        onChange={(e) => setFormData({ ...formData, pack_selling_price: Math.max(0, Number(e.target.value) || 0) })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-amber-500/40 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-sky-300">
+                        Retail Selling Price / 1 {formData.unit || 'pcs'} (RWF) *
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        required
+                        value={formData.selling_price || ''}
+                        placeholder="Price for 1 loose piece"
+                        onChange={(e) => setFormData({ ...formData, selling_price: Math.max(0, Number(e.target.value) || 0) })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-xs text-sky-300 font-mono font-bold focus:outline-none focus:border-sky-400"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-white">
+                          Stock on Hand (Whole Numbers)
+                        </label>
+                        <span className="text-[11px] font-mono font-bold text-emerald-400">
+                          Total Stored: {(
+                            Math.max(0, Math.round(stockPacksInput)) * Math.max(2, Math.round(Number(formData.units_per_pack || 100))) +
+                            Math.max(0, Math.round(stockLooseInput))
+                          ).toLocaleString()} {formData.unit || 'pcs'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] text-slate-400">Full {formData.pack_unit || 'Carton'}s</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={stockPacksInput}
+                            onChange={(e) => setStockPacksInput(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                            className="w-full mt-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-400">+ Loose {formData.unit || 'pcs'}</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={stockLooseInput}
+                            onChange={(e) => setStockLooseInput(Math.max(0, Math.round(Number(e.target.value) || 0)))}
+                            className="w-full mt-1 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {canViewBuyingPrices && (
+                      <div>
+                        <label className="text-xs font-semibold text-slate-300">Buying Cost (RWF)</label>
+                        <input
+                          type="number"
+                          value={formData.buying_price ?? ''}
+                          onChange={(e) => {
+                            const newBuy = Number(e.target.value);
+                            setFormData((prev) => ({
+                              ...prev,
+                              buying_price: newBuy,
+                              selling_price: prev.selling_price ? prev.selling_price : newBuy
+                            }));
+                          }}
+                          className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300">Selling Price (RWF)</label>
+                      <input
+                        type="number"
+                        value={formData.selling_price || ''}
+                        placeholder="Enter retail price"
+                        onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300">Initial Quantity in Stock</label>
+                      <input
+                        type="number"
+                        step="1"
+                        value={formData.quantity}
+                        onChange={(e) => setFormData({ ...formData, quantity: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </>
                 )}
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300">Selling Price (RWF)</label>
+                  <label className="text-xs font-semibold text-slate-300">
+                    Low Stock Warning Level {sellInBothModes ? `(${formData.unit || 'pcs'})` : ''}
+                  </label>
                   <input
                     type="number"
-                    value={formData.selling_price || ''}
-                    placeholder="Enter retail price"
-                    onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-300">Initial Quantity in Stock</label>
-                  <input
-                    type="number"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-300">Low Stock Warning Level</label>
-                  <input
-                    type="number"
+                    step="1"
                     value={formData.low_stock_threshold}
-                    onChange={(e) => setFormData({ ...formData, low_stock_threshold: Number(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, low_stock_threshold: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
                     className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -1051,76 +1407,136 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       {isAdjustModalOpen && currentProduct && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md rounded-2xl bg-[#141923] border border-slate-700 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold text-white">Stock Level Adjustment</h3>
-                <p className="text-xs text-slate-400">{currentProduct.name} (Current: {currentProduct.quantity} {currentProduct.unit})</p>
-              </div>
-              <button onClick={() => setIsAdjustModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
-            </div>
+            {(() => {
+              const adjBreakdown = formatPackStock(currentProduct.quantity, currentProduct.units_per_pack, currentProduct.unit, currentProduct.pack_unit);
+              const multiplier = adjBreakdown.isMultiUnit && adjustUnitMode === 'pack' ? adjBreakdown.packSize : 1;
+              const baseDelta = Math.round(Number(adjustQty) || 0) * multiplier;
+              const projectedTotal = currentProduct.quantity + baseDelta;
+              const projectedBreakdown = formatPackStock(projectedTotal, currentProduct.units_per_pack, currentProduct.unit, currentProduct.pack_unit);
 
-            <form onSubmit={handleSaveAdjust} className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-300">Adjustment Quantity (+ to add, - to reduce)</label>
-                <input
-                  type="number"
-                  required
-                  value={adjustQty}
-                  onChange={(e) => setAdjustQty(e.target.value)}
-                  className="w-full mt-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-white focus:outline-none focus:border-amber-500"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  New stock will be: <strong className="text-amber-400">{currentProduct.quantity + (Number(adjustQty) || 0)} {currentProduct.unit}</strong>
-                </p>
-              </div>
+              return (
+                <>
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <h3 className="text-base font-bold text-white">Stock Level Adjustment</h3>
+                      <p className="text-xs text-slate-400">
+                        {currentProduct.name} (Current: {adjBreakdown.primary}
+                        {adjBreakdown.isMultiUnit ? ` / ${adjBreakdown.totalText}` : ''})
+                      </p>
+                    </div>
+                    <button onClick={() => setIsAdjustModalOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+                  </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300">Adjustment Reason</label>
-                <select
-                  value={adjustType}
-                  onChange={(e) => setAdjustType(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
-                >
-                  <option value="purchase_restock">New Supplier Delivery / Restock (+)</option>
-                  <option value="customer_return">Customer Return (+)</option>
-                  <option value="inventory_audit">Stock Count Fix (+/-)</option>
-                  <option value="damaged_written_off">Damaged / Broken Items (-)</option>
-                  <option value="theft_loss">Missing / Lost Items (-)</option>
-                </select>
-              </div>
+                  <form onSubmit={handleSaveAdjust} className="space-y-3">
+                    {adjBreakdown.isMultiUnit && (
+                      <div>
+                        <label className="text-xs font-semibold text-slate-300 block mb-1">Adjust By Unit</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setAdjustUnitMode('pack')}
+                            className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
+                              adjustUnitMode === 'pack'
+                                ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                                : 'bg-slate-900 border-slate-700 text-slate-400'
+                            }`}
+                          >
+                            {adjBreakdown.packUnit} (×{adjBreakdown.packSize})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAdjustUnitMode('retail')}
+                            className={`py-2 px-3 rounded-xl text-xs font-bold border transition ${
+                              adjustUnitMode === 'retail'
+                                ? 'bg-sky-500/20 border-sky-500 text-sky-300'
+                                : 'bg-slate-900 border-slate-700 text-slate-400'
+                            }`}
+                          >
+                            Loose {adjBreakdown.retailUnit}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300">Notes (Optional)</label>
-                <textarea
-                  rows={2}
-                  placeholder="e.g. Received new cement bags from supplier"
-                  value={adjustNotes}
-                  onChange={(e) => setAdjustNotes(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
-                />
-              </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300">
+                        Adjustment Quantity in {adjustUnitMode === 'pack' && adjBreakdown.isMultiUnit ? adjBreakdown.packUnit : adjBreakdown.retailUnit} (+ to add, - to reduce)
+                      </label>
+                      <input
+                        type="number"
+                        step="1"
+                        required
+                        value={adjustQty}
+                        onChange={(e) => setAdjustQty(e.target.value)}
+                        className="w-full mt-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-sm font-mono text-white focus:outline-none focus:border-amber-500"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        {adjBreakdown.isMultiUnit && adjustUnitMode === 'pack' && (
+                          <span className="block text-slate-300">
+                            Equivalent change: {baseDelta > 0 ? '+' : ''}{baseDelta} {adjBreakdown.retailUnit}
+                          </span>
+                        )}
+                        New stock will be:{' '}
+                        <strong className={projectedTotal < 0 ? 'text-rose-400' : 'text-amber-400'}>
+                          {projectedTotal < 0
+                            ? `Invalid (${projectedTotal})`
+                            : adjBreakdown.isMultiUnit
+                            ? `${projectedBreakdown.primary} (${projectedBreakdown.totalText})`
+                            : `${projectedTotal} ${adjBreakdown.retailUnit}`}
+                        </strong>
+                      </p>
+                    </div>
 
-              {modalError && (
-                <p className="text-xs text-rose-400 font-semibold">{modalError}</p>
-              )}
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300">Adjustment Reason</label>
+                      <select
+                        value={adjustType}
+                        onChange={(e) => setAdjustType(e.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                      >
+                        <option value="purchase_restock">New Supplier Delivery / Restock (+)</option>
+                        <option value="customer_return">Customer Return (+)</option>
+                        <option value="inventory_audit">Stock Count Fix (+/-)</option>
+                        <option value="damaged_written_off">Damaged / Broken Items (-)</option>
+                        <option value="theft_loss">Missing / Lost Items (-)</option>
+                      </select>
+                    </div>
 
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAdjustModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
-                >
-                  {isSubmitting ? 'Updating...' : 'Confirm Stock Adjustment'}
-                </button>
-              </div>
-            </form>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-300">Notes (Optional)</label>
+                      <textarea
+                        rows={2}
+                        placeholder="e.g. Received new cartons from supplier"
+                        value={adjustNotes}
+                        onChange={(e) => setAdjustNotes(e.target.value)}
+                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    {modalError && (
+                      <p className="text-xs text-rose-400 font-semibold">{modalError}</p>
+                    )}
+
+                    <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setIsAdjustModalOpen(false)}
+                        className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmitting || projectedTotal < 0}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
+                      >
+                        {isSubmitting ? 'Updating...' : 'Confirm Stock Adjustment'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

@@ -24,9 +24,22 @@ import {
 import { hasPermission, isSoloAllInOneUser } from '../utils/permissions';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 import { matchesSearch } from '../utils/searchMatch';
+import {
+  formatPackStock,
+  getPackSize,
+  getPackUnitLabel,
+  getPackSellingPrice,
+  getRetailSellingPrice,
+  getRetailUnitLabel,
+  isPackProduct,
+} from '../utils/unitConversion';
 
 interface CartItem {
+  cartKey: string;
   product: Product;
+  sale_mode: 'pack' | 'retail';
+  sold_unit: string;
+  pack_size: number;
   quantity: number;
   selling_price: number;
   fulfillment_source: string;
@@ -131,49 +144,96 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   // Mobile View Tab State: 'catalog' | 'cart'
   const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
 
-  const getCatalogPrice = (product: Product): number => {
-    const buyPrice = Number(product.buying_price || 0);
-    return (product.selling_price && Number(product.selling_price) > 0)
-      ? Number(product.selling_price)
-      : (buyPrice > 0 ? buyPrice : 1000);
+  const getCatalogPrice = (product: Product, mode: 'pack' | 'retail' = 'retail'): number => {
+    const modePrice = mode === 'pack' && isPackProduct(product)
+      ? getPackSellingPrice(product)
+      : getRetailSellingPrice(product);
+    return modePrice > 0 ? modePrice : 1000;
   };
 
-  // Cart operations
-  const addToCart = (product: Product) => {
-    if (product.quantity <= 0) return;
+  const getModeBuyingPrice = (product: Product, mode: 'pack' | 'retail'): number => {
+    if (mode === 'pack' && isPackProduct(product)) {
+      const explicitPackBuy = Number(product.pack_buying_price || 0);
+      if (explicitPackBuy > 0) return explicitPackBuy;
+      return Number(product.buying_price || 0) * getPackSize(product);
+    }
+    return Number(product.buying_price || 0);
+  };
+
+  const getUsedBaseUnits = (productId: number, cartList: CartItem[] = cart): number => {
+    return cartList.reduce(
+      (sum, item) => (item.product.id === productId ? sum + item.quantity * item.pack_size : sum),
+      0
+    );
+  };
+
+  const getRemainingBaseUnits = (product: Product, cartList: CartItem[] = cart): number => {
+    return Math.max(0, Math.round(Number(product.quantity || 0)) - getUsedBaseUnits(product.id, cartList));
+  };
+
+  // Cart operations (shared base-unit inventory pool across pack & retail lines)
+  const addToCart = (product: Product, mode: 'pack' | 'retail' = 'retail') => {
+    const packEnabled = isPackProduct(product);
+    const effectiveMode: 'pack' | 'retail' = mode === 'pack' && packEnabled ? 'pack' : 'retail';
+    const packSize = effectiveMode === 'pack' ? getPackSize(product) : 1;
+    const soldUnit = effectiveMode === 'pack' ? getPackUnitLabel(product) : getRetailUnitLabel(product);
+    const cartKey = `${product.id}_${effectiveMode}`;
+
     setCart((prev) => {
-      const existing = prev.find((item) => item.product.id === product.id);
+      const remaining = getRemainingBaseUnits(product, prev);
+      if (remaining < packSize) return prev; // Cannot exceed remaining unified stock pool
+
+      const existing = prev.find((item) => item.cartKey === cartKey);
       if (existing) {
-        if (existing.quantity >= product.quantity) return prev; // Cannot exceed available stock
         return prev.map((item) =>
-          item.product.id === product.id
+          item.cartKey === cartKey
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
-      return [...prev, {
-        product,
-        quantity: 1,
-        selling_price: getCatalogPrice(product),
-        fulfillment_source: 'main_store'
-      }];
+      return [
+        ...prev,
+        {
+          cartKey,
+          product,
+          sale_mode: effectiveMode,
+          sold_unit: soldUnit,
+          pack_size: packSize,
+          quantity: 1,
+          selling_price: getCatalogPrice(product, effectiveMode),
+          fulfillment_source: 'main_store',
+        },
+      ];
     });
   };
 
-  const updateQuantity = (productId: number, delta: number) => {
+  const updateQuantity = (cartKey: string, delta: number) => {
     setCart((prev) => {
+      const target = prev.find((it) => it.cartKey === cartKey);
+      if (!target) return prev;
+
       const updated = prev
         .map((item) => {
-          if (item.product.id === productId) {
+          if (item.cartKey === cartKey) {
             const newQty = item.quantity + delta;
             if (newQty <= 0) return null;
-            if (newQty > item.product.quantity) return item; // capped at current stock
+            const usedByOtherMode = prev.reduce(
+              (sum, other) =>
+                other.product.id === item.product.id && other.cartKey !== cartKey
+                  ? sum + other.quantity * other.pack_size
+                  : sum,
+              0
+            );
+            const totalBaseNeeded = usedByOtherMode + newQty * item.pack_size;
+            if (totalBaseNeeded > Math.round(Number(item.product.quantity || 0))) {
+              return item; // capped at available unified stock
+            }
             return { ...item, quantity: newQty };
           }
           return item;
         })
         .filter(Boolean) as CartItem[];
-      
+
       // If checkout is open, keep paidAmount in sync with new total
       if (isCheckoutOpen) {
         const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
@@ -185,11 +245,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     });
   };
 
-  const updateItemPrice = (productId: number, price: number) => {
+  const updateItemPrice = (cartKey: string, price: number) => {
     const validPrice = Math.max(0, isNaN(price) ? 0 : price);
     setCart((prev) => {
       const updated = prev.map((item) =>
-        item.product.id === productId ? { ...item, selling_price: validPrice } : item
+        item.cartKey === cartKey ? { ...item, selling_price: validPrice } : item
       );
       if (isCheckoutOpen) {
         const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
@@ -201,11 +261,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     });
   };
 
-  const resetItemPrice = (productId: number) => {
+  const resetItemPrice = (cartKey: string) => {
     setCart((prev) => {
       const updated = prev.map((item) => {
-        if (item.product.id === productId) {
-          return { ...item, selling_price: getCatalogPrice(item.product) };
+        if (item.cartKey === cartKey) {
+          return { ...item, selling_price: getCatalogPrice(item.product, item.sale_mode) };
         }
         return item;
       });
@@ -219,9 +279,9 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     });
   };
 
-  const removeFromCart = (productId: number) => {
+  const removeFromCart = (cartKey: string) => {
     setCart((prev) => {
-      const updated = prev.filter((item) => item.product.id !== productId);
+      const updated = prev.filter((item) => item.cartKey !== cartKey);
       if (isCheckoutOpen) {
         const newTotal = updated.reduce((acc, it) => acc + it.selling_price * it.quantity, 0);
         const creditAvail = Number(selectedCustomer?.store_credit || 0);
@@ -301,7 +361,10 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           product_id: item.product.id,
           quantity: item.quantity,
           selling_price: item.selling_price,
-          fulfillment_source: item.fulfillment_source
+          fulfillment_source: item.fulfillment_source,
+          sale_mode: item.sale_mode,
+          sold_unit: item.sold_unit,
+          pack_size: item.pack_size
         })),
         payment_method: canProcessPayments
           ? paymentMethod
@@ -423,19 +486,142 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         {/* Product Cards Grid (Touch optimized for mobile screens) */}
         <div className="flex-1 overflow-y-auto p-2.5 sm:p-4 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3 content-start">
           {filteredProducts.map((p) => {
-            const inCart = cart.find(c => c.product.id === p.id);
+            const packEnabled = isPackProduct(p);
+            const packSize = getPackSize(p);
+            const packUnit = getPackUnitLabel(p);
+            const retailUnit = getRetailUnitLabel(p);
+            const stockView = formatPackStock(p.quantity, p.units_per_pack, retailUnit, packUnit);
+
+            const packCartItem = cart.find((c) => c.cartKey === `${p.id}_pack`);
+            const retailCartItem = cart.find((c) => c.cartKey === `${p.id}_retail`);
+            const anyInCart = Boolean(packCartItem || retailCartItem);
+            const remainingBase = getRemainingBaseUnits(p);
             const isOutOfStock = p.quantity <= 0;
             const isLowStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
-            const catalogPrice = getCatalogPrice(p);
+
+            const retailPrice = getCatalogPrice(p, 'retail');
+            const packPrice = getCatalogPrice(p, 'pack');
+
+            if (packEnabled) {
+              const canAddPack = remainingBase >= packSize;
+              const canAddRetail = remainingBase >= 1;
+
+              return (
+                <div
+                  key={p.id}
+                  className={`group relative p-3 sm:p-3.5 rounded-2xl border transition-all select-none flex flex-col justify-between ${
+                    isOutOfStock
+                      ? 'bg-slate-900/40 border-slate-800/40 opacity-50'
+                      : anyInCart
+                      ? 'bg-amber-500/10 border-amber-500/60 shadow-lg shadow-amber-500/10'
+                      : 'bg-[#121620] hover:bg-[#161C28] border-slate-800/90 hover:border-slate-700'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-1">
+                      <span className="text-[9px] sm:text-[10px] uppercase font-mono tracking-wider text-slate-400 truncate">
+                        {p.category}
+                      </span>
+                      <span
+                        title={`Total: ${stockView.totalText} (1 ${packUnit} = ${packSize} ${retailUnit})`}
+                        className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded font-bold shrink-0 ${
+                          isOutOfStock
+                            ? 'bg-rose-500/20 text-rose-300'
+                            : isLowStock
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : 'bg-slate-800 text-emerald-400'
+                        }`}
+                      >
+                        {stockView.short}
+                      </span>
+                    </div>
+
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-100 group-hover:text-amber-300 transition line-clamp-2 mt-1 sm:mt-1.5">
+                      {p.name}
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+                      {p.sku} • 1 {packUnit} = {packSize} {retailUnit}
+                    </p>
+                  </div>
+
+                  {/* Two Quick-Add Buttons: Wholesale Pack vs Loose Retail */}
+                  <div className="mt-2.5 sm:mt-3 pt-2 border-t border-slate-800/60 grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      disabled={!canAddPack}
+                      onClick={() => addToCart(p, 'pack')}
+                      className={`p-1.5 rounded-xl border text-left transition active:scale-95 relative ${
+                        !canAddPack
+                          ? 'bg-slate-900/50 border-slate-800 text-slate-600 cursor-not-allowed'
+                          : packCartItem
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
+                          : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/30 text-amber-200'
+                      }`}
+                      title={
+                        canAddPack
+                          ? `Add 1 ${packUnit} (${packSize} ${retailUnit})`
+                          : `Less than 1 full ${packUnit} (${packSize} ${retailUnit}) remaining`
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-black uppercase truncate">
+                          + {packUnit}
+                        </span>
+                        {packCartItem && (
+                          <span className="px-1 rounded bg-slate-950 text-amber-400 text-[9px] font-mono font-black">
+                            {packCartItem.quantity}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-[10px] font-mono font-bold mt-0.5 truncate ${
+                        packCartItem ? 'text-slate-900' : 'text-amber-300'
+                      }`}>
+                        {formatRwf(packPrice)}
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!canAddRetail}
+                      onClick={() => addToCart(p, 'retail')}
+                      className={`p-1.5 rounded-xl border text-left transition active:scale-95 relative ${
+                        !canAddRetail
+                          ? 'bg-slate-900/50 border-slate-800 text-slate-600 cursor-not-allowed'
+                          : retailCartItem
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow'
+                          : 'bg-slate-800/90 hover:bg-slate-700 border-slate-700 text-slate-200'
+                      }`}
+                      title={`Add 1 ${retailUnit} (retail)`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-black uppercase truncate">
+                          + {retailUnit}
+                        </span>
+                        {retailCartItem && (
+                          <span className="px-1 rounded bg-slate-950 text-emerald-400 text-[9px] font-mono font-black">
+                            {retailCartItem.quantity}
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-[10px] font-mono font-bold mt-0.5 truncate ${
+                        retailCartItem ? 'text-slate-900' : 'text-emerald-300'
+                      }`}>
+                        {formatRwf(retailPrice)}
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
 
             return (
               <div
                 key={p.id}
-                onClick={() => !isOutOfStock && addToCart(p)}
+                onClick={() => !isOutOfStock && addToCart(p, 'retail')}
                 className={`group relative p-3 sm:p-3.5 rounded-2xl border transition-all select-none flex flex-col justify-between active:scale-[0.98] ${
                   isOutOfStock
                     ? 'bg-slate-900/40 border-slate-800/40 opacity-50 cursor-not-allowed'
-                    : inCart
+                    : anyInCart
                     ? 'bg-amber-500/10 border-amber-500/60 cursor-pointer shadow-lg shadow-amber-500/10'
                     : 'bg-[#121620] hover:bg-[#161C28] border-slate-800/90 hover:border-slate-700 cursor-pointer'
                 }`}
@@ -452,7 +638,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                         ? 'bg-amber-500/20 text-amber-300'
                         : 'bg-slate-800 text-emerald-400'
                     }`}>
-                      {p.quantity} {p.unit}
+                      {p.quantity} {retailUnit}
                     </span>
                   </div>
 
@@ -466,11 +652,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
                 <div className="mt-2.5 sm:mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between">
                   <span className="text-xs sm:text-sm font-bold text-amber-400 font-mono">
-                    {formatRwf(catalogPrice)}
+                    {formatRwf(retailPrice)}
                   </span>
-                  {inCart ? (
+                  {retailCartItem ? (
                     <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shadow">
-                      {inCart.quantity}
+                      {retailCartItem.quantity}
                     </span>
                   ) : (
                     <span className="text-[10px] sm:text-xs text-slate-400 group-hover:text-amber-300 flex items-center gap-0.5">
@@ -598,15 +784,23 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         {/* Cart Item Stream with Per-Item Price Bargaining / Negotiation */}
         <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2.5">
           {cart.map((item) => {
-            const catalogPrice = getCatalogPrice(item.product);
+            const catalogPrice = getCatalogPrice(item.product, item.sale_mode);
             const isNegotiated = item.selling_price !== catalogPrice;
-            const buyingPriceNum = Number(item.product.buying_price || 0);
+            const buyingPriceNum = getModeBuyingPrice(item.product, item.sale_mode);
             const isBelowCost = canViewBuyingPrices && buyingPriceNum > 0 && item.selling_price < buyingPriceNum;
             const diffPrice = item.selling_price - catalogPrice;
+            const remainingBase = getRemainingBaseUnits(item.product);
+            const stockBreakdown = formatPackStock(
+              item.product.quantity,
+              item.product.units_per_pack,
+              getRetailUnitLabel(item.product),
+              getPackUnitLabel(item.product)
+            );
+            const canIncrement = remainingBase >= item.pack_size;
 
             return (
               <div
-                key={item.product.id}
+                key={item.cartKey}
                 className={`p-2.5 sm:p-3 rounded-xl border flex flex-col gap-2 transition ${
                   isNegotiated
                     ? 'bg-[#151c28] border-amber-500/40 shadow-sm'
@@ -616,16 +810,28 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 {/* Product Name & Remove button */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
+                      <span
+                        className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                          item.sale_mode === 'pack'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        }`}
+                      >
+                        {item.sold_unit}
+                        {item.pack_size > 1 ? ` (×${item.pack_size})` : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono mt-0.5 flex-wrap">
                       <span>Code: {item.product.sku}</span>
                       <span>•</span>
-                      <span>Stock: {item.product.quantity} {item.product.unit || 'pcs'}</span>
+                      <span>Avail: {stockBreakdown.short}</span>
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={() => removeFromCart(item.product.id)}
+                    onClick={() => removeFromCart(item.cartKey)}
                     className="text-slate-400 hover:text-rose-400 p-1 transition shrink-0"
                     title="Remove item"
                   >
@@ -637,7 +843,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-                      <span>{canGiveDiscounts ? 'Negotiated Unit Price:' : 'Unit Price:'}</span>
+                      <span>{canGiveDiscounts ? `Negotiated / ${item.sold_unit}:` : `Price / ${item.sold_unit}:`}</span>
                     </span>
                     {!canGiveDiscounts ? (
                       <span className="text-[10px] text-slate-400 flex items-center gap-1">
@@ -647,7 +853,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                       isNegotiated && (
                         <button
                           type="button"
-                          onClick={() => resetItemPrice(item.product.id)}
+                          onClick={() => resetItemPrice(item.cartKey)}
                           className="text-[10px] text-slate-400 hover:text-amber-400 flex items-center gap-1 underline transition"
                           title="Reset to standard catalog price"
                         >
@@ -670,13 +876,13 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                         step="100"
                         disabled={!canGiveDiscounts}
                         value={item.selling_price}
-                        onChange={(e) => updateItemPrice(item.product.id, Number(e.target.value))}
+                        onChange={(e) => updateItemPrice(item.cartKey, Number(e.target.value))}
                         className="w-full bg-transparent text-xs font-mono font-bold text-white focus:outline-none disabled:cursor-not-allowed"
                         title={canGiveDiscounts ? 'Edit agreed bargaining price per unit' : 'Fixed catalog price (discount permission disabled)'}
                       />
                     </div>
                     <span className="text-[10px] text-slate-400 shrink-0 font-mono">
-                      /{item.product.unit || 'pcs'}
+                      /{item.sold_unit}
                     </span>
                   </div>
 
@@ -711,22 +917,31 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => updateQuantity(item.product.id, -1)}
+                      onClick={() => updateQuantity(item.cartKey, -1)}
                       className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition active:scale-95"
                     >
                       <Minus className="w-3 h-3" />
                     </button>
-                    <span className="w-8 text-center text-xs font-bold text-white font-mono">
-                      {item.quantity}
-                    </span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={item.quantity}
+                      onChange={(e) => {
+                        const targetQty = Math.max(1, Math.round(Number(e.target.value) || 1));
+                        const delta = targetQty - item.quantity;
+                        if (delta !== 0) updateQuantity(item.cartKey, delta);
+                      }}
+                      className="w-12 text-center py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs font-bold text-white font-mono focus:outline-none focus:border-amber-500"
+                    />
                     <button
                       type="button"
-                      onClick={() => updateQuantity(item.product.id, 1)}
-                      disabled={item.quantity >= item.product.quantity}
+                      onClick={() => updateQuantity(item.cartKey, 1)}
+                      disabled={!canIncrement}
                       className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-slate-200 flex items-center justify-center transition active:scale-95"
                     >
                       <Plus className="w-3 h-3" />
                     </button>
+                    <span className="text-[10px] text-slate-400 font-mono">{item.sold_unit}</span>
                   </div>
 
                   <div className="text-right">
@@ -734,7 +949,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                       {formatRwf(item.selling_price * item.quantity)}
                     </span>
                     <p className="text-[10px] text-slate-400 font-mono">
-                      {item.quantity} × {formatRwf(item.selling_price)}
+                      {item.quantity} {item.sold_unit} × {formatRwf(item.selling_price)}
+                      {item.pack_size > 1 ? ` (-${item.quantity * item.pack_size} ${getRetailUnitLabel(item.product)})` : ''}
                     </p>
                   </div>
                 </div>
@@ -871,48 +1087,56 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               </div>
 
               <div className="max-h-48 overflow-y-auto space-y-2 p-2 bg-slate-950/80 rounded-xl border border-slate-800">
-                {cart.map((item) => (
-                  <div
-                    key={item.product.id}
-                    className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
-                      <p className="text-[10px] text-slate-400 font-mono">
-                        Qty: {item.quantity}
-                        {canViewBuyingPrices && Number(item.product.buying_price || 0) > 0
-                          ? ` • Cost: ${formatRwf(Number(item.product.buying_price))}`
-                          : ''}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                      <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${
-                        canGiveDiscounts
-                          ? 'bg-slate-950 border-slate-700 focus-within:border-amber-500'
-                          : 'bg-slate-950/50 border-slate-800 opacity-75'
-                      }`}>
-                        <span className="text-[10px] font-bold text-amber-400">RWF</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="100"
-                          disabled={!canGiveDiscounts}
-                          value={item.selling_price}
-                          onChange={(e) => updateItemPrice(item.product.id, Number(e.target.value))}
-                          className="w-20 bg-transparent text-xs font-mono font-bold text-white focus:outline-none disabled:cursor-not-allowed"
-                          title={canGiveDiscounts ? 'Edit negotiated price for this product' : 'Fixed catalog price'}
-                        />
+                {cart.map((item) => {
+                  const modeCost = getModeBuyingPrice(item.product, item.sale_mode);
+                  return (
+                    <div
+                      key={item.cartKey}
+                      className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
+                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 shrink-0">
+                            {item.sold_unit}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-mono">
+                          Qty: {item.quantity} {item.sold_unit}
+                          {canViewBuyingPrices && modeCost > 0
+                            ? ` • Cost: ${formatRwf(modeCost)}`
+                            : ''}
+                        </p>
                       </div>
 
-                      <div className="text-right min-w-[70px]">
-                        <span className="text-xs font-bold text-amber-400 font-mono">
-                          {formatRwf(item.selling_price * item.quantity)}
-                        </span>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                        <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${
+                          canGiveDiscounts
+                            ? 'bg-slate-950 border-slate-700 focus-within:border-amber-500'
+                            : 'bg-slate-950/50 border-slate-800 opacity-75'
+                        }`}>
+                          <span className="text-[10px] font-bold text-amber-400">RWF</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="100"
+                            disabled={!canGiveDiscounts}
+                            value={item.selling_price}
+                            onChange={(e) => updateItemPrice(item.cartKey, Number(e.target.value))}
+                            className="w-20 bg-transparent text-xs font-mono font-bold text-white focus:outline-none disabled:cursor-not-allowed"
+                            title={canGiveDiscounts ? 'Edit negotiated price for this unit' : 'Fixed catalog price'}
+                          />
+                        </div>
+
+                        <div className="text-right min-w-[70px]">
+                          <span className="text-xs font-bold text-amber-400 font-mono">
+                            {formatRwf(item.selling_price * item.quantity)}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

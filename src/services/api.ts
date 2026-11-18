@@ -224,7 +224,7 @@ export const api = {
     customer_id?: number | null;
     customer_name?: string;
     customer_phone?: string;
-    items: { product_id: number; quantity: number; selling_price?: number; fulfillment_source?: string }[];
+    items: { product_id: number; quantity: number; sale_mode?: 'pack' | 'retail'; sold_unit?: string; pack_size?: number; selling_price?: number; fulfillment_source?: string }[];
     payment_method: string;
     paid_amount: number;
     use_store_credit?: boolean;
@@ -241,7 +241,7 @@ export const api = {
     customer_phone?: string;
     notes?: string;
     paid_amount?: number;
-    items: { product_id: number; quantity: number; selling_price?: number; fulfillment_source?: string }[];
+    items: { product_id: number; quantity: number; sale_mode?: 'pack' | 'retail'; sold_unit?: string; pack_size?: number; selling_price?: number; fulfillment_source?: string }[];
   }) => request<{ success: boolean; order: Order; message?: string }>(`/api/orders/${id}`, {
     method: 'PUT',
     body: JSON.stringify(orderData)

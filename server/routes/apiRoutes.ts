@@ -782,7 +782,7 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
       SELECT p.*,
         (SELECT s.name FROM stocks s WHERE s.id = p.stock_id) as stock_name,
         COALESCE((
-          SELECT SUM(oi.quantity)
+          SELECT SUM(oi.quantity * COALESCE(oi.pack_size, 1))
           FROM order_items oi
           JOIN orders o ON oi.order_id = o.id
           WHERE oi.product_id = p.id
@@ -833,17 +833,29 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
     sql += ` ORDER BY ${orderBy}`;
 
     const products = await queryAll(sql, params);
+    const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
     const normalizedProducts = products.map((p: any) => {
+      const unitsPerPack = Math.max(1, Math.round(Number(p.units_per_pack || 1)));
       const buyPrice = Number(p.buying_price || 0);
       const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : buyPrice;
+      const packBuyPrice = Number(p.pack_buying_price || 0) > 0
+        ? Number(p.pack_buying_price)
+        : (unitsPerPack > 1 ? Number((buyPrice * unitsPerPack).toFixed(2)) : 0);
+      const packSellPrice = Number(p.pack_selling_price || 0) > 0
+        ? Number(p.pack_selling_price)
+        : (unitsPerPack > 1 ? Number((sellPrice * unitsPerPack).toFixed(2)) : 0);
       return {
         ...p,
-        quantity: Number(p.quantity || 0),
-        low_stock_threshold: Number(p.low_stock_threshold || 0),
-        total_units_sold: Number(p.total_units_sold || 0),
+        units_per_pack: unitsPerPack,
+        pack_unit: unitsPerPack > 1 ? ((p.pack_unit || '').trim() || 'Carton') : (p.pack_unit || null),
+        quantity: Math.max(0, Math.round(Number(p.quantity || 0))),
+        low_stock_threshold: Math.max(0, Math.round(Number(p.low_stock_threshold || 0))),
+        total_units_sold: Math.max(0, Math.round(Number(p.total_units_sold || 0))),
         last_stocked_at: p.last_stocked_at || p.created_at || null,
         selling_price: sellPrice,
-        buying_price: hasUserPermission(req.session?.user, 'can_view_buying_prices') ? buyPrice : null
+        buying_price: canViewBuying ? buyPrice : null,
+        pack_selling_price: packSellPrice,
+        pack_buying_price: canViewBuying ? packBuyPrice : null
       };
     });
 
@@ -871,20 +883,38 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
     barcode,
     category,
     unit,
+    units_per_pack,
+    pack_unit,
     buying_price,
+    pack_buying_price,
+    pack_selling_price,
     quantity,
     low_stock_threshold,
     description,
     stock_id
   } = req.body;
 
-  if (!name || Number(buying_price) < 0) {
+  const finalPackSize = Math.max(1, Math.round(Number(units_per_pack || 1)));
+  const rawPackBuy = pack_buying_price !== undefined && pack_buying_price !== null && pack_buying_price !== ''
+    ? Math.max(0, Number(pack_buying_price))
+    : 0;
+  let finalBuyingPrice = buying_price !== undefined && buying_price !== null && buying_price !== ''
+    ? Math.max(0, Number(buying_price))
+    : 0;
+
+  if (finalPackSize > 1 && finalBuyingPrice <= 0 && rawPackBuy > 0) {
+    finalBuyingPrice = Number((rawPackBuy / finalPackSize).toFixed(2));
+  }
+  const finalPackBuy = finalPackSize > 1
+    ? (rawPackBuy > 0 ? rawPackBuy : Number((finalBuyingPrice * finalPackSize).toFixed(2)))
+    : 0;
+
+  if (!name || isNaN(finalBuyingPrice) || finalBuyingPrice < 0) {
     return res.status(400).json({ error: 'Product name and valid buying price are required' });
   }
 
   try {
     let finalStockId = stock_id ? Number(stock_id) : 1;
-    // Verify warehouse belongs to this store
     const stockExists = await queryOne('SELECT id FROM stocks WHERE id = ? AND shop_id = ?', [finalStockId, shopId]);
     if (!stockExists) {
       const mainStock = await queryOne('SELECT id FROM stocks WHERE shop_id = ? AND is_main = 1 LIMIT 1', [shopId]);
@@ -892,60 +922,45 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
     }
 
     const finalSku = sku || `SKU-${Date.now().toString().slice(-6)}`;
-    const finalThreshold = low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : 10;
-    const finalQty = quantity !== undefined ? Math.max(0, Number(quantity)) : 0;
+    const finalThreshold = low_stock_threshold !== undefined ? Math.max(0, Math.round(Number(low_stock_threshold))) : 10;
+    const finalQty = quantity !== undefined ? Math.max(0, Math.round(Number(quantity))) : 0;
     const rawSellingPrice = req.body.selling_price !== undefined ? req.body.selling_price : req.body.price;
     const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0
       ? Number(rawSellingPrice)
-      : (Number(buying_price) > 0 ? Number(buying_price) : 0);
+      : (finalBuyingPrice > 0 ? finalBuyingPrice : 0);
 
-    // Check if selling_price column exists on products table
-    let hasSellingPrice = false;
-    try {
-      const pCol = await queryOne<{ column_name: string }>(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'selling_price'"
-      );
-      hasSellingPrice = Boolean(pCol?.column_name);
-    } catch {}
+    const finalPackUnit = finalPackSize > 1 ? ((pack_unit && String(pack_unit).trim()) || 'Carton') : null;
+    const rawPackSell = pack_selling_price !== undefined && pack_selling_price !== null && pack_selling_price !== ''
+      ? Math.max(0, Number(pack_selling_price))
+      : 0;
+    const finalPackSell = finalPackSize > 1
+      ? (rawPackSell > 0 ? rawPackSell : Number((finalSellingPrice * finalPackSize).toFixed(2)))
+      : 0;
 
-    const result = hasSellingPrice
-      ? await execute(
-          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            shopId,
-            finalStockId,
-            name.trim(),
-            finalSku.trim(),
-            barcode ? barcode.trim() : null,
-            category ? category.trim() : 'Hardware',
-            unit ? unit.trim() : 'Pcs',
-            Number(buying_price),
-            finalSellingPrice,
-            finalQty,
-            finalThreshold,
-            description ? description.trim() : null
-          ]
-        )
-      : await execute(
-          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            shopId,
-            finalStockId,
-            name.trim(),
-            finalSku.trim(),
-            barcode ? barcode.trim() : null,
-            category ? category.trim() : 'Hardware',
-            unit ? unit.trim() : 'Pcs',
-            Number(buying_price),
-            finalQty,
-            finalThreshold,
-            description ? description.trim() : null
-          ]
-        );
+    const result = await execute(
+      `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        shopId,
+        finalStockId,
+        name.trim(),
+        finalSku.trim(),
+        barcode ? barcode.trim() : null,
+        category ? category.trim() : 'Hardware',
+        unit ? unit.trim() : 'pcs',
+        finalPackSize,
+        finalPackUnit,
+        finalBuyingPrice,
+        finalSellingPrice,
+        finalPackBuy,
+        finalPackSell,
+        finalQty,
+        finalThreshold,
+        description ? description.trim() : null
+      ]
+    );
 
-    await logApiAudit(req, 'PRODUCT_CREATED', `Created product ${name} (SKU: ${finalSku}) with ${finalQty} initial units`);
+    await logApiAudit(req, 'PRODUCT_CREATED', `Created product ${name} (SKU: ${finalSku}) with ${finalQty} initial units${finalPackSize > 1 ? ` (${finalPackSize} per ${finalPackUnit})` : ''}`);
 
     const created = await queryOne('SELECT * FROM products WHERE id = ? AND shop_id = ?', [result.lastInsertId, shopId]);
     res.json({ success: true, product: created });
@@ -1003,17 +1018,40 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         if (/^(n\/?a|none|-|null)$/i.test(category)) {
           category = 'General Hardware';
         }
-        let unit = (item.unit && String(item.unit).trim()) || 'Pcs';
+        let unit = (item.unit && String(item.unit).trim()) || 'pcs';
         if (unit === '1' || /^(n\/?a|none|-|null)$/i.test(unit)) {
-          unit = 'Pcs';
+          unit = 'pcs';
         }
-        const buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        const units_per_pack = !isNaN(Number(item.units_per_pack)) && Number(item.units_per_pack) > 1
+          ? Math.round(Number(item.units_per_pack))
+          : 1;
+        const pack_unit = units_per_pack > 1
+          ? ((item.pack_unit && String(item.pack_unit).trim()) || 'Carton')
+          : null;
+        const rawPackBuy = !isNaN(Number(item.pack_buying_price)) && Number(item.pack_buying_price) > 0
+          ? Number(item.pack_buying_price)
+          : 0;
+        let buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        if (units_per_pack > 1 && buying_price <= 0 && rawPackBuy > 0) {
+          buying_price = Number((rawPackBuy / units_per_pack).toFixed(2));
+        }
+        const pack_buying_price = units_per_pack > 1
+          ? (rawPackBuy > 0 ? rawPackBuy : Number((buying_price * units_per_pack).toFixed(2)))
+          : 0;
+
         const rawSelling = item.selling_price !== undefined ? item.selling_price : item.price;
         const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) > 0
           ? Number(rawSelling)
           : (buying_price > 0 ? buying_price : 0);
-        const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Number(item.quantity) : 0;
-        const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Number(item.low_stock_threshold)) : 10;
+        const rawPackSell = !isNaN(Number(item.pack_selling_price)) && Number(item.pack_selling_price) > 0
+          ? Number(item.pack_selling_price)
+          : 0;
+        const pack_selling_price = units_per_pack > 1
+          ? (rawPackSell > 0 ? rawPackSell : Number((selling_price * units_per_pack).toFixed(2)))
+          : 0;
+
+        const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Math.round(Number(item.quantity)) : 0;
+        const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Math.round(Number(item.low_stock_threshold))) : 10;
         const description = item.description ? String(item.description).trim() : null;
 
         // 1. Check if product with the SAME NAME already exists for this shop (case-insensitive)
@@ -1023,11 +1061,10 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         );
 
         if (existingByName) {
-          // Replenish / update existing product without changing its name
           if (hasSellingPrice) {
             await execute(
-              `UPDATE products SET category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
-              [category, unit, buying_price, selling_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
+              `UPDATE products SET category = ?, unit = ?, units_per_pack = ?, pack_unit = ?, buying_price = ?, selling_price = ?, pack_buying_price = ?, pack_selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
             );
           } else {
             await execute(
@@ -1049,7 +1086,7 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
           continue;
         }
 
-        // 2. This is a NEW PRODUCT. We must assign a guaranteed unique SKU within this shop.
+        // 2. Assign unique SKU
         const isPlaceholder = !rawSku || /^(1+|0+|n\/?a|none|-|null|tbd|sample|test)$/i.test(rawSku);
         let baseSku = rawSku;
         if (isPlaceholder) {
@@ -1070,7 +1107,7 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
             isUsedInDb = Boolean(existingDb);
           }
           if (!isUsedInBatch && !isUsedInDb) {
-            break; // Unique SKU found
+            break;
           }
           candidateSku = `${baseSku}-${suffix}`;
           suffix++;
@@ -1084,9 +1121,9 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         // 3. Insert new product
         const resInsert = hasSellingPrice
           ? await execute(
-              `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [shopId, finalStockId, name, candidateSku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description]
+              `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [shopId, finalStockId, name, candidateSku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description]
             )
           : await execute(
               `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
@@ -1243,7 +1280,11 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
     barcode,
     category,
     unit,
+    units_per_pack,
+    pack_unit,
     buying_price,
+    pack_buying_price,
+    pack_selling_price,
     quantity,
     low_stock_threshold,
     description
@@ -1256,9 +1297,34 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
     }
 
     const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
-    const requestedBuyPrice = canViewBuying && buying_price !== undefined && buying_price !== null && buying_price !== ''
-      ? Number(buying_price)
+    const finalPackSize = units_per_pack !== undefined
+      ? Math.max(1, Math.round(Number(units_per_pack || 1)))
+      : Math.max(1, Math.round(Number(existing.units_per_pack || 1)));
+
+    const finalPackUnit = finalPackSize > 1
+      ? ((pack_unit !== undefined ? String(pack_unit || '').trim() : String(existing.pack_unit || '').trim()) || 'Carton')
+      : null;
+
+    let requestedBuyPrice = canViewBuying && buying_price !== undefined && buying_price !== null && buying_price !== ''
+      ? Math.max(0, Number(buying_price))
       : Number(existing.buying_price || 0);
+
+    let requestedPackBuyPrice = existing.pack_buying_price !== undefined ? Number(existing.pack_buying_price || 0) : 0;
+    if (canViewBuying) {
+      if (finalPackSize > 1) {
+        if (pack_buying_price !== undefined && pack_buying_price !== null && pack_buying_price !== '') {
+          requestedPackBuyPrice = Math.max(0, Number(pack_buying_price));
+          if ((buying_price === undefined || buying_price === null || buying_price === '' || Number(buying_price) === 0) && requestedPackBuyPrice > 0) {
+            requestedBuyPrice = Number((requestedPackBuyPrice / finalPackSize).toFixed(2));
+          }
+        } else {
+          requestedPackBuyPrice = Number((requestedBuyPrice * finalPackSize).toFixed(2));
+        }
+      } else {
+        requestedPackBuyPrice = 0;
+      }
+    }
+
     const rawSellingPrice = req.body.selling_price !== undefined ? req.body.selling_price : req.body.price;
     const finalSellingPrice = rawSellingPrice !== undefined && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0
       ? Number(rawSellingPrice)
@@ -1266,61 +1332,48 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
           ? Number(existing.selling_price)
           : (requestedBuyPrice > 0 ? requestedBuyPrice : 0));
 
-    let hasSellingPrice = false;
-    try {
-      const pCol = await queryOne<{ column_name: string }>(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'selling_price'"
-      );
-      hasSellingPrice = Boolean(pCol?.column_name);
-    } catch {}
+    const finalPackSellPrice = finalPackSize > 1
+      ? (pack_selling_price !== undefined && pack_selling_price !== null && pack_selling_price !== '' && Number(pack_selling_price) > 0
+          ? Number(pack_selling_price)
+          : (existing.pack_selling_price && Number(existing.pack_selling_price) > 0 && units_per_pack === undefined
+              ? Number(existing.pack_selling_price)
+              : Number((finalSellingPrice * finalPackSize).toFixed(2))))
+      : 0;
 
-    if (hasSellingPrice) {
-      await execute(
-        `UPDATE products 
-         SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
-         WHERE id = ? AND shop_id = ?`,
-        [
-          name || existing.name,
-          sku || existing.sku,
-          barcode !== undefined ? barcode : existing.barcode,
-          category || existing.category,
-          unit || existing.unit,
-          requestedBuyPrice,
-          finalSellingPrice,
-          quantity !== undefined ? Math.max(0, Number(quantity)) : existing.quantity,
-          low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
-          description !== undefined ? description : existing.description,
-          productId,
-          shopId
-        ]
-      );
-    } else {
-      await execute(
-        `UPDATE products 
-         SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, buying_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
-         WHERE id = ? AND shop_id = ?`,
-        [
-          name || existing.name,
-          sku || existing.sku,
-          barcode !== undefined ? barcode : existing.barcode,
-          category || existing.category,
-          unit || existing.unit,
-          requestedBuyPrice,
-          quantity !== undefined ? Math.max(0, Number(quantity)) : existing.quantity,
-          low_stock_threshold !== undefined ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
-          description !== undefined ? description : existing.description,
-          productId,
-          shopId
-        ]
-      );
-    }
+    await execute(
+      `UPDATE products 
+       SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, units_per_pack = ?, pack_unit = ?, buying_price = ?, selling_price = ?, pack_buying_price = ?, pack_selling_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
+       WHERE id = ? AND shop_id = ?`,
+      [
+        name || existing.name,
+        sku || existing.sku,
+        barcode !== undefined ? barcode : existing.barcode,
+        category || existing.category,
+        unit || existing.unit,
+        finalPackSize,
+        finalPackUnit,
+        requestedBuyPrice,
+        finalSellingPrice,
+        requestedPackBuyPrice,
+        finalPackSellPrice,
+        quantity !== undefined ? Math.max(0, Math.round(Number(quantity))) : existing.quantity,
+        low_stock_threshold !== undefined ? Math.max(0, Math.round(Number(low_stock_threshold))) : existing.low_stock_threshold,
+        description !== undefined ? description : existing.description,
+        productId,
+        shopId
+      ]
+    );
 
     await logApiAudit(req, 'PRODUCT_UPDATED', `Updated product #${productId} (${name || existing.name})`);
     const updated = await queryOne('SELECT * FROM products WHERE id = ? AND shop_id = ?', [productId, shopId]);
     res.json({
       success: true,
       product: updated
-        ? { ...updated, buying_price: canViewBuying ? updated.buying_price : null }
+        ? {
+            ...updated,
+            buying_price: canViewBuying ? updated.buying_price : null,
+            pack_buying_price: canViewBuying ? updated.pack_buying_price : null
+          }
         : updated
     });
   } catch (err: any) {
@@ -1724,21 +1777,24 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
 
       // 2. Fetch old order items
       const oldItems = await queryAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
-      const oldItemPriceByProduct = new Map<number, number>();
+      const oldItemPriceByKey = new Map<string, number>();
       for (const oi of oldItems) {
-        oldItemPriceByProduct.set(Number(oi.product_id), Number(oi.selling_price || 0));
+        const mode = oi.sale_mode === 'pack' ? 'pack' : 'retail';
+        oldItemPriceByKey.set(`${Number(oi.product_id)}_${mode}`, Number(oi.selling_price || 0));
       }
 
-      // 3. Revert stock deductions from old items
+      // 3. Revert stock deductions from old items (in base retail units)
       for (const oi of oldItems) {
+        const oiPackSize = Math.max(1, Math.round(Number(oi.pack_size || 1)));
+        const baseRevertQty = Math.round(Number(oi.quantity || 0)) * oiPackSize;
         await execute(
           'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
-          [oi.quantity, oi.product_id, shopId]
+          [baseRevertQty, oi.product_id, shopId]
         );
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
-          [shopId, stockId, oi.product_id, oi.quantity, `Reversal for Order #${existingOrder.order_number} Edit`, currentUserId]
+          [shopId, stockId, oi.product_id, baseRevertQty, `Reversal for Order #${existingOrder.order_number} Edit`, currentUserId]
         );
       }
 
@@ -1782,7 +1838,7 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
         finalCustomerId = existingOrder.customer_id || 1;
       }
 
-      // 6. Validate and calculate new items
+      // 6. Validate and calculate new items (supporting wholesale pack + retail mode)
       let totalAmount = 0;
       const parsedItems: any[] = [];
 
@@ -1792,31 +1848,49 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
           throw new Error(`Product #${it.product_id} not found in this store.`);
         }
 
-        const qty = Number(it.quantity);
+        const qty = Math.round(Number(it.quantity));
         if (isNaN(qty) || qty <= 0) {
           throw new Error(`Invalid quantity for product "${prod.name}"`);
         }
 
-        const catalogPrice = prod.selling_price && Number(prod.selling_price) > 0
+        const prodPackSize = Math.max(1, Math.round(Number(prod.units_per_pack || 1)));
+        const isPack = it.sale_mode === 'pack' && prodPackSize > 1;
+        const saleMode = isPack ? 'pack' : 'retail';
+        const packSize = isPack ? prodPackSize : 1;
+        const retailUnit = (prod.unit || '').trim() || 'pcs';
+        const packUnit = (prod.pack_unit || '').trim() || 'Carton';
+        const soldUnit = isPack ? packUnit : retailUnit;
+
+        const baseBuyPrice = Number(prod.buying_price || 0);
+        const unitBuyCost = isPack
+          ? (Number(prod.pack_buying_price || 0) > 0 ? Number(prod.pack_buying_price) : Number((baseBuyPrice * packSize).toFixed(2)))
+          : baseBuyPrice;
+
+        const retailCatalogPrice = prod.selling_price && Number(prod.selling_price) > 0
           ? Number(prod.selling_price)
-          : Number(prod.buying_price || 0);
+          : baseBuyPrice;
+        const catalogPrice = isPack
+          ? (prod.pack_selling_price && Number(prod.pack_selling_price) > 0 ? Number(prod.pack_selling_price) : Number((retailCatalogPrice * packSize).toFixed(2)))
+          : retailCatalogPrice;
+
         const sellingPrice = it.selling_price !== undefined ? Number(it.selling_price) : catalogPrice;
         if (isNaN(sellingPrice) || sellingPrice < 0) {
           throw new Error(`Invalid unit price for product "${prod.name}"`);
         }
 
-        const existingItemPrice = oldItemPriceByProduct.get(Number(prod.id));
+        const existingItemPrice = oldItemPriceByKey.get(`${Number(prod.id)}_${saleMode}`);
         const minAllowedPrice = existingItemPrice !== undefined ? Math.min(catalogPrice, existingItemPrice) : catalogPrice;
         if (!canGiveDiscounts && it.selling_price !== undefined && sellingPrice < minAllowedPrice) {
           const err: any = new Error(
-            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" below RWF ${minAllowedPrice.toLocaleString()}.`
+            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" (${soldUnit}) below RWF ${minAllowedPrice.toLocaleString()}.`
           );
           err.statusCode = 403;
           throw err;
         }
 
         const subtotal = sellingPrice * qty;
-        const profit = (sellingPrice - Number(prod.buying_price || 0)) * qty;
+        const profit = (sellingPrice - unitBuyCost) * qty;
+        const baseUnits = qty * packSize;
 
         totalAmount += subtotal;
 
@@ -1824,7 +1898,11 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
           product: prod,
           product_id: prod.id,
           quantity: qty,
-          buying_price: Number(prod.buying_price || 0),
+          sale_mode: saleMode,
+          sold_unit: soldUnit,
+          pack_size: packSize,
+          base_units: baseUnits,
+          buying_price: unitBuyCost,
           selling_price: sellingPrice,
           subtotal,
           profit,
@@ -1835,29 +1913,34 @@ router.put('/orders/:id', requireAuth, requireTenant, async (req: Request, res: 
       // 7. Delete old order items
       await execute('DELETE FROM order_items WHERE order_id = ?', [orderId]);
 
-      // 8. Insert new order items & deduct stock
+      // 8. Insert new order items & deduct stock in base units
       const mappedItemStatus = (existingOrder.fulfillment_status === 'approved' || existingOrder.fulfillment_status === 'dispatched' || existingOrder.fulfillment_status === 'completed')
         ? 'approved'
         : (existingOrder.fulfillment_status === 'rejected' ? 'rejected' : 'pending_store');
 
       for (const ni of parsedItems) {
         await execute(
-          `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [orderId, ni.product_id, ni.quantity, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source, mappedItemStatus]
+          `INSERT INTO order_items (order_id, product_id, quantity, sale_mode, sold_unit, pack_size, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [orderId, ni.product_id, ni.quantity, ni.sale_mode, ni.sold_unit, ni.pack_size, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source, mappedItemStatus]
         );
 
-        // Deduct updated stock
-        await execute(
-          'UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ?',
-          [ni.quantity, ni.product_id, shopId]
+        const stockDeduction = await execute(
+          'UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ? AND quantity >= ?',
+          [ni.base_units, ni.product_id, shopId, ni.base_units]
         );
+        if (stockDeduction.changes === 0) {
+          const err: any = new Error(
+            `Insufficient stock for "${ni.product.name}". Requested ${ni.quantity} ${ni.sold_unit} (${ni.base_units} ${ni.product.unit || 'pcs'}), which exceeds available inventory.`
+          );
+          err.statusCode = 400;
+          throw err;
+        }
 
-        // Record inventory movement
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, ?, ?, ?, 'Sale', ?, ?)`,
-          [shopId, stockId, ni.product_id, -ni.quantity, `Sale for Order #${existingOrder.order_number} (Updated)`, currentUserId]
+          [shopId, stockId, ni.product_id, -ni.base_units, `Sale ${ni.quantity} ${ni.sold_unit} for Order #${existingOrder.order_number} (Updated)`, currentUserId]
         );
       }
 
@@ -1996,14 +2079,31 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           throw new Error(`Product #${item.product_id} not found in this store.`);
         }
 
-        const qty = Number(item.quantity);
+        const qty = Math.round(Number(item.quantity));
         if (isNaN(qty) || qty <= 0) {
           throw new Error(`Invalid quantity for product ${prod.name}`);
         }
 
-        const catalogPrice = prod.selling_price && Number(prod.selling_price) > 0
+        const prodPackSize = Math.max(1, Math.round(Number(prod.units_per_pack || 1)));
+        const isPack = item.sale_mode === 'pack' && prodPackSize > 1;
+        const saleMode = isPack ? 'pack' : 'retail';
+        const packSize = isPack ? prodPackSize : 1;
+        const retailUnit = (prod.unit || '').trim() || 'pcs';
+        const packUnit = (prod.pack_unit || '').trim() || 'Carton';
+        const soldUnit = isPack ? packUnit : retailUnit;
+
+        const baseBuyPrice = Number(prod.buying_price || 0);
+        const unitBuyCost = isPack
+          ? (Number(prod.pack_buying_price || 0) > 0 ? Number(prod.pack_buying_price) : Number((baseBuyPrice * packSize).toFixed(2)))
+          : baseBuyPrice;
+
+        const retailCatalogPrice = prod.selling_price && Number(prod.selling_price) > 0
           ? Number(prod.selling_price)
-          : Number(prod.buying_price || 0);
+          : baseBuyPrice;
+        const catalogPrice = isPack
+          ? (prod.pack_selling_price && Number(prod.pack_selling_price) > 0 ? Number(prod.pack_selling_price) : Number((retailCatalogPrice * packSize).toFixed(2)))
+          : retailCatalogPrice;
+
         const sellingPrice = item.selling_price !== undefined ? Number(item.selling_price) : catalogPrice;
         if (isNaN(sellingPrice) || sellingPrice < 0) {
           throw new Error(`Invalid unit price for product ${prod.name}`);
@@ -2011,14 +2111,15 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
 
         if (!canGiveDiscounts && item.selling_price !== undefined && sellingPrice < catalogPrice) {
           const err: any = new Error(
-            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" below RWF ${catalogPrice.toLocaleString()}.`
+            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" (${soldUnit}) below RWF ${catalogPrice.toLocaleString()}.`
           );
           err.statusCode = 403;
           throw err;
         }
 
         const subtotal = sellingPrice * qty;
-        const profit = (sellingPrice - Number(prod.buying_price || 0)) * qty;
+        const profit = (sellingPrice - unitBuyCost) * qty;
+        const baseUnits = qty * packSize;
 
         totalAmount += subtotal;
 
@@ -2026,7 +2127,11 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           product: prod,
           product_id: prod.id,
           quantity: qty,
-          buying_price: Number(prod.buying_price || 0),
+          sale_mode: saleMode,
+          sold_unit: soldUnit,
+          pack_size: packSize,
+          base_units: baseUnits,
+          buying_price: unitBuyCost,
           selling_price: sellingPrice,
           subtotal,
           profit,
@@ -2127,28 +2232,28 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
       // 4. ATOMIC Stock Decrement & Order Item Insertion
       for (const pi of parsedItems) {
         await execute(
-          `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [orderId, pi.product_id, pi.quantity, pi.buying_price, pi.selling_price, pi.subtotal, pi.profit, pi.fulfillment_source, itemStatus]
+          `INSERT INTO order_items (order_id, product_id, quantity, sale_mode, sold_unit, pack_size, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [orderId, pi.product_id, pi.quantity, pi.sale_mode, pi.sold_unit, pi.pack_size, pi.buying_price, pi.selling_price, pi.subtotal, pi.profit, pi.fulfillment_source, itemStatus]
         );
 
-        // Strict Atomic Stock Check & Decrement
+        // Strict Atomic Stock Check & Decrement in base retail units
         const stockDeduction = await execute(
           `UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ? AND quantity >= ?`,
-          [pi.quantity, pi.product_id, shopId, pi.quantity]
+          [pi.base_units, pi.product_id, shopId, pi.base_units]
         );
 
         if (stockDeduction.changes === 0) {
           throw new Error(
-            `Insufficient stock for "${pi.product.name}". Requested ${pi.quantity} units, but insufficient available inventory.`
+            `Insufficient stock for "${pi.product.name}". Requested ${pi.quantity} ${pi.sold_unit} (${pi.base_units} ${pi.product.unit || 'pcs'}), which exceeds available inventory.`
           );
         }
 
-        // Record inventory movement
+        // Record inventory movement in base retail units
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, 1, ?, ?, 'Sale', ?, ?)`,
-          [shopId, pi.product_id, -pi.quantity, `Sale for Order ${orderNumber}`, currentUserId]
+          [shopId, pi.product_id, -pi.base_units, `Sale ${pi.quantity} ${pi.sold_unit} for Order ${orderNumber}`, currentUserId]
         );
       }
 
@@ -2426,6 +2531,7 @@ router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePerm
       for (const item of existingItems) {
         const targetQty = releaseMap.has(item.id) ? releaseMap.get(item.id)! : 0;
         const requestedQty = Number(item.quantity);
+        const packSize = Math.max(1, Math.round(Number(item.pack_size || 1)));
         const sellingPrice = Number(item.selling_price);
         const buyingPrice = Number(item.buying_price);
 
@@ -2436,19 +2542,20 @@ router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePerm
           const profit = (sellingPrice - buyingPrice) * releasedQty;
           newTotalAmount += subtotal;
 
-          // If partial release, return the unreleased difference to stock
+          // If partial release, return the unreleased difference (in base units) to stock
           const diff = requestedQty - releasedQty;
           if (diff > 0) {
+            const diffBaseUnits = diff * packSize;
             await execute(
               'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
-              [diff, item.product_id, shopId]
+              [diffBaseUnits, item.product_id, shopId]
             );
             await execute(
               `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
                VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
-              [shopId, stockId, item.product_id, diff, `Unreleased item return for Order #${order.order_number}`, currentUserId]
+              [shopId, stockId, item.product_id, diffBaseUnits, `Unreleased item return for Order #${order.order_number}`, currentUserId]
             );
-            totalUnreleasedReturned += diff;
+            totalUnreleasedReturned += diffBaseUnits;
           }
 
           if (update_receipt) {
@@ -2465,21 +2572,20 @@ router.post('/orders/:id/release-items', requireAuth, requireTenant, requirePerm
             );
           }
         } else {
-          // Item was NOT released (unchecked by storekeeper)
-          // Return the full quantity to product inventory
+          // Item was NOT released (unchecked by storekeeper) - return full base units to stock
+          const requestedBaseUnits = requestedQty * packSize;
           await execute(
             'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
-            [requestedQty, item.product_id, shopId]
+            [requestedBaseUnits, item.product_id, shopId]
           );
           await execute(
             `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
              VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
-            [shopId, stockId, item.product_id, requestedQty, `Unreleased stock return for Order #${order.order_number} (Item removed)`, currentUserId]
+            [shopId, stockId, item.product_id, requestedBaseUnits, `Unreleased stock return for Order #${order.order_number} (Item removed)`, currentUserId]
           );
-          totalUnreleasedReturned += requestedQty;
+          totalUnreleasedReturned += requestedBaseUnits;
 
           if (update_receipt) {
-            // Remove from order items so the receipt only shows what was physically released
             await execute('DELETE FROM order_items WHERE id = ?', [item.id]);
           } else {
             await execute(
@@ -2611,14 +2717,16 @@ router.post('/orders/:id/void', requireAuth, requireTenant, requirePermission('c
 
       const items = await queryAll('SELECT * FROM order_items WHERE order_id = ?', [orderId]);
       for (const item of items) {
+        const packSize = Math.max(1, Math.round(Number(item.pack_size || 1)));
+        const restoreBaseQty = Math.round(Number(item.quantity || 0)) * packSize;
         await execute(
           'UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?',
-          [item.quantity, item.product_id, shopId]
+          [restoreBaseQty, item.product_id, shopId]
         );
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, ?, ?, ?, 'Return', ?, ?)`,
-          [shopId, stockId, item.product_id, item.quantity, `Order #${order.order_number} Cancelled/Voided`, currentUserId]
+          [shopId, stockId, item.product_id, restoreBaseQty, `Order #${order.order_number} Cancelled/Voided`, currentUserId]
         );
       }
 
@@ -2838,7 +2946,7 @@ router.get('/customers/:id/statement', requireAuth, requireTenant, async (req: R
       const orderIds = orders.map((o) => Number(o.id));
       const placeholders = orderIds.map(() => '?').join(', ');
       const items = await queryAll<any>(
-        `SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.selling_price, oi.subtotal,
+        `SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.sale_mode, oi.sold_unit, oi.pack_size, oi.selling_price, oi.subtotal,
                 p.name as product_name, p.unit as product_unit
          FROM order_items oi
          LEFT JOIN products p ON oi.product_id = p.id
@@ -3900,7 +4008,7 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
 
   try {
     const categorySales = await queryAll(
-      `SELECT p.category, COALESCE(SUM(oi.subtotal), 0) as revenue, COALESCE(SUM(oi.profit), 0) as profit, SUM(oi.quantity) as units_sold
+      `SELECT p.category, COALESCE(SUM(oi.subtotal), 0) as revenue, COALESCE(SUM(oi.profit), 0) as profit, SUM(oi.quantity * COALESCE(oi.pack_size, 1)) as units_sold
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id
@@ -3910,7 +4018,7 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
     );
 
     const topSellingProducts = await queryAll(
-      `SELECT p.name, p.sku, p.category, SUM(oi.quantity) as total_units_sold, SUM(oi.subtotal) as total_revenue, SUM(oi.profit) as total_profit
+      `SELECT p.name, p.sku, p.category, SUM(oi.quantity * COALESCE(oi.pack_size, 1)) as total_units_sold, SUM(oi.subtotal) as total_revenue, SUM(oi.profit) as total_profit
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id

@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ReportSummary, Order, Product, Shop, User, CustomerStatement } from '../types';
+import { formatPackStock } from '../utils/unitConversion';
 
 const formatCurrency = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
 
@@ -690,7 +691,7 @@ export function exportSingleOrderPdf({
     body: items.map((item, idx) => [
       idx + 1,
       item.product_name || item.name || 'Hardware Material',
-      item.unit || 'pcs',
+      item.sold_unit || item.product_unit || item.unit || 'pcs',
       Number(item.quantity).toLocaleString(),
       formatCurrency(item.selling_price),
       formatCurrency(item.subtotal),
@@ -942,6 +943,14 @@ export function exportStockPdf({
       ? new Date(dateVal).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' })
       : '-';
 
+    const stockView = formatPackStock(qty, p.units_per_pack, p.unit, p.pack_unit);
+    const unitLabel = stockView.isMultiUnit
+      ? `${stockView.retailUnit} (${stockView.packUnit} ×${stockView.packSize})`
+      : stockView.retailUnit;
+    const stockCell = stockView.isMultiUnit
+      ? `${stockView.primary}\n(${stockView.totalText})`
+      : qty.toLocaleString();
+
     if (showBuyingPrices) {
       return [
         idx + 1,
@@ -949,10 +958,10 @@ export function exportStockPdf({
         p.name,
         p.category,
         p.stock_name || 'Main',
-        p.unit || 'pcs',
+        unitLabel,
         formatCurrency(Number(p.buying_price || 0)),
         formatCurrency(sellPrice),
-        qty.toLocaleString(),
+        stockCell,
         Number(p.total_units_sold || 0).toLocaleString(),
         statusLabel,
         shortDate,
@@ -965,9 +974,9 @@ export function exportStockPdf({
       p.name,
       p.category,
       p.stock_name || 'Main',
-      p.unit || 'pcs',
+      unitLabel,
       formatCurrency(sellPrice),
-      qty.toLocaleString(),
+      stockCell,
       Number(p.total_units_sold || 0).toLocaleString(),
       statusLabel,
       shortDate,
@@ -1127,7 +1136,7 @@ export function exportDeliveryNoticePdf({
     body: items.map((item, idx) => [
       idx + 1,
       item.product_name || item.name || 'Hardware Material',
-      item.product_unit || item.unit || 'pcs',
+      item.sold_unit || item.product_unit || item.unit || 'pcs',
       Number(item.quantity).toLocaleString(),
       '[   ]',
     ]),
@@ -1305,7 +1314,7 @@ export function exportCustomerStatementPdf({
     body: statement.orders.length > 0
       ? statement.orders.map((o) => {
           const itemsSummary = (o.statement_items && o.statement_items.length > 0)
-            ? o.statement_items.map((it) => `${it.product_name} × ${it.quantity} (@ ${Math.round(it.selling_price).toLocaleString()})`).join('; ')
+            ? o.statement_items.map((it) => `${it.product_name} × ${it.quantity} ${it.sold_unit || it.product_unit || 'pcs'} (@ ${Math.round(it.selling_price).toLocaleString()})`).join('; ')
             : 'Order items';
           if (o.fulfillment_status === 'cancelled') {
             const origTotal = Number(o.total_amount || 0);

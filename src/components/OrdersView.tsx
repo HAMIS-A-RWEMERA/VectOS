@@ -1068,13 +1068,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                           <td className="p-2.5">
                             <p className="font-bold text-slate-100">{item.product_name || `Item #${item.product_id}`}</p>
                             <p className="text-[10px] text-slate-400 font-mono">
-                              {item.product_sku ? `Code: ${item.product_sku} • ` : ''}{item.product_unit || 'pcs'}
+                              {item.product_sku ? `Code: ${item.product_sku} • ` : ''}
+                              {item.sold_unit || item.product_unit || 'pcs'}
+                              {item.sale_mode === 'pack' && item.pack_size && item.pack_size > 1
+                                ? ` (×${item.pack_size} ${item.product_unit || 'pcs'})`
+                                : ''}
                             </p>
                           </td>
 
                           {/* Ordered Qty */}
                           <td className="p-2.5 text-center font-mono text-slate-300">
-                            {item.quantity} {item.product_unit || 'pcs'}
+                            {item.quantity} {item.sold_unit || item.product_unit || 'pcs'}
                           </td>
 
                           {/* Release Qty (Interactive) */}
@@ -1090,11 +1094,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                                   className="w-14 text-center py-1 px-1.5 rounded-lg bg-slate-900 border border-slate-700 font-mono font-bold text-xs text-white focus:outline-none focus:border-amber-500"
                                   title="Adjust quantity physically released from warehouse"
                                 />
-                                <span className="text-[10px] text-slate-400">{item.product_unit || 'pcs'}</span>
+                                <span className="text-[10px] text-slate-400">{item.sold_unit || item.product_unit || 'pcs'}</span>
                               </div>
                             ) : (
                               <span className="font-mono text-xs text-slate-400">
-                                {isChecked ? `${releaseQty} ${item.product_unit || 'pcs'}` : '—'}
+                                {isChecked ? `${releaseQty} ${item.sold_unit || item.product_unit || 'pcs'}` : '—'}
                               </span>
                             )}
                           </td>

@@ -87,8 +87,12 @@ export const products = pgTable('products', {
   barcode: text('barcode'),
   category: text('category').notNull(),
   unit: text('unit').default('pcs'),
+  unitsPerPack: integer('units_per_pack').default(1),
+  packUnit: text('pack_unit'),
   buyingPrice: numeric('buying_price').notNull(),
   sellingPrice: numeric('selling_price').default('0.0'),
+  packBuyingPrice: numeric('pack_buying_price').default('0.0'),
+  packSellingPrice: numeric('pack_selling_price').default('0.0'),
   quantity: integer('quantity').default(0).notNull(),
   lowStockThreshold: integer('low_stock_threshold').default(10),
   description: text('description'),
@@ -106,6 +110,7 @@ export const customers = pgTable('customers', {
   email: text('email'),
   address: text('address'),
   creditBalance: numeric('credit_balance').default('0.0'),
+  storeCredit: numeric('store_credit').default('0.0'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -136,6 +141,10 @@ export const orders = pgTable('orders', {
   fulfillmentStatus: text('fulfillment_status').default('pending_store'),
   notes: text('notes'),
   clientRef: text('client_ref'),
+  paymentApprovedBy: integer('payment_approved_by').references(() => users.id),
+  paymentApprovedAt: timestamp('payment_approved_at'),
+  stockReleasedBy: integer('stock_released_by').references(() => users.id),
+  stockReleasedAt: timestamp('stock_released_at'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -145,6 +154,9 @@ export const orderItems = pgTable('order_items', {
   orderId: integer('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
   productId: integer('product_id').notNull().references(() => products.id),
   quantity: integer('quantity').notNull(),
+  saleMode: text('sale_mode').default('retail'),
+  soldUnit: text('sold_unit'),
+  packSize: integer('pack_size').default(1),
   buyingPrice: numeric('buying_price').notNull(),
   sellingPrice: numeric('selling_price').notNull(),
   subtotal: numeric('subtotal').notNull(),
@@ -218,6 +230,21 @@ export const session = pgTable('session', {
   sid: text('sid').primaryKey(),
   sess: json('sess').notNull(),
   expire: timestamp('expire').notNull(),
+});
+
+// 15. CUSTOMER CREDIT LEDGER
+export const customerCreditLedger = pgTable('customer_credit_ledger', {
+  id: serial('id').primaryKey(),
+  shopId: integer('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+  customerId: integer('customer_id').notNull().references(() => customers.id, { onDelete: 'cascade' }),
+  orderId: integer('order_id').references(() => orders.id, { onDelete: 'set null' }),
+  amount: numeric('amount').notNull(),
+  entryType: text('entry_type').notNull(),
+  paymentMethod: text('payment_method'),
+  referenceNo: text('reference_no'),
+  notes: text('notes'),
+  recordedBy: integer('recorded_by').references(() => users.id),
+  createdAt: timestamp('created_at').defaultNow(),
 });
 
 // RELATIONS

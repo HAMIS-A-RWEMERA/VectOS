@@ -118,7 +118,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
     const ordersRows = statement.orders.length > 0
       ? statement.orders.map((o, idx) => {
           const itemsList = (o.statement_items && o.statement_items.length > 0)
-            ? o.statement_items.map(it => `${escapeHtml(it.product_name)} × ${it.quantity} (@ ${Math.round(it.selling_price).toLocaleString()})`).join('<br/>')
+            ? o.statement_items.map(it => `${escapeHtml(it.product_name)} × ${it.quantity} ${escapeHtml(it.sold_unit || it.product_unit || 'pcs')} (@ ${Math.round(it.selling_price).toLocaleString()})`).join('<br/>')
             : 'Order items';
           if (o.fulfillment_status === 'cancelled') {
             const origPaid = Number(o.paid_amount || 0);
@@ -579,7 +579,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                                           {it.product_name}
                                         </span>{' '}
                                         <span className="text-slate-400 font-mono">
-                                          × {it.quantity} (@ {Math.round(it.selling_price).toLocaleString()})
+                                          × {it.quantity} {it.sold_unit || it.product_unit || 'pcs'} (@ {Math.round(it.selling_price).toLocaleString()})
                                         </span>
                                       </li>
                                     ))}

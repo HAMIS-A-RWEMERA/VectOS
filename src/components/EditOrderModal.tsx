@@ -14,6 +14,15 @@ import {
   Edit3
 } from 'lucide-react';
 import { SearchableSelect } from './SearchableSelect';
+import {
+  formatPackStock,
+  getPackSize,
+  getPackUnitLabel,
+  getPackSellingPrice,
+  getRetailSellingPrice,
+  getRetailUnitLabel,
+  isPackProduct,
+} from '../utils/unitConversion';
 
 interface EditOrderModalProps {
   isOpen: boolean;
@@ -29,6 +38,9 @@ interface EditableItem {
   product_name: string;
   product_sku?: string;
   unit?: string;
+  sale_mode: 'pack' | 'retail';
+  sold_unit: string;
+  pack_size: number;
   quantity: number;
   selling_price: number;
   buying_price: number;
@@ -54,10 +66,34 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
+  const [addSaleMode, setAddSaleMode] = useState<'pack' | 'retail'>('retail');
 
   const [loading, setLoading] = useState(false);
   const [fetchingDetails, setFetchingDetails] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const mapRawOrderItem = (it: any, idx: number): EditableItem => {
+    const mode: 'pack' | 'retail' = it.sale_mode === 'pack' ? 'pack' : 'retail';
+    const retailUnit = it.product_unit || it.unit || 'pcs';
+    const soldUnit = it.sold_unit || retailUnit;
+    const packSize = Math.max(1, Math.round(Number(it.pack_size || 1)));
+    const qty = Math.max(1, Math.round(Number(it.quantity || 1)));
+    const sellPrice = Number(it.selling_price !== undefined ? it.selling_price : (it.buying_price || 0));
+    return {
+      tempId: `item-${it.product_id}-${mode}-${idx}-${Date.now()}`,
+      product_id: Number(it.product_id),
+      product_name: it.product_name || it.name || `Product #${it.product_id}`,
+      product_sku: it.product_sku || it.sku || '',
+      unit: retailUnit,
+      sale_mode: mode,
+      sold_unit: soldUnit,
+      pack_size: packSize,
+      quantity: qty,
+      selling_price: sellPrice,
+      buying_price: Number(it.buying_price || 0),
+      subtotal: Number(it.subtotal || sellPrice * qty),
+    };
+  };
 
   // Initialize data whenever order changes or modal opens
   useEffect(() => {
@@ -78,18 +114,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
 
       // Map any existing items immediately for responsive UI
       if (order.items && order.items.length > 0) {
-        const initialMapped = (order.items || []).map((it: any, idx: number) => ({
-          tempId: `item-${it.product_id}-${idx}-${Date.now()}`,
-          product_id: Number(it.product_id),
-          product_name: it.product_name || it.name || `Product #${it.product_id}`,
-          product_sku: it.product_sku || it.sku || '',
-          unit: it.product_unit || it.unit || 'pcs',
-          quantity: Math.max(1, Number(it.quantity || 1)),
-          selling_price: Number(it.selling_price !== undefined ? it.selling_price : (it.buying_price || 0)),
-          buying_price: Number(it.buying_price || 0),
-          subtotal: Number(it.subtotal || (Number(it.selling_price || 0) * Number(it.quantity || 1)))
-        }));
-        setItems(initialMapped);
+        setItems((order.items || []).map(mapRawOrderItem));
       }
 
       // Always fetch fresh order detail from server to guarantee complete items and prices
@@ -101,18 +126,7 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
           if (res.order.paid_amount !== undefined) setPaidAmount(Number(res.order.paid_amount || 0));
         }
         if (res && res.items && res.items.length > 0) {
-          const loadedItems = res.items.map((it: any, idx: number) => ({
-            tempId: `item-${it.product_id}-${idx}-${Date.now()}`,
-            product_id: Number(it.product_id),
-            product_name: it.product_name || it.name || `Product #${it.product_id}`,
-            product_sku: it.product_sku || it.sku || '',
-            unit: it.product_unit || it.unit || 'pcs',
-            quantity: Math.max(1, Number(it.quantity || 1)),
-            selling_price: Number(it.selling_price !== undefined ? it.selling_price : (it.buying_price || 0)),
-            buying_price: Number(it.buying_price || 0),
-            subtotal: Number(it.subtotal || (Number(it.selling_price || 0) * Number(it.quantity || 1)))
-          }));
-          setItems(loadedItems);
+          setItems(res.items.map(mapRawOrderItem));
         }
       }).catch(err => {
         console.error('Failed to load fresh order details:', err);
@@ -176,8 +190,12 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
     const prod = catalogProducts.find(p => p.id === Number(selectedProductId));
     if (!prod) return;
 
-    // Check if already in order
-    const existingIndex = items.findIndex(it => it.product_id === prod.id);
+    const effectiveMode: 'pack' | 'retail' = addSaleMode === 'pack' && isPackProduct(prod) ? 'pack' : 'retail';
+    const packSize = effectiveMode === 'pack' ? getPackSize(prod) : 1;
+    const soldUnit = effectiveMode === 'pack' ? getPackUnitLabel(prod) : getRetailUnitLabel(prod);
+
+    // Check if already in order with same sale_mode
+    const existingIndex = items.findIndex(it => it.product_id === prod.id && it.sale_mode === effectiveMode);
     if (existingIndex >= 0) {
       // Increase quantity by 1
       setItems(prev => prev.map((it, idx) => {
@@ -192,25 +210,32 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
         return it;
       }));
     } else {
-      const price = prod.selling_price && Number(prod.selling_price) > 0 
-        ? Number(prod.selling_price) 
+      const price = effectiveMode === 'pack'
+        ? getPackSellingPrice(prod)
+        : getRetailSellingPrice(prod);
+      const buyPrice = effectiveMode === 'pack'
+        ? (Number(prod.pack_buying_price || 0) > 0 ? Number(prod.pack_buying_price) : Number(prod.buying_price || 0) * packSize)
         : Number(prod.buying_price || 0);
 
       const newItem: EditableItem = {
-        tempId: `new-${prod.id}-${Date.now()}`,
+        tempId: `new-${prod.id}-${effectiveMode}-${Date.now()}`,
         product_id: prod.id,
         product_name: prod.name,
         product_sku: prod.sku,
-        unit: prod.unit || 'pcs',
+        unit: getRetailUnitLabel(prod),
+        sale_mode: effectiveMode,
+        sold_unit: soldUnit,
+        pack_size: packSize,
         quantity: 1,
         selling_price: price,
-        buying_price: Number(prod.buying_price || 0),
+        buying_price: buyPrice,
         subtotal: price * 1
       };
       setItems(prev => [...prev, newItem]);
     }
 
     setSelectedProductId('');
+    setAddSaleMode('retail');
     setIsAddingProduct(false);
     setError(null);
   };
@@ -233,9 +258,12 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
         notes: notes.trim() || undefined,
         items: items.map(it => ({
           product_id: it.product_id,
-          quantity: it.quantity,
+          quantity: Math.max(1, Math.round(it.quantity)),
           selling_price: it.selling_price,
-          fulfillment_source: 'Store'
+          fulfillment_source: 'Store',
+          sale_mode: it.sale_mode,
+          sold_unit: it.sold_unit,
+          pack_size: it.pack_size,
         }))
       };
       if (canProcessPayments) {
@@ -257,14 +285,22 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
     }
   };
 
-  const catalogOptions = catalogProducts.map((p) => ({
-    value: p.id,
-    label: p.name,
-    sublabel: `Code: ${p.sku} • Price: ${formatRwf(p.selling_price || p.buying_price)}`,
-    badge: `Stock: ${p.quantity} ${p.unit || 'pcs'}`,
-    badgeTone: (p.quantity > 0 ? 'emerald' : 'rose') as 'emerald' | 'rose',
-    searchText: `${p.name} ${p.sku} ${p.barcode || ''} ${p.category || ''}`,
-  }));
+  const selectedCatalogProduct = catalogProducts.find(p => p.id === Number(selectedProductId));
+
+  const catalogOptions = catalogProducts.map((p) => {
+    const stockView = formatPackStock(p.quantity, p.units_per_pack, getRetailUnitLabel(p), getPackUnitLabel(p));
+    const priceDesc = isPackProduct(p)
+      ? `${getPackUnitLabel(p)}: ${formatRwf(getPackSellingPrice(p))} | ${getRetailUnitLabel(p)}: ${formatRwf(getRetailSellingPrice(p))}`
+      : `Price: ${formatRwf(getRetailSellingPrice(p))}`;
+    return {
+      value: p.id,
+      label: p.name,
+      sublabel: `Code: ${p.sku} • ${priceDesc}`,
+      badge: `Stock: ${stockView.short}`,
+      badgeTone: (p.quantity > 0 ? 'emerald' : 'rose') as 'emerald' | 'rose',
+      searchText: `${p.name} ${p.sku} ${p.barcode || ''} ${p.category || ''}`,
+    };
+  });
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
@@ -363,7 +399,12 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                   <div className="flex-1">
                     <SearchableSelect
                       value={selectedProductId || null}
-                      onChange={(val) => setSelectedProductId(val ? Number(val) : '')}
+                      onChange={(val) => {
+                        const id = val ? Number(val) : '';
+                        setSelectedProductId(id);
+                        const prod = catalogProducts.find(p => p.id === Number(val));
+                        setAddSaleMode(prod && isPackProduct(prod) ? 'pack' : 'retail');
+                      }}
                       options={catalogOptions}
                       placeholder={`Search & pick a product (${catalogProducts.length} available)...`}
                       searchPlaceholder="Type any part of product name, code, or category..."
@@ -382,6 +423,34 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                     Add Item
                   </button>
                 </div>
+
+                {selectedCatalogProduct && isPackProduct(selectedCatalogProduct) && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[11px] font-semibold text-slate-400">Sell as:</span>
+                    <button
+                      type="button"
+                      onClick={() => setAddSaleMode('pack')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition ${
+                        addSaleMode === 'pack'
+                          ? 'bg-amber-500 text-slate-950 border-amber-400'
+                          : 'bg-slate-950 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      {getPackUnitLabel(selectedCatalogProduct)} (×{getPackSize(selectedCatalogProduct)} {getRetailUnitLabel(selectedCatalogProduct)}) — {formatRwf(getPackSellingPrice(selectedCatalogProduct))}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddSaleMode('retail')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold border transition ${
+                        addSaleMode === 'retail'
+                          ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                          : 'bg-slate-950 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      {getRetailUnitLabel(selectedCatalogProduct)} (Retail) — {formatRwf(getRetailSellingPrice(selectedCatalogProduct))}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -420,7 +489,9 @@ export const EditOrderModal: React.FC<EditOrderModalProps> = ({
                       <td className="py-2.5 px-3">
                         <p className="font-semibold text-white">{it.product_name}</p>
                         <span className="text-[10px] text-slate-400">
-                          {it.product_sku ? `SKU: ${it.product_sku} • ` : ''}{it.unit || 'pcs'}
+                          {it.product_sku ? `SKU: ${it.product_sku} • ` : ''}
+                          {it.sold_unit || it.unit || 'pcs'}
+                          {it.sale_mode === 'pack' && it.pack_size > 1 ? ` (×${it.pack_size} ${it.unit || 'pcs'})` : ''}
                         </span>
                       </td>
 

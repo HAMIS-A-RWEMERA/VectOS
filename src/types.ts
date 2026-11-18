@@ -70,8 +70,12 @@ export interface Product {
   barcode?: string | null;
   category: string;
   unit: string;
+  units_per_pack?: number;
+  pack_unit?: string | null;
   buying_price: number | null;
   selling_price?: number;
+  pack_buying_price?: number | null;
+  pack_selling_price?: number;
   quantity: number;
   low_stock_threshold: number;
   description?: string | null;
@@ -120,6 +124,9 @@ export interface OrderItem {
   product_sku?: string;
   product_unit?: string;
   quantity: number;
+  sale_mode?: 'pack' | 'retail';
+  sold_unit?: string;
+  pack_size?: number;
   buying_price: number | null;
   selling_price: number;
   subtotal: number;
@@ -229,6 +236,9 @@ export interface CustomerStatementOrderItem {
   product_name: string;
   product_unit?: string;
   quantity: number;
+  sale_mode?: 'pack' | 'retail';
+  sold_unit?: string;
+  pack_size?: number;
   selling_price: number;
   subtotal: number;
 }

@@ -15,6 +15,7 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { SearchableSelect } from './SearchableSelect';
+import { formatPackStock } from '../utils/unitConversion';
 
 interface StocksViewProps {
   user: User | null;
@@ -319,7 +320,7 @@ export const StocksView: React.FC<StocksViewProps> = ({ user }) => {
                     value: p.id,
                     label: p.name,
                     sublabel: `Code: ${p.sku} • ${p.stock_name || 'Main Store'}`,
-                    badge: `${p.quantity} ${p.unit || 'pcs'}`,
+                    badge: formatPackStock(p.quantity, p.units_per_pack, p.unit, p.pack_unit).short,
                     badgeTone: p.quantity > 0 ? 'emerald' : 'rose',
                     searchText: `${p.name} ${p.sku} ${p.barcode || ''} ${p.category || ''} ${p.stock_name || ''}`,
                   }))}

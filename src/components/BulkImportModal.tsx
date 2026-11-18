@@ -23,6 +23,10 @@ interface StagedProduct {
   sku: string;
   category: string;
   unit: string;
+  units_per_pack?: number;
+  pack_unit?: string;
+  pack_buying_price?: number;
+  pack_selling_price?: number;
   buying_price: number;
   selling_price: number;
   quantity: number;
@@ -105,11 +109,19 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
     let qtyIdx = 5;
     let lowIdx = 6;
     let descIdx = 7;
+    let packUnitIdx = -1;
+    let unitsPerPackIdx = -1;
+    let packBuyIdx = -1;
+    let packSellIdx = -1;
 
     if (hasHeader) {
       const splitHeader = splitCsvLine(lines[0]).map(h => h.trim().toLowerCase());
       splitHeader.forEach((h, idx) => {
-        if (h.includes('name') || h.includes('product') || h.includes('item') || h.includes('article') || h.includes('designation')) nameIdx = idx;
+        if (h.includes('pack_unit') || h.includes('carton_unit') || h === 'wholesale_unit') packUnitIdx = idx;
+        else if (h.includes('units_per_pack') || h.includes('per_pack') || h.includes('pack_size') || h.includes('pack_qty')) unitsPerPackIdx = idx;
+        else if (h.includes('pack_buy') || h.includes('pack_cost') || h.includes('carton_cost') || h.includes('wholesale_buy')) packBuyIdx = idx;
+        else if (h.includes('pack_sell') || h.includes('pack_price') || h.includes('carton_price') || h.includes('wholesale_price')) packSellIdx = idx;
+        else if (h.includes('name') || h.includes('product') || h.includes('item') || h.includes('article') || h.includes('designation')) nameIdx = idx;
         else if (h.includes('sku') || h.includes('code') || h.includes('ref')) skuIdx = idx;
         else if (h.includes('cat') || h.includes('type')) catIdx = idx;
         else if (h.includes('unit') || h.includes('unite') || h.includes('mesure')) unitIdx = idx;
@@ -164,10 +176,23 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
       }
 
       const rawQty = cleanParts[qtyIdx] !== undefined ? cleanParts[qtyIdx] : cleanParts[5];
-      const quantity = parseFloat(rawQty) || 0;
+      const quantity = Math.max(0, Math.round(parseFloat(rawQty) || 0));
       const rawLow = cleanParts[lowIdx] !== undefined ? cleanParts[lowIdx] : cleanParts[6];
-      const low_stock_threshold = parseFloat(rawLow) || 10;
+      const low_stock_threshold = Math.max(0, Math.round(parseFloat(rawLow) || 10));
       const description = cleanParts[descIdx] || cleanParts[7] || '';
+
+      const units_per_pack = unitsPerPackIdx >= 0
+        ? Math.max(1, Math.round(parseFloat(cleanParts[unitsPerPackIdx]) || 1))
+        : 1;
+      const pack_unit = units_per_pack > 1 && packUnitIdx >= 0 && cleanParts[packUnitIdx]
+        ? cleanParts[packUnitIdx].trim()
+        : undefined;
+      const pack_buying_price = units_per_pack > 1 && packBuyIdx >= 0 && parseFloat(cleanParts[packBuyIdx]) > 0
+        ? parseFloat(cleanParts[packBuyIdx])
+        : undefined;
+      const pack_selling_price = units_per_pack > 1 && packSellIdx >= 0 && parseFloat(cleanParts[packSellIdx]) > 0
+        ? parseFloat(cleanParts[packSellIdx])
+        : undefined;
 
       let isValid = true;
       let error = '';
@@ -185,6 +210,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({
         sku,
         category,
         unit,
+        ...(units_per_pack > 1 ? { units_per_pack, pack_unit, pack_buying_price, pack_selling_price } : {}),
         buying_price,
         selling_price,
         quantity,

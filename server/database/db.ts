@@ -268,8 +268,12 @@ async function initSqlJsSchema(): Promise<void> {
       barcode TEXT,
       category TEXT NOT NULL,
       unit TEXT DEFAULT 'pcs',
+      units_per_pack INTEGER DEFAULT 1,
+      pack_unit TEXT,
       buying_price REAL NOT NULL,
       selling_price REAL DEFAULT 0.0,
+      pack_buying_price REAL DEFAULT 0.0,
+      pack_selling_price REAL DEFAULT 0.0,
       quantity INTEGER NOT NULL DEFAULT 0,
       low_stock_threshold INTEGER DEFAULT 10,
       description TEXT,
@@ -327,6 +331,9 @@ async function initSqlJsSchema(): Promise<void> {
       order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       product_id INTEGER NOT NULL REFERENCES products(id),
       quantity INTEGER NOT NULL,
+      sale_mode TEXT DEFAULT 'retail',
+      sold_unit TEXT,
+      pack_size INTEGER DEFAULT 1,
       buying_price REAL NOT NULL,
       selling_price REAL NOT NULL,
       subtotal REAL NOT NULL,
@@ -720,6 +727,13 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_manage_subscriptions INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS selling_price NUMERIC(15,2) DEFAULT 0.0;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS units_per_pack INTEGER DEFAULT 1;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_unit TEXT;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_buying_price NUMERIC(15,2) DEFAULT 0.0;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_selling_price NUMERIC(15,2) DEFAULT 0.0;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS sale_mode TEXT DEFAULT 'retail';`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS sold_unit TEXT;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS pack_size INTEGER DEFAULT 1;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_by INTEGER;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_at TIMESTAMP WITH TIME ZONE;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_by INTEGER;`,
@@ -753,7 +767,7 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
   }
 
   try {
-    await pool.query('UPDATE products SET selling_price = buying_price WHERE buying_price IS NOT NULL AND buying_price > 0;');
+    await pool.query('UPDATE products SET selling_price = buying_price WHERE (selling_price IS NULL OR selling_price = 0) AND buying_price IS NOT NULL AND buying_price > 0;');
   } catch {}
 
   // Seed Default Active Shop if none exists in Postgres
