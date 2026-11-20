@@ -30,10 +30,11 @@ type CustomerSortOption = 'debt' | 'top_spent' | 'most_orders' | 'store_credit' 
 
 export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null, onLedgerUpdated }) => {
   const { tf } = useLanguage();
+  const isStockOnly = shop?.pricing_mode === 'stock_only';
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<CustomerSortOption>('debt');
+  const [sortBy, setSortBy] = useState<CustomerSortOption>(isStockOnly ? 'most_orders' : 'debt');
 
   // Add Customer Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -72,7 +73,13 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
   const [creditSubmitting, setCreditSubmitting] = useState(false);
 
   const canManageCustomers = hasPermission(user, 'can_manage_customers');
-  const canProcessPayments = hasPermission(user, 'can_process_payments');
+  const canProcessPayments = !isStockOnly && hasPermission(user, 'can_process_payments');
+
+  useEffect(() => {
+    if (isStockOnly && (sortBy === 'debt' || sortBy === 'top_spent' || sortBy === 'store_credit')) {
+      setSortBy('most_orders');
+    }
+  }, [isStockOnly]);
 
   useEffect(() => {
     if (user) {
@@ -235,14 +242,18 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              {tf('Customers, Ledgers & Top Buyers', 'Abakiriya, Amadeni n’Abaguzi Bakomeye')}
+              {isStockOnly
+                ? tf('Clients & Dispatch Directory', 'Abakiriya & Urutonde rw’Abahabwa Ibicuruzwa')
+                : tf('Customers, Ledgers & Top Buyers', 'Abakiriya, Amadeni n’Abaguzi Bakomeye')}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {tf(`${customers.length} Customers`, `Abakiriya ${customers.length}`)}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            {tf('Print finance-ready account statements, settle multi-receipt debts in one payment, track credit we owe clients, and spot top buyers.', 'Sohora inyandiko z’ibyaguzwe, wishyure amadeni menshi icyarimwe, ukurikirane amavansi y’abakiriya kandi umenye abaguzi bakomeye.')}
+            {isStockOnly
+              ? tf('Manage client profiles and track total stock dispatch orders per client.', 'Cunga imyirondoro y’abakiriya kandi ukurikirane umubare wa komande za buri mukiriya.')
+              : tf('Print finance-ready account statements, settle multi-receipt debts in one payment, track credit we owe clients, and spot top buyers.', 'Sohora inyandiko z’ibyaguzwe, wishyure amadeni menshi icyarimwe, ukurikirane amavansi y’abakiriya kandi umenye abaguzi bakomeye.')}
           </p>
         </div>
 
@@ -275,63 +286,65 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
       )}
 
       {/* Summary KPI + Biggest Clients Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase">{tf('Total Debt Owed to Us', 'Ideni Yose Tuberewemo')}</span>
-          <p className="text-xl font-black text-rose-400 font-mono mt-1">{formatRwf(totalOutstandingReceivables)}</p>
-          <p className="text-[11px] text-slate-400 mt-1">
-            {tf(`Across ${customers.filter((c) => Number(c.credit_balance || 0) > 0).length} account(s)`, `Kuri konti ${customers.filter((c) => Number(c.credit_balance || 0) > 0).length}`)}
-          </p>
-        </div>
+      {!isStockOnly && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase">{tf('Total Debt Owed to Us', 'Ideni Yose Tuberewemo')}</span>
+            <p className="text-xl font-black text-rose-400 font-mono mt-1">{formatRwf(totalOutstandingReceivables)}</p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              {tf(`Across ${customers.filter((c) => Number(c.credit_balance || 0) > 0).length} account(s)`, `Kuri konti ${customers.filter((c) => Number(c.credit_balance || 0) > 0).length}`)}
+            </p>
+          </div>
 
-        <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase">{tf('Store Credit We Owe Clients', 'Amavansi Tubereyemo Abakiriya')}</span>
-          <p className="text-xl font-black text-purple-300 font-mono mt-1">{formatRwf(totalStoreCreditOwed)}</p>
-          <p className="text-[11px] text-slate-400 mt-1">
-            {tf("Deductible on client's next POS order", 'Yiyakurwaho ku bugure bukurikiraho')}
-          </p>
-        </div>
+          <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase">{tf('Store Credit We Owe Clients', 'Amavansi Tubereyemo Abakiriya')}</span>
+            <p className="text-xl font-black text-purple-300 font-mono mt-1">{formatRwf(totalStoreCreditOwed)}</p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              {tf("Deductible on client's next POS order", 'Yiyakurwaho ku bugure bukurikiraho')}
+            </p>
+          </div>
 
-        <div
-          onClick={() => setSortBy('top_spent')}
-          className="p-4 rounded-2xl bg-[#121620] border border-amber-500/30 cursor-pointer hover:bg-[#161b28] transition"
-          title={tf('Click to rank customers by highest total spending', 'Kanda utonde abakiriya ukurikije abaguze byinshi')}
-        >
-          <span className="text-[11px] font-semibold text-amber-400 uppercase flex items-center gap-1.5">
-            <Trophy className="w-3.5 h-3.5" /> {tf('Highest Revenue Client', 'Umukiriya Waguze Byinshi')}
-          </span>
-          {topRevenueClient ? (
-            <>
-              <p className="text-sm font-black text-white mt-1 truncate">{topRevenueClient.name}</p>
-              <p className="text-xs font-mono font-bold text-emerald-400 mt-0.5">
-                {formatRwf(Number(topRevenueClient.total_spent || 0))} ({tf(`${topRevenueClient.order_count || 0} orders`, `Komande ${topRevenueClient.order_count || 0}`)})
-              </p>
-            </>
-          ) : (
-            <p className="text-xs text-slate-400 mt-2">{tf('No orders recorded yet', 'Nta komande zirabikwa')}</p>
-          )}
-        </div>
+          <div
+            onClick={() => setSortBy('top_spent')}
+            className="p-4 rounded-2xl bg-[#121620] border border-amber-500/30 cursor-pointer hover:bg-[#161b28] transition"
+            title={tf('Click to rank customers by highest total spending', 'Kanda utonde abakiriya ukurikije abaguze byinshi')}
+          >
+            <span className="text-[11px] font-semibold text-amber-400 uppercase flex items-center gap-1.5">
+              <Trophy className="w-3.5 h-3.5" /> {tf('Highest Revenue Client', 'Umukiriya Waguze Byinshi')}
+            </span>
+            {topRevenueClient ? (
+              <>
+                <p className="text-sm font-black text-white mt-1 truncate">{topRevenueClient.name}</p>
+                <p className="text-xs font-mono font-bold text-emerald-400 mt-0.5">
+                  {formatRwf(Number(topRevenueClient.total_spent || 0))} ({tf(`${topRevenueClient.order_count || 0} orders`, `Komande ${topRevenueClient.order_count || 0}`)})
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-slate-400 mt-2">{tf('No orders recorded yet', 'Nta komande zirabikwa')}</p>
+            )}
+          </div>
 
-        <div
-          onClick={() => setSortBy('most_orders')}
-          className="p-4 rounded-2xl bg-[#121620] border border-sky-500/30 cursor-pointer hover:bg-[#161b28] transition"
-          title={tf('Click to rank customers by most frequent orders', 'Kanda utonde abakiriya ukurikije abaza kenshi')}
-        >
-          <span className="text-[11px] font-semibold text-sky-400 uppercase flex items-center gap-1.5">
-            <Repeat className="w-3.5 h-3.5" /> {tf('Most Frequent Buyer', 'Uwagarutse Kenshi')}
-          </span>
-          {mostFrequentClient ? (
-            <>
-              <p className="text-sm font-black text-white mt-1 truncate">{mostFrequentClient.name}</p>
-              <p className="text-xs font-mono font-bold text-sky-300 mt-0.5">
-                {tf(`${mostFrequentClient.order_count || 0} order(s)`, `Komande ${mostFrequentClient.order_count || 0}`)} • {formatRwf(Number(mostFrequentClient.total_spent || 0))}
-              </p>
-            </>
-          ) : (
-            <p className="text-xs text-slate-400 mt-2">{tf('No orders recorded yet', 'Nta komande zirabikwa')}</p>
-          )}
+          <div
+            onClick={() => setSortBy('most_orders')}
+            className="p-4 rounded-2xl bg-[#121620] border border-sky-500/30 cursor-pointer hover:bg-[#161b28] transition"
+            title={tf('Click to rank customers by most frequent orders', 'Kanda utonde abakiriya ukurikije abaza kenshi')}
+          >
+            <span className="text-[11px] font-semibold text-sky-400 uppercase flex items-center gap-1.5">
+              <Repeat className="w-3.5 h-3.5" /> {tf('Most Frequent Buyer', 'Uwagarutse Kenshi')}
+            </span>
+            {mostFrequentClient ? (
+              <>
+                <p className="text-sm font-black text-white mt-1 truncate">{mostFrequentClient.name}</p>
+                <p className="text-xs font-mono font-bold text-sky-300 mt-0.5">
+                  {tf(`${mostFrequentClient.order_count || 0} order(s)`, `Komande ${mostFrequentClient.order_count || 0}`)} • {formatRwf(Number(mostFrequentClient.total_spent || 0))}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-slate-400 mt-2">{tf('No orders recorded yet', 'Nta komande zirabikwa')}</p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Search & Ranking Controls */}
       <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800 space-y-3">
@@ -361,13 +374,19 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
             <span className="text-[11px] text-slate-400 font-semibold flex items-center gap-1 mr-1">
               <ArrowUpDown className="w-3.5 h-3.5 text-amber-400" /> {tf('Rank by:', 'Tondeka na:')}
             </span>
-            {[
-              { id: 'debt', label: tf('Highest Debt', 'Ideni Rinini') },
-              { id: 'top_spent', label: tf('Top Revenue', 'Abaguze Byinshi') },
-              { id: 'most_orders', label: tf('Most Frequent', 'Abaza Kenshi') },
-              { id: 'store_credit', label: tf('We Owe Credit', 'Amavansi Tubereyemo') },
-              { id: 'name', label: tf('Name A–Z', 'Izina A–Z') },
-            ].map((opt) => (
+            {(isStockOnly
+              ? [
+                  { id: 'most_orders', label: tf('Most Orders', 'Komande Nyinshi') },
+                  { id: 'name', label: tf('Name A–Z', 'Izina A–Z') },
+                ]
+              : [
+                  { id: 'debt', label: tf('Highest Debt', 'Ideni Rinini') },
+                  { id: 'top_spent', label: tf('Top Revenue', 'Abaguze Byinshi') },
+                  { id: 'most_orders', label: tf('Most Frequent', 'Abaza Kenshi') },
+                  { id: 'store_credit', label: tf('We Owe Credit', 'Amavansi Tubereyemo') },
+                  { id: 'name', label: tf('Name A–Z', 'Izina A–Z') },
+                ]
+            ).map((opt) => (
               <button
                 key={opt.id}
                 type="button"
@@ -398,15 +417,15 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                   <tr>
                     <th className="py-3 px-4 font-semibold">{tf('Customer / Contractor', 'Umukiriya / Rwiyemezamirimo')}</th>
                     <th className="py-3 px-4 font-semibold">{tf('Phone & ID', 'Telefoni & Indangamuntu')}</th>
-                    <th className="py-3 px-4 font-semibold text-right">{tf('Orders & Revenue', 'Komande & Ibyaguzwe')}</th>
-                    <th className="py-3 px-4 font-semibold text-right">{tf('Debt Owed to Us', 'Ideni Atubereyemo')}</th>
-                    <th className="py-3 px-4 font-semibold text-right">{tf('We Owe Client', 'Amavansi Tumubereyemo')}</th>
-                    <th className="py-3 px-4 font-semibold text-right">{tf('Actions', 'Ibikorwa')}</th>
+                    <th className="py-3 px-4 font-semibold text-right">{isStockOnly ? tf('Total Orders', 'Umubare wa Komande') : tf('Orders & Revenue', 'Komande & Ibyaguzwe')}</th>
+                    {!isStockOnly && <th className="py-3 px-4 font-semibold text-right">{tf('Debt Owed to Us', 'Ideni Atubereyemo')}</th>}
+                    {!isStockOnly && <th className="py-3 px-4 font-semibold text-right">{tf('We Owe Client', 'Amavansi Tumubereyemo')}</th>}
+                    {!isStockOnly && <th className="py-3 px-4 font-semibold text-right">{tf('Actions', 'Ibikorwa')}</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {filteredCustomers.map((c) => {
-                    const isTopSpender = topRevenueClient && topRevenueClient.id === c.id;
+                    const isTopSpender = !isStockOnly && topRevenueClient && topRevenueClient.id === c.id;
                     const isMostFreq = mostFrequentClient && mostFrequentClient.id === c.id;
                     const storeCredit = Number(c.store_credit || 0);
                     return (
@@ -436,43 +455,50 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                         </td>
 
                         <td className="py-3 px-4 text-right">
-                          <p className="font-mono font-bold text-white">{formatRwf(Number(c.total_spent || 0))}</p>
-                          <p className="text-[10px] font-mono text-slate-400">{tf(`${c.order_count || 0} order(s)`, `Komande ${c.order_count || 0}`)}</p>
+                          {!isStockOnly && <p className="font-mono font-bold text-white">{formatRwf(Number(c.total_spent || 0))}</p>}
+                          <p className={`${isStockOnly ? 'text-xs font-bold text-white' : 'text-[10px] text-slate-400'} font-mono`}>
+                            {tf(`${c.order_count || 0} order(s)`, `Komande ${c.order_count || 0}`)}
+                          </p>
                         </td>
 
-                        <td className="py-3 px-4 text-right">
-                          {Number(c.credit_balance || 0) > 0 ? (
-                            <span className="font-mono font-bold text-rose-400">
-                              {formatRwf(c.credit_balance)}
-                            </span>
-                          ) : (
-                            <span className="font-mono text-emerald-400 font-semibold">
-                              0 RWF
-                            </span>
-                          )}
-                        </td>
+                        {!isStockOnly && (
+                          <td className="py-3 px-4 text-right">
+                            {Number(c.credit_balance || 0) > 0 ? (
+                              <span className="font-mono font-bold text-rose-400">
+                                {formatRwf(c.credit_balance)}
+                              </span>
+                            ) : (
+                              <span className="font-mono text-emerald-400 font-semibold">
+                                0 RWF
+                              </span>
+                            )}
+                          </td>
+                        )}
 
-                        <td className="py-3 px-4 text-right">
-                          {storeCredit > 0 ? (
-                            <span className="font-mono font-bold text-purple-300">
-                              {formatRwf(storeCredit)}
-                            </span>
-                          ) : (
-                            <span className="font-mono text-slate-500">0 RWF</span>
-                          )}
-                        </td>
+                        {!isStockOnly && (
+                          <td className="py-3 px-4 text-right">
+                            {storeCredit > 0 ? (
+                              <span className="font-mono font-bold text-purple-300">
+                                {formatRwf(storeCredit)}
+                              </span>
+                            ) : (
+                              <span className="font-mono text-slate-500">0 RWF</span>
+                            )}
+                          </td>
+                        )}
 
-                        <td className="py-3 px-4">
-                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => setStatementCustomer(c)}
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-bold flex items-center gap-1 transition"
-                              title={tf('View & print transaction statement for client finance department', 'Reba kandi usohore inyandiko y’ibyaguzwe y’umukiriya')}
-                            >
-                              <FileText className="w-3.5 h-3.5 text-amber-400" />
-                              <span>{tf('Statement', 'Inyandiko')}</span>
-                            </button>
+                        {!isStockOnly && (
+                          <td className="py-3 px-4">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => setStatementCustomer(c)}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-bold flex items-center gap-1 transition"
+                                title={tf('View & print transaction statement for client finance department', 'Reba kandi usohore inyandiko y’ibyaguzwe y’umukiriya')}
+                              >
+                                <FileText className="w-3.5 h-3.5 text-amber-400" />
+                                <span>{tf('Statement', 'Inyandiko')}</span>
+                              </button>
 
                             {canProcessPayments && Number(c.credit_balance || 0) > 0 && (
                               <button
@@ -497,8 +523,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                                 <span>{tf('Credit', 'Avansi')}</span>
                               </button>
                             )}
-                          </div>
-                        </td>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -518,55 +545,61 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                         <p className="text-[11px] font-mono text-amber-400">{c.phone || tf('No phone', 'Nta telefoni')}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs font-mono font-bold text-white">{formatRwf(Number(c.total_spent || 0))}</p>
-                        <p className="text-[10px] text-slate-400">{tf(`${c.order_count || 0} order(s)`, `Komande ${c.order_count || 0}`)}</p>
+                        {!isStockOnly && <p className="text-xs font-mono font-bold text-white">{formatRwf(Number(c.total_spent || 0))}</p>}
+                        <p className={`${isStockOnly ? 'text-xs font-bold text-white' : 'text-[10px] text-slate-400'}`}>
+                          {tf(`${c.order_count || 0} order(s)`, `Komande ${c.order_count || 0}`)}
+                        </p>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                        <span className="text-[10px] text-slate-400 block">{tf('Debt Owed to Us', 'Ideni Atubereyemo')}</span>
-                        <span className={`font-mono font-bold ${Number(c.credit_balance || 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                          {formatRwf(Number(c.credit_balance || 0))}
-                        </span>
-                      </div>
-                      <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
-                        <span className="text-[10px] text-slate-400 block">{tf('We Owe Client', 'Amavansi Tumubereyemo')}</span>
-                        <span className={`font-mono font-bold ${storeCredit > 0 ? 'text-purple-300' : 'text-slate-500'}`}>
-                          {formatRwf(storeCredit)}
-                        </span>
-                      </div>
-                    </div>
+                    {!isStockOnly && (
+                      <>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                            <span className="text-[10px] text-slate-400 block">{tf('Debt Owed to Us', 'Ideni Atubereyemo')}</span>
+                            <span className={`font-mono font-bold ${Number(c.credit_balance || 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              {formatRwf(Number(c.credit_balance || 0))}
+                            </span>
+                          </div>
+                          <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                            <span className="text-[10px] text-slate-400 block">{tf('We Owe Client', 'Amavansi Tumubereyemo')}</span>
+                            <span className={`font-mono font-bold ${storeCredit > 0 ? 'text-purple-300' : 'text-slate-500'}`}>
+                              {formatRwf(storeCredit)}
+                            </span>
+                          </div>
+                        </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => setStatementCustomer(c)}
-                        className="flex-1 py-2 px-3 rounded-xl bg-slate-800 text-slate-100 border border-slate-700 text-xs font-bold flex items-center justify-center gap-1.5"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-amber-400" /> {tf('Statement / Print', 'Inyandiko / Sohora')}
-                      </button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setStatementCustomer(c)}
+                            className="flex-1 py-2 px-3 rounded-xl bg-slate-800 text-slate-100 border border-slate-700 text-xs font-bold flex items-center justify-center gap-1.5"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-amber-400" /> {tf('Statement / Print', 'Inyandiko / Sohora')}
+                          </button>
 
-                      {canProcessPayments && Number(c.credit_balance || 0) > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => openBulkSettleModal(c)}
-                          className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center justify-center gap-1.5"
-                        >
-                          <CreditCard className="w-3.5 h-3.5" /> {tf('Settle Debt', 'Ishyura Ideni')}
-                        </button>
-                      )}
+                          {canProcessPayments && Number(c.credit_balance || 0) > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => openBulkSettleModal(c)}
+                              className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center justify-center gap-1.5"
+                            >
+                              <CreditCard className="w-3.5 h-3.5" /> {tf('Settle Debt', 'Ishyura Ideni')}
+                            </button>
+                          )}
 
-                      {canProcessPayments && (
-                        <button
-                          type="button"
-                          onClick={() => openStoreCreditModal(c)}
-                          className="py-2 px-3 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 text-xs font-bold flex items-center justify-center gap-1.5"
-                        >
-                          <Wallet className="w-3.5 h-3.5" /> {tf('Credit', 'Avansi')}
-                        </button>
-                      )}
-                    </div>
+                          {canProcessPayments && (
+                            <button
+                              type="button"
+                              onClick={() => openStoreCreditModal(c)}
+                              className="py-2 px-3 rounded-xl bg-purple-500/20 text-purple-300 border border-purple-500/40 text-xs font-bold flex items-center justify-center gap-1.5"
+                            >
+                              <Wallet className="w-3.5 h-3.5" /> {tf('Credit', 'Avansi')}
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })}

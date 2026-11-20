@@ -68,7 +68,9 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
     location: 'Kigali, Rwanda',
     tin_number: '',
     business_type: 'Hardware & Electronics',
-    subscription_plan: 'Standard Depot'
+    subscription_plan: 'Standard Depot',
+    workflow_mode: 'standard' as 'standard' | 'strict_chain',
+    pricing_mode: 'standard' as 'standard' | 'stock_only',
   });
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -226,13 +228,35 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
         location: 'Kigali, Rwanda',
         tin_number: '',
         business_type: 'Hardware & Electronics',
-        subscription_plan: 'Standard Depot'
+        subscription_plan: 'Standard Depot',
+        workflow_mode: 'standard',
+        pricing_mode: 'standard',
       });
       loadAllData();
     } catch (err: any) {
       setModalError(err.message || tf('Failed to provision tenant shop.', 'Gushyiraho iduka rishya byanze.'));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleShopWorkflow = async (shop: Shop) => {
+    const nextWorkflow = shop.workflow_mode === 'strict_chain' ? 'standard' : 'strict_chain';
+    const nextPricing = nextWorkflow === 'strict_chain' ? 'stock_only' : 'standard';
+    try {
+      setActionLoading(true);
+      await api.updateShop(shop.id, { workflow_mode: nextWorkflow, pricing_mode: nextPricing });
+      showFeedback(
+        'success',
+        nextWorkflow === 'strict_chain'
+          ? tf(`Enabled Isolated Strict Chain + Stock-Only mode for "${shop.name}".`, `Uburyo bwihariye bwa Strict Chain + Kubara Sitoki Gusa bwafunguriwe "${shop.name}".`)
+          : tf(`Switched "${shop.name}" back to Standard POS mode.`, `"${shop.name}" yasubiye ku buryo busanzwe bwa POS.`)
+      );
+      await loadAllData();
+    } catch (err: any) {
+      showFeedback('error', err.message || tf('Failed to update store workflow mode', 'Guhindura imikorere y’iduka byanze'));
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -652,6 +676,29 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                     </div>
                   </div>
 
+                  {/* Isolation / Workflow Mode Badge & Toggle */}
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-900/60 border border-slate-800/80 text-[11px]">
+                    <span className="text-slate-400">
+                      {shop.workflow_mode === 'strict_chain' ? (
+                        <span className="text-indigo-300 font-bold">
+                          {tf('Isolated: Strict Chain (No Prices)', 'Byihariye: Igenzura Rikomeye (Nta Biciro)')}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 font-medium">
+                          {tf('Mode: Standard POS', 'Uburyo: POS Isanzwe')}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleShopWorkflow(shop)}
+                      disabled={actionLoading}
+                      className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-indigo-500/20 hover:text-indigo-300 text-slate-300 border border-slate-700 font-semibold transition cursor-pointer"
+                    >
+                      {shop.workflow_mode === 'strict_chain' ? tf('Use Standard', 'Subira ku Bisanzwe') : tf('Switch Strict Chain', 'Shyira muri Strict Chain')}
+                    </button>
+                  </div>
+
                   {/* Big Boss Status & Context Actions */}
                   <div className="pt-2 border-t border-slate-800/60 flex flex-col gap-2">
                     <div className="flex items-center justify-between gap-2">
@@ -1025,6 +1072,35 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                   onChange={(e) => setNewShop({ ...newShop, location: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Workflow Mode', 'Uburyo bw’Imikorere')}</label>
+                  <select
+                    value={newShop.workflow_mode}
+                    onChange={(e) => {
+                      const wf = e.target.value as 'standard' | 'strict_chain';
+                      setNewShop({ ...newShop, workflow_mode: wf, pricing_mode: wf === 'strict_chain' ? 'stock_only' : newShop.pricing_mode });
+                    }}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="standard">{tf('Standard POS', 'POS Isanzwe')}</option>
+                    <option value="strict_chain">{tf('Isolated Strict Chain', 'Igenzura Rikomeye Ryihariye')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">{tf('Pricing Display', 'Ibiciro')}</label>
+                  <select
+                    value={newShop.pricing_mode}
+                    onChange={(e) => setNewShop({ ...newShop, pricing_mode: e.target.value as 'standard' | 'stock_only' })}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="standard">{tf('Standard (With Prices)', 'Bisanzwe (Biriho Ibiciro)')}</option>
+                    <option value="stock_only">{tf('No Prices (Stock Only)', 'Nta Biciro (Sitoki Gusa)')}</option>
+                  </select>
+                </div>
               </div>
 
               {modalError && <p className="text-xs text-rose-400 font-semibold">{modalError}</p>}

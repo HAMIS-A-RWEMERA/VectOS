@@ -132,7 +132,7 @@ router.get('/auth/me', async (req: Request, res: Response) => {
   // SuperAdmin gets list of all registered store tenants
   let availableShops: any[] = [];
   if (user.role === 'superadmin') {
-    availableShops = await queryAll('SELECT id, name, code, location, status, subscription_plan FROM shops ORDER BY name ASC');
+    availableShops = await queryAll('SELECT id, name, code, location, status, subscription_plan, workflow_mode, pricing_mode FROM shops ORDER BY name ASC');
   }
 
   const token = req.session?.user ? createAuthToken(req.session.user) : undefined;
@@ -937,9 +937,10 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
       ? (rawPackSell > 0 ? rawPackSell : Number((finalSellingPrice * finalPackSize).toFixed(2)))
       : 0;
 
+    const isWatchedVal = req.body.is_watched ? 1 : 0;
     const result = await execute(
-      `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, is_watched, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         shopId,
         finalStockId,
@@ -956,6 +957,7 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
         finalPackSell,
         finalQty,
         finalThreshold,
+        isWatchedVal,
         description ? description.trim() : null
       ]
     );
@@ -1340,9 +1342,13 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
               : Number((finalSellingPrice * finalPackSize).toFixed(2))))
       : 0;
 
+    const finalIsWatched = req.body.is_watched !== undefined
+      ? (req.body.is_watched ? 1 : 0)
+      : (existing.is_watched ? 1 : 0);
+
     await execute(
       `UPDATE products 
-       SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, units_per_pack = ?, pack_unit = ?, buying_price = ?, selling_price = ?, pack_buying_price = ?, pack_selling_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
+       SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, units_per_pack = ?, pack_unit = ?, buying_price = ?, selling_price = ?, pack_buying_price = ?, pack_selling_price = ?, quantity = ?, low_stock_threshold = ?, is_watched = ?, description = ?
        WHERE id = ? AND shop_id = ?`,
       [
         name || existing.name,
@@ -1358,6 +1364,7 @@ router.put('/products/:id', requireAuth, requireTenant, requirePermission('can_m
         finalPackSellPrice,
         quantity !== undefined ? Math.max(0, Math.round(Number(quantity))) : existing.quantity,
         low_stock_threshold !== undefined ? Math.max(0, Math.round(Number(low_stock_threshold))) : existing.low_stock_threshold,
+        finalIsWatched,
         description !== undefined ? description : existing.description,
         productId,
         shopId
@@ -3461,14 +3468,14 @@ router.get('/users', requireAuth, requireTenant, requireManager, async (req: Req
                 u.can_partner_borrow, u.can_view_reports, u.can_view_buying_prices, u.can_give_discounts, u.can_manage_users,
                 u.can_print_full_receipt, u.can_print_delivery_note, u.can_manage_customers, u.can_manage_partners, u.can_void_orders,
                 u.can_edit_company_settings, u.can_view_audit_trail, u.can_reset_passwords, u.can_view_all_tenants, u.can_manage_subscriptions,
-                u.force_password_change, s.name as shop_name 
+                u.can_verify_orders, u.can_resolve_flagged_orders, u.force_password_change, s.name as shop_name 
          FROM users u LEFT JOIN shops s ON u.shop_id = s.id ORDER BY u.role DESC, u.name ASC`
       : `SELECT id, shop_id, stock_id, name, email, role, job_title, phone, is_active, activation_status,
                 can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
                 can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
                 can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
                 can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-                force_password_change
+                can_verify_orders, can_resolve_flagged_orders, force_password_change
          FROM users WHERE shop_id = ? ORDER BY role DESC, name ASC`;
     const params = isSuper ? [] : [shopId];
 
@@ -3501,6 +3508,7 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
     const p = { ...req.body, ...(permissions || {}) };
     const isOwnerOrManagerRole = assignedRole === 'manager' || assignedRole === 'superadmin';
 
+    const assignedStockId = req.body.stock_id ? Number(req.body.stock_id) : 1;
     const result = await execute(
       `INSERT INTO users (
         shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status,
@@ -3508,10 +3516,11 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
         can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
         can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-        force_password_change
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        can_verify_orders, can_resolve_flagged_orders, force_password_change
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         targetShopId,
+        assignedStockId,
         name.trim(),
         email.trim().toLowerCase(),
         hashedPassword,
@@ -3537,7 +3546,9 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         p.can_view_audit_trail ? 1 : 0,
         p.can_reset_passwords ? 1 : 0,
         p.can_view_all_tenants !== undefined ? (p.can_view_all_tenants ? 1 : 0) : (assignedRole === 'platform_ops' ? 1 : 0),
-        p.can_manage_subscriptions ? 1 : 0
+        p.can_manage_subscriptions ? 1 : 0,
+        p.can_verify_orders ? 1 : 0,
+        isOwnerOrManagerRole || p.can_resolve_flagged_orders ? 1 : 0
       ]
     );
 
@@ -3590,13 +3601,19 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
       params.push(hash);
     }
 
+    if (req.body.stock_id !== undefined) {
+      updates.push('stock_id = ?');
+      params.push(req.body.stock_id ? Number(req.body.stock_id) : null);
+    }
+
     const p = { ...req.body, ...(permissions || {}) };
     const permKeys = [
       'can_create_orders', 'can_process_payments', 'can_release_stock', 'can_manage_stock',
       'can_import_export_stock', 'can_partner_borrow', 'can_view_reports', 'can_view_buying_prices',
       'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
       'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
-      'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions'
+      'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions',
+      'can_verify_orders', 'can_resolve_flagged_orders'
     ];
     const effectiveRole = role && (currentUser.role === 'superadmin' || role !== 'superadmin')
       ? String(role).toLowerCase()
@@ -3705,9 +3722,12 @@ router.post('/shops', requireAuth, requireSuperAdmin, async (req: Request, res: 
   try {
     const finalCode = code || name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
 
+    const workflowMode = req.body.workflow_mode === 'strict_chain' ? 'strict_chain' : 'standard';
+    const pricingMode = req.body.pricing_mode === 'stock_only' ? 'stock_only' : 'standard';
+
     const result = await execute(
-      `INSERT INTO shops (name, code, owner_name, phone, email, location, tin_number, status, subscription_plan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      `INSERT INTO shops (name, code, owner_name, phone, email, location, tin_number, status, subscription_plan, workflow_mode, pricing_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       [
         name.trim(),
         finalCode,
@@ -3716,7 +3736,9 @@ router.post('/shops', requireAuth, requireSuperAdmin, async (req: Request, res: 
         email.trim().toLowerCase(),
         location ? location.trim() : 'Kigali, Rwanda',
         tin_number ? tin_number.trim() : null,
-        subscription_plan || 'Standard Depot (RWF 45,000/mo)'
+        subscription_plan || 'Standard Depot (RWF 45,000/mo)',
+        workflowMode,
+        pricingMode
       ]
     );
 
@@ -3787,13 +3809,19 @@ router.put('/shops/:id', requireAuth, requirePermission('can_edit_company_settin
       }
     }
 
-    // Only SuperAdmin can change subscription status or plan
+    // Only SuperAdmin can change subscription status, plan, workflow_mode, or pricing_mode
     const newStatus = user.role === 'superadmin' && status ? status : existing.status;
     const newPlan = user.role === 'superadmin' && subscription_plan ? subscription_plan : existing.subscription_plan;
+    const newWorkflowMode = user.role === 'superadmin' && req.body.workflow_mode
+      ? (req.body.workflow_mode === 'strict_chain' ? 'strict_chain' : 'standard')
+      : (existing.workflow_mode || 'standard');
+    const newPricingMode = user.role === 'superadmin' && req.body.pricing_mode
+      ? (req.body.pricing_mode === 'stock_only' ? 'stock_only' : 'standard')
+      : (existing.pricing_mode || 'standard');
 
     await execute(
       `UPDATE shops 
-       SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?
+       SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?, workflow_mode = ?, pricing_mode = ?
        WHERE id = ?`,
       [
         cleanName,
@@ -3805,6 +3833,8 @@ router.put('/shops/:id', requireAuth, requirePermission('can_edit_company_settin
         cleanFooter,
         newStatus,
         newPlan,
+        newWorkflowMode,
+        newPricingMode,
         shopId
       ]
     );

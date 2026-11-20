@@ -14,6 +14,7 @@ import { UsersView } from './components/UsersView';
 import { SuperAdminView } from './components/SuperAdminView';
 import { ReportsView } from './components/ReportsView';
 import { ShopSettingsView } from './components/ShopSettingsView';
+import { StrictChainWorkspace } from './components/StrictChainWorkspace';
 import { ReceiptModal } from './components/ReceiptModal';
 import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
@@ -150,6 +151,13 @@ export const App: React.FC = () => {
       const res = await api.switchShop(shopId);
       if (res.success) {
         setShop(res.shop);
+        if (activeTab === 'chain' && res.shop?.workflow_mode !== 'strict_chain') {
+          setActiveTab('dashboard');
+        } else if ((activeTab === 'pos' || activeTab === 'orders') && res.shop?.workflow_mode === 'strict_chain') {
+          setActiveTab('chain');
+        } else if (activeTab === 'partners' && res.shop?.pricing_mode === 'stock_only') {
+          setActiveTab('dashboard');
+        }
         showToast(tf(`Switched to shop: ${res.shop.name}`, `Wahinduye iduka: ${res.shop.name}`));
         loadDashboardStats();
       }
@@ -237,7 +245,7 @@ export const App: React.FC = () => {
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         onLogout={handleLogout}
         onSwitchShop={handleSwitchShop}
-        onOpenPos={() => setActiveTab('pos')}
+        onOpenPos={() => setActiveTab(shop?.workflow_mode === 'strict_chain' ? 'chain' : 'pos')}
         onOpenChangePassword={() => setIsChangePasswordOpen(true)}
         onOpenShopSettings={() => setActiveTab('shop_settings')}
         onOpenAiHelp={() => setIsAiHelpOpen(true)}
@@ -270,6 +278,7 @@ export const App: React.FC = () => {
             }).catch(() => {});
           }}
           user={user}
+          shop={shop}
           lowStockCount={dashboardStats?.lowStockCount || 0}
           isMobileOpen={isMobileMenuOpen}
           onCloseMobile={() => setIsMobileMenuOpen(false)}
@@ -281,10 +290,21 @@ export const App: React.FC = () => {
           {activeTab === 'dashboard' && (
             <DashboardView
               user={user}
+              shop={shop}
               stats={dashboardStats}
               loading={loadingDashboard}
               onNavigate={(tab) => setActiveTab(tab)}
               onViewOrder={handleViewOrder}
+              onToast={showToast}
+            />
+          )}
+
+          {activeTab === 'chain' && shop?.workflow_mode === 'strict_chain' && (
+            <StrictChainWorkspace
+              user={user}
+              shop={shop}
+              onDataChanged={loadDashboardStats}
+              onToast={showToast}
             />
           )}
 
@@ -328,7 +348,7 @@ export const App: React.FC = () => {
           )}
 
           {activeTab === 'users' && (
-            <UsersView currentUser={user} />
+            <UsersView currentUser={user} shop={shop} />
           )}
 
           {activeTab === 'shop_settings' && (

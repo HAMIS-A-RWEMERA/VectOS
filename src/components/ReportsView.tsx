@@ -46,7 +46,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
   const [selectedAction, setSelectedAction] = useState('all');
   const [auditLoading, setAuditLoading] = useState(false);
 
-  const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices');
+  const isStockOnly = shop?.pricing_mode === 'stock_only';
+  const canViewBuyingPrices = !isStockOnly && hasPermission(user, 'can_view_buying_prices');
   const canViewAuditTrail = hasPermission(user, 'can_view_audit_trail');
 
   useEffect(() => {
@@ -144,28 +145,49 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
     if (!reports) return;
     let csvContent = 'data:text/csv;charset=utf-8,';
     if (activeReportTab === 'categories') {
-      csvContent += canViewBuyingPrices
-        ? 'Category,Revenue (RWF),Units Sold,Gross Profit (RWF)\n'
-        : 'Category,Revenue (RWF),Units Sold\n';
-      reports.categorySales.forEach(c => {
+      if (isStockOnly) {
+        csvContent += 'Category,Units Dispatched\n';
+        reports.categorySales.forEach(c => {
+          csvContent += `"${c.category}",${c.units_sold}\n`;
+        });
+      } else {
         csvContent += canViewBuyingPrices
-          ? `"${c.category}",${c.revenue},${c.units_sold},${c.profit ?? 0}\n`
-          : `"${c.category}",${c.revenue},${c.units_sold}\n`;
-      });
+          ? 'Category,Revenue (RWF),Units Sold,Gross Profit (RWF)\n'
+          : 'Category,Revenue (RWF),Units Sold\n';
+        reports.categorySales.forEach(c => {
+          csvContent += canViewBuyingPrices
+            ? `"${c.category}",${c.revenue},${c.units_sold},${c.profit ?? 0}\n`
+            : `"${c.category}",${c.revenue},${c.units_sold}\n`;
+        });
+      }
     } else if (activeReportTab === 'products') {
-      csvContent += canViewBuyingPrices
-        ? 'Product,SKU,Category,Units Sold,Revenue (RWF),Profit (RWF)\n'
-        : 'Product,SKU,Category,Units Sold,Revenue (RWF)\n';
-      reports.topSellingProducts.forEach(p => {
+      if (isStockOnly) {
+        csvContent += 'Product,SKU,Category,Units Dispatched\n';
+        reports.topSellingProducts.forEach(p => {
+          csvContent += `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold}\n`;
+        });
+      } else {
         csvContent += canViewBuyingPrices
-          ? `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold},${p.total_revenue},${p.total_profit ?? 0}\n`
-          : `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold},${p.total_revenue}\n`;
-      });
+          ? 'Product,SKU,Category,Units Sold,Revenue (RWF),Profit (RWF)\n'
+          : 'Product,SKU,Category,Units Sold,Revenue (RWF)\n';
+        reports.topSellingProducts.forEach(p => {
+          csvContent += canViewBuyingPrices
+            ? `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold},${p.total_revenue},${p.total_profit ?? 0}\n`
+            : `"${p.name}","${p.sku}","${p.category}",${p.total_units_sold},${p.total_revenue}\n`;
+        });
+      }
     } else if (activeReportTab === 'staff') {
-      csvContent += 'Staff Name,Email,Total Orders,Total Sales (RWF)\n';
-      reports.salespersonPerformance.forEach(s => {
-        csvContent += `"${s.name}","${s.email}",${s.total_orders},${s.total_sales}\n`;
-      });
+      if (isStockOnly) {
+        csvContent += 'Staff Name,Email,Total Orders\n';
+        reports.salespersonPerformance.forEach(s => {
+          csvContent += `"${s.name}","${s.email}",${s.total_orders}\n`;
+        });
+      } else {
+        csvContent += 'Staff Name,Email,Total Orders,Total Sales (RWF)\n';
+        reports.salespersonPerformance.forEach(s => {
+          csvContent += `"${s.name}","${s.email}",${s.total_orders},${s.total_sales}\n`;
+        });
+      }
     } else {
       csvContent += 'Timestamp,Operator Name,Operator Role,Action,IP Address,Details\n';
       const logsToExport = auditLogs.length > 0 ? auditLogs : (reports.auditLogs as any[]);
@@ -198,14 +220,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl lg:text-2xl font-black text-white tracking-tight font-display">
-              {tf('Sales & Profit Reports', 'Raporo z’Ubucuruzi n’Inyungu')}
+              {isStockOnly
+                ? tf('Stock Movement & Audit Reports', 'Raporo za Sitoki & Igenzura')
+                : tf('Sales & Profit Reports', 'Raporo z’Ubucuruzi n’Inyungu')}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {getPeriodLabel(period)}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            {tf('See top-selling categories, best products, staff sales, and activity history.', 'Reba ibyiciro bigurwa cyane, ibicuruzwa bya mbere, ibikorwa by’abakozi, n’amateka.')}
+            {isStockOnly
+              ? tf('See dispatched categories, top moved products, staff order counts, and audit history.', 'Reba ibyiciro byasohotse, ibicuruzwa byatwawe cyane, umubare wa komande z’abakozi, n’amateka y’igenzura.')
+              : tf('See top-selling categories, best products, staff sales, and activity history.', 'Reba ibyiciro bigurwa cyane, ibicuruzwa bya mbere, ibikorwa by’abakozi, n’amateka.')}
           </p>
         </div>
 
@@ -252,10 +278,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                 >
                   <span className="font-bold text-white flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5 text-amber-400" />
-                    {tf('Complete Financial Summary', 'Incamake Yuzuye y’Imari')}
+                    {isStockOnly ? tf('Complete Stock Summary', 'Incamake Yuzuye ya Sitoki') : tf('Complete Financial Summary', 'Incamake Yuzuye y’Imari')}
                   </span>
                   <span className="text-[11px] text-slate-400">
-                    {tf('Includes category turnover, products & leaderboard', 'Irimo ibyiciro, ibicuruzwa & abakozi')} ({getPeriodLabel(period)})
+                    {isStockOnly
+                      ? tf('Includes category dispatch, products & staff activity', 'Irimo ibyiciro byasohotse, ibicuruzwa & abakozi')
+                      : tf('Includes category turnover, products & leaderboard', 'Irimo ibyiciro, ibicuruzwa & abakozi')} ({getPeriodLabel(period)})
                   </span>
                 </button>
                 <div className="my-1 border-t border-slate-800" />
@@ -289,9 +317,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-3 text-xs overflow-x-auto">
         {[
-          { id: 'categories', label: tf('Sales by Category', 'Ibyaguzwe ku Byiciro'), icon: Layers, visible: true },
-          { id: 'products', label: tf('Top Selling Products', 'Ibicuruzwa Byaguzwe Cyane'), icon: TrendingUp, visible: true },
-          { id: 'staff', label: tf('Sales by Staff', 'Ibyagurishijwe n’Abakozi'), icon: Award, visible: true },
+          { id: 'categories', label: isStockOnly ? tf('Dispatched by Category', 'Ibyasohotse ku Byiciro') : tf('Sales by Category', 'Ibyaguzwe ku Byiciro'), icon: Layers, visible: true },
+          { id: 'products', label: isStockOnly ? tf('Most Dispatched Products', 'Ibicuruzwa Byasohotse Cyane') : tf('Top Selling Products', 'Ibicuruzwa Byaguzwe Cyane'), icon: TrendingUp, visible: true },
+          { id: 'staff', label: isStockOnly ? tf('Orders by Staff', 'Komande z’Abakozi') : tf('Sales by Staff', 'Ibyagurishijwe n’Abakozi'), icon: Award, visible: true },
           { id: 'audit', label: tf('Staff Activity History', 'Amateka y’Ibikorwa by’Abakozi'), icon: ShieldAlert, visible: canViewAuditTrail },
         ].filter(t => t.visible).map((tab) => {
           const Icon = tab.icon;
@@ -313,15 +341,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
         })}
       </div>
 
-      {/* Tab 1: Category Sales */}
+      {/* Tab 1: Category Sales / Dispatch */}
       {activeReportTab === 'categories' && (
         <div className="rounded-2xl bg-[#121620] border border-slate-800 overflow-hidden">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px] uppercase">
               <tr>
                 <th className="py-3 px-4">{tf('Category', 'Icyiciro')}</th>
-                <th className="py-3 px-4">{tf('Units Sold', 'Ingano Yaguzwe')}</th>
-                <th className="py-3 px-4">{tf('Total Sales', 'Igiteranyo cy’Ibyaguzwe')}</th>
+                <th className="py-3 px-4">{isStockOnly ? tf('Units Dispatched', 'Ingano Yasohotse') : tf('Units Sold', 'Ingano Yaguzwe')}</th>
+                {!isStockOnly && <th className="py-3 px-4">{tf('Total Sales', 'Igiteranyo cy’Ibyaguzwe')}</th>}
                 {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">{tf('Estimated Profit', 'Inyungu Igereranywa')}</th>}
               </tr>
             </thead>
@@ -333,7 +361,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                     {c.category}
                   </td>
                   <td className="py-3.5 px-4 font-mono text-slate-300">{c.units_sold.toLocaleString()} {tf('units', 'uduce')}</td>
-                  <td className="py-3.5 px-4 font-mono font-bold text-slate-100">{formatRwf(c.revenue)}</td>
+                  {!isStockOnly && <td className="py-3.5 px-4 font-mono font-bold text-slate-100">{formatRwf(c.revenue)}</td>}
                   {canViewBuyingPrices && (
                     <td className="py-3.5 px-4 font-mono font-black text-emerald-400">{formatRwf(c.profit)}</td>
                   )}
@@ -341,7 +369,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
               ))}
               {reports.categorySales.length === 0 && (
                 <tr>
-                  <td colSpan={canViewBuyingPrices ? 4 : 3} className="py-8 text-center text-slate-400">{tf('No category sales recorded yet.', 'Nta byaguzwe mu byiciro birandikwa.')}</td>
+                  <td colSpan={isStockOnly ? 2 : canViewBuyingPrices ? 4 : 3} className="py-8 text-center text-slate-400">{tf('No category movements recorded yet.', 'Nta byiciro birandikwa.')}</td>
                 </tr>
               )}
             </tbody>
@@ -349,7 +377,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
         </div>
       )}
 
-      {/* Tab 2: Top Selling Products */}
+      {/* Tab 2: Top Selling / Dispatched Products */}
       {activeReportTab === 'products' && (
         <div className="rounded-2xl bg-[#121620] border border-slate-800 overflow-hidden">
           <table className="w-full text-left text-xs">
@@ -358,8 +386,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                 <th className="py-3 px-4">{tf('Product Name', 'Izina ry’Igicuruzwa')}</th>
                 <th className="py-3 px-4">{tf('Item Code', 'Kode')}</th>
                 <th className="py-3 px-4">{tf('Category', 'Icyiciro')}</th>
-                <th className="py-3 px-4">{tf('Units Sold', 'Byaguzwe')}</th>
-                <th className="py-3 px-4">{tf('Total Sales', 'Igiteranyo')}</th>
+                <th className="py-3 px-4">{isStockOnly ? tf('Units Dispatched', 'Byasohotse') : tf('Units Sold', 'Byaguzwe')}</th>
+                {!isStockOnly && <th className="py-3 px-4">{tf('Total Sales', 'Igiteranyo')}</th>}
                 {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">{tf('Estimated Profit', 'Inyungu Igereranywa')}</th>}
               </tr>
             </thead>
@@ -370,7 +398,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                   <td className="py-3.5 px-4 font-mono text-amber-400">{p.sku}</td>
                   <td className="py-3.5 px-4 text-slate-300">{p.category}</td>
                   <td className="py-3.5 px-4 font-mono font-bold text-slate-200">{p.total_units_sold}</td>
-                  <td className="py-3.5 px-4 font-mono font-bold text-slate-100">{formatRwf(p.total_revenue)}</td>
+                  {!isStockOnly && <td className="py-3.5 px-4 font-mono font-bold text-slate-100">{formatRwf(p.total_revenue)}</td>}
                   {canViewBuyingPrices && (
                     <td className="py-3.5 px-4 font-mono font-black text-emerald-400">{formatRwf(p.total_profit)}</td>
                   )}
@@ -378,7 +406,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
               ))}
               {reports.topSellingProducts.length === 0 && (
                 <tr>
-                  <td colSpan={canViewBuyingPrices ? 6 : 5} className="py-8 text-center text-slate-400">{tf('No product sales logged yet.', 'Nta bicuruzwa biragurishwa.')}</td>
+                  <td colSpan={isStockOnly ? 4 : canViewBuyingPrices ? 6 : 5} className="py-8 text-center text-slate-400">{tf('No product dispatches logged yet.', 'Nta bicuruzwa birasohoka.')}</td>
                 </tr>
               )}
             </tbody>
@@ -386,7 +414,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
         </div>
       )}
 
-      {/* Tab 3: Salesperson Leaderboard */}
+      {/* Tab 3: Staff Leaderboard */}
       {activeReportTab === 'staff' && (
         <div className="rounded-2xl bg-[#121620] border border-slate-800 overflow-hidden">
           <table className="w-full text-left text-xs">
@@ -394,8 +422,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
               <tr>
                 <th className="py-3 px-4">{tf('Rank & Staff Name', 'Umwanya & Izina ry’Umukozi')}</th>
                 <th className="py-3 px-4">{tf('Email', 'Imeri')}</th>
-                <th className="py-3 px-4">{tf('Orders', 'Amategeko')}</th>
-                <th className="py-3 px-4 font-semibold">{tf('Total Sales', 'Ibyagurishijwe Byose')}</th>
+                <th className="py-3 px-4">{tf('Orders', 'Komande')}</th>
+                {!isStockOnly && <th className="py-3 px-4 font-semibold">{tf('Total Sales', 'Ibyagurishijwe Byose')}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
@@ -410,13 +438,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ user, shop }) => {
                     <span className="font-bold text-white">{s.name}</span>
                   </td>
                   <td className="py-3.5 px-4 font-mono text-slate-400">{s.email}</td>
-                  <td className="py-3.5 px-4 font-mono font-bold text-slate-200">{s.total_orders} {tf('orders', 'amategeko')}</td>
-                  <td className="py-3.5 px-4 font-mono font-black text-amber-400">{formatRwf(s.total_sales)}</td>
+                  <td className="py-3.5 px-4 font-mono font-bold text-slate-200">{s.total_orders} {tf('orders', 'komande')}</td>
+                  {!isStockOnly && <td className="py-3.5 px-4 font-mono font-black text-amber-400">{formatRwf(s.total_sales)}</td>}
                 </tr>
               ))}
               {reports.salespersonPerformance.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-400">{tf('No salesperson data yet.', 'Nta makuru y’abakozi araboneka.')}</td>
+                  <td colSpan={isStockOnly ? 3 : 4} className="py-8 text-center text-slate-400">{tf('No staff order data yet.', 'Nta makuru y’abakozi araboneka.')}</td>
                 </tr>
               )}
             </tbody>

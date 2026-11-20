@@ -46,28 +46,27 @@ export function exportReportsPdf({
     format: 'a4',
   });
 
+  const isStockOnly = shop?.pricing_mode === 'stock_only';
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 14;
   let currentY = 16;
 
-  // 1. BRAND HEADER
+  // 1. STORE HEADER
   doc.setFillColor(15, 23, 42); // slate-900
   doc.rect(0, 0, pageWidth, 28, 'F');
 
   doc.setTextColor(245, 158, 11); // amber-500
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text('VectOS ERP', margin, 12);
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Quincaillerie & Tech Retail Operating System', margin + 35, 12);
+  doc.setFontSize(15);
+  doc.text(shop?.name || 'Hardware Store', margin, 12);
 
   doc.setFontSize(9);
-  doc.setTextColor(203, 213, 225);
-  const titleText = 'EXECUTIVE FINANCIAL & OPERATIONAL SUMMARY';
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(226, 232, 240);
+  const titleText = isStockOnly
+    ? 'OPERATIONAL STOCK DISPATCH & AUDIT SUMMARY'
+    : 'EXECUTIVE FINANCIAL & OPERATIONAL SUMMARY';
   doc.text(titleText, margin, 20);
 
   // Interval Badge (Daily / Weekly / Monthly)
@@ -104,21 +103,29 @@ export function exportReportsPdf({
 
   currentY += 8;
 
-  // 3. FINANCIAL KPI SUMMARY CARDS
+  // 3. KPI SUMMARY CARDS
   const totalCategoryRevenue = reports.categorySales.reduce((sum, c) => sum + Number(c.revenue || 0), 0);
   const totalCategoryProfit = reports.categorySales.reduce((sum, c) => sum + Number(c.profit || 0), 0);
   const totalUnitsSold = reports.categorySales.reduce((sum, c) => sum + Number(c.units_sold || 0), 0);
+  const totalOrdersCount = reports.salespersonPerformance.reduce((sum, s) => sum + Number(s.total_orders || 0), 0);
   const marginPercent = totalCategoryRevenue > 0 ? ((totalCategoryProfit / totalCategoryRevenue) * 100).toFixed(1) : '0.0';
+
+  const kpis = isStockOnly
+    ? [
+        { label: 'Units Dispatched', val: totalUnitsSold.toLocaleString() + ' pcs', color: [59, 130, 246] },
+        { label: 'Active Categories', val: reports.categorySales.length.toString(), color: [16, 185, 129] },
+        { label: 'Orders Handled', val: totalOrdersCount.toLocaleString(), color: [245, 158, 11] },
+        { label: 'Audit Entries', val: (reports.auditLogs?.length || 0).toString(), color: [139, 92, 246] },
+      ]
+    : [
+        { label: 'Total Turnover', val: formatCurrency(totalCategoryRevenue), color: [16, 185, 129] },
+        { label: 'Gross Profit', val: formatCurrency(totalCategoryProfit), color: [245, 158, 11] },
+        { label: 'Units Sold', val: totalUnitsSold.toLocaleString() + ' pcs', color: [59, 130, 246] },
+        { label: 'Gross Margin', val: `${marginPercent}%`, color: [139, 92, 246] },
+      ];
 
   const cardWidth = (pageWidth - margin * 2 - 9) / 4;
   const cardHeight = 18;
-
-  const kpis = [
-    { label: 'Total Turnover', val: formatCurrency(totalCategoryRevenue), color: [16, 185, 129] },
-    { label: 'Gross Profit', val: formatCurrency(totalCategoryProfit), color: [245, 158, 11] },
-    { label: 'Units Sold', val: totalUnitsSold.toLocaleString() + ' pcs', color: [59, 130, 246] },
-    { label: 'Gross Margin', val: `${marginPercent}%`, color: [139, 92, 246] },
-  ];
 
   kpis.forEach((kpi, index) => {
     const x = margin + index * (cardWidth + 3);
@@ -148,19 +155,23 @@ export function exportReportsPdf({
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('1. Sales Performance by Category', margin, currentY);
+    doc.text(isStockOnly ? '1. Stock Dispatched by Category' : '1. Sales Performance by Category', margin, currentY);
     currentY += 3;
 
     autoTable(doc, {
       startY: currentY,
       margin: { left: margin, right: margin },
-      head: [['Category', 'Units Sold', 'Revenue (RWF)', 'Gross Profit (RWF)', 'Profit Margin']],
-      body: reports.categorySales.map((c) => {
-        const rev = Number(c.revenue || 0);
-        const prof = Number(c.profit || 0);
-        const pct = rev > 0 ? `${((prof / rev) * 100).toFixed(1)}%` : '0%';
-        return [c.category, Number(c.units_sold || 0).toLocaleString(), formatCurrency(rev), formatCurrency(prof), pct];
-      }),
+      head: isStockOnly
+        ? [['Category', 'Units Dispatched']]
+        : [['Category', 'Units Sold', 'Revenue (RWF)', 'Gross Profit (RWF)', 'Profit Margin']],
+      body: isStockOnly
+        ? reports.categorySales.map((c) => [c.category, Number(c.units_sold || 0).toLocaleString()])
+        : reports.categorySales.map((c) => {
+            const rev = Number(c.revenue || 0);
+            const prof = Number(c.profit || 0);
+            const pct = rev > 0 ? `${((prof / rev) * 100).toFixed(1)}%` : '0%';
+            return [c.category, Number(c.units_sold || 0).toLocaleString(), formatCurrency(rev), formatCurrency(prof), pct];
+          }),
       headStyles: {
         fillColor: [30, 41, 59],
         textColor: [255, 255, 255],
@@ -174,20 +185,21 @@ export function exportReportsPdf({
       alternateRowStyles: {
         fillColor: [248, 250, 252],
       },
-      columnStyles: {
-        0: { cellWidth: 50 },
-        1: { halign: 'center' },
-        2: { halign: 'right' },
-        3: { halign: 'right' },
-        4: { halign: 'center' },
-      },
+      columnStyles: isStockOnly
+        ? { 0: { cellWidth: 100 }, 1: { halign: 'center' } }
+        : {
+            0: { cellWidth: 50 },
+            1: { halign: 'center' },
+            2: { halign: 'right' },
+            3: { halign: 'right' },
+            4: { halign: 'center' },
+          },
     });
 
     currentY = (doc as any).lastAutoTable.finalY + 10;
   }
 
   if (activeTab === 'products' || activeTab === 'all') {
-    // Check if new page needed
     if (currentY > pageHeight - 50) {
       doc.addPage();
       currentY = 20;
@@ -196,21 +208,30 @@ export function exportReportsPdf({
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('2. Top Selling Hardware Products', margin, currentY);
+    doc.text(isStockOnly ? '2. Most Dispatched Hardware Products' : '2. Top Selling Hardware Products', margin, currentY);
     currentY += 3;
 
     autoTable(doc, {
       startY: currentY,
       margin: { left: margin, right: margin },
-      head: [['Product Name', 'SKU', 'Category', 'Units', 'Revenue (RWF)', 'Profit (RWF)']],
-      body: reports.topSellingProducts.map((p) => [
-        p.name,
-        p.sku || '-',
-        p.category,
-        Number(p.total_units_sold || 0).toLocaleString(),
-        formatCurrency(Number(p.total_revenue || 0)),
-        formatCurrency(Number(p.total_profit || 0)),
-      ]),
+      head: isStockOnly
+        ? [['Product Name', 'SKU', 'Category', 'Units Dispatched']]
+        : [['Product Name', 'SKU', 'Category', 'Units', 'Revenue (RWF)', 'Profit (RWF)']],
+      body: isStockOnly
+        ? reports.topSellingProducts.map((p) => [
+            p.name,
+            p.sku || '-',
+            p.category,
+            Number(p.total_units_sold || 0).toLocaleString(),
+          ])
+        : reports.topSellingProducts.map((p) => [
+            p.name,
+            p.sku || '-',
+            p.category,
+            Number(p.total_units_sold || 0).toLocaleString(),
+            formatCurrency(Number(p.total_revenue || 0)),
+            formatCurrency(Number(p.total_profit || 0)),
+          ]),
       headStyles: {
         fillColor: [245, 158, 11],
         textColor: [15, 23, 42],
@@ -224,14 +245,21 @@ export function exportReportsPdf({
       alternateRowStyles: {
         fillColor: [248, 250, 252],
       },
-      columnStyles: {
-        0: { cellWidth: 55 },
-        1: { cellWidth: 25 },
-        2: { cellWidth: 30 },
-        3: { halign: 'center' },
-        4: { halign: 'right' },
-        5: { halign: 'right' },
-      },
+      columnStyles: isStockOnly
+        ? {
+            0: { cellWidth: 75 },
+            1: { cellWidth: 32 },
+            2: { cellWidth: 40 },
+            3: { halign: 'center' },
+          }
+        : {
+            0: { cellWidth: 55 },
+            1: { cellWidth: 25 },
+            2: { cellWidth: 30 },
+            3: { halign: 'center' },
+            4: { halign: 'right' },
+            5: { halign: 'right' },
+          },
     });
 
     currentY = (doc as any).lastAutoTable.finalY + 10;
@@ -246,19 +274,27 @@ export function exportReportsPdf({
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('3. Sales Staff Leaderboard & Invoiced Volume', margin, currentY);
+    doc.text(isStockOnly ? '3. Staff Orders Leaderboard' : '3. Sales Staff Leaderboard & Invoiced Volume', margin, currentY);
     currentY += 3;
 
     autoTable(doc, {
       startY: currentY,
       margin: { left: margin, right: margin },
-      head: [['Salesperson', 'Email Address', 'Orders Closed', 'Total Sales Volume']],
-      body: reports.salespersonPerformance.map((s) => [
-        s.name,
-        s.email,
-        Number(s.total_orders || 0).toLocaleString(),
-        formatCurrency(Number(s.total_sales || 0)),
-      ]),
+      head: isStockOnly
+        ? [['Staff Member', 'Email Address', 'Orders Processed']]
+        : [['Salesperson', 'Email Address', 'Orders Closed', 'Total Sales Volume']],
+      body: isStockOnly
+        ? reports.salespersonPerformance.map((s) => [
+            s.name,
+            s.email,
+            Number(s.total_orders || 0).toLocaleString(),
+          ])
+        : reports.salespersonPerformance.map((s) => [
+            s.name,
+            s.email,
+            Number(s.total_orders || 0).toLocaleString(),
+            formatCurrency(Number(s.total_sales || 0)),
+          ]),
       headStyles: {
         fillColor: [15, 23, 42],
         textColor: [255, 255, 255],
@@ -272,12 +308,18 @@ export function exportReportsPdf({
       alternateRowStyles: {
         fillColor: [248, 250, 252],
       },
-      columnStyles: {
-        0: { cellWidth: 45 },
-        1: { cellWidth: 55 },
-        2: { halign: 'center' },
-        3: { halign: 'right' },
-      },
+      columnStyles: isStockOnly
+        ? {
+            0: { cellWidth: 65 },
+            1: { cellWidth: 75 },
+            2: { halign: 'center' },
+          }
+        : {
+            0: { cellWidth: 45 },
+            1: { cellWidth: 55 },
+            2: { halign: 'center' },
+            3: { halign: 'right' },
+          },
     });
 
     currentY = (doc as any).lastAutoTable.finalY + 10;
@@ -353,18 +395,22 @@ export function exportReportsPdf({
   doc.setFont('helvetica', 'normal');
   doc.text('Date: ________________', rightSignX, currentY + 22);
 
-  // Add Page Numbers
+  // Add Page Numbers & subtle footnote
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `VectOS Kigali ERP — Confidential Internal Document | Page ${i} of ${totalPages}`,
+      `${shop?.name || 'Store'} — Financial & Operational Report | Page ${i} of ${totalPages}`,
       pageWidth / 2,
-      pageHeight - 6,
+      pageHeight - 7,
       { align: 'center' }
     );
+    doc.setFontSize(5.5);
+    doc.setTextColor(175, 183, 196);
+    doc.text('Powered by VectOS', pageWidth / 2, pageHeight - 3.2, { align: 'center' });
   }
 
   // Save the PDF
@@ -409,18 +455,14 @@ export function exportOrdersPdf({
   doc.setTextColor(245, 158, 11);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text('VectOS ERP', margin, 11);
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Sales Orders & Financial Transactions Registry', margin + 35, 11);
+  doc.text(shop?.name || 'Hardware Store', margin, 11);
 
   doc.setFontSize(8.5);
-  doc.setTextColor(203, 213, 225);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(226, 232, 240);
   const ordersTin = (shop?.tin_number || '').trim();
   const ordersHeaderParts = [
-    `STORE: ${shop?.name || 'Quincaille Central Depot'}`,
+    'Sales Orders & Financial Transactions Registry',
     ...(ordersTin ? [`TIN: ${ordersTin}`] : []),
     ...(shop?.phone ? [`TEL: ${shop.phone}`] : [])
   ];
@@ -571,18 +613,22 @@ export function exportOrdersPdf({
     },
   });
 
-  // Footer & Page numbers
+  // Footer, Page numbers & subtle footnote
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `VectOS ERP Kigali — Audit Records | Page ${i} of ${totalPages}`,
+      `${shop?.name || 'Store'} — Sales Orders & Audit Records | Page ${i} of ${totalPages}`,
       pageWidth / 2,
-      pageHeight - 5,
+      pageHeight - 7,
       { align: 'center' }
     );
+    doc.setFontSize(5.5);
+    doc.setTextColor(175, 183, 196);
+    doc.text('Powered by VectOS', pageWidth / 2, pageHeight - 3.2, { align: 'center' });
   }
 
   // Save the PDF
@@ -621,18 +667,18 @@ export function exportSingleOrderPdf({
 
   doc.setTextColor(245, 158, 11);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text('VectOS ERP', margin, 12);
+  doc.setFontSize(14);
+  doc.text(shop?.name || order?.shop_name || 'Hardware Store', margin, 11);
 
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(13);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text("Client's Order", margin + 35, 12);
+  doc.text(`Client's Order`, margin, 18.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(203, 213, 225);
-  doc.text(`ORDER REF: ${order.order_number}`, margin, 19);
+  doc.text(`|  ORDER REF: ${order.order_number}`, margin + 26, 18.5);
 
   const isOrderCancelled = order.fulfillment_status === 'cancelled';
   if (isOrderCancelled) {
@@ -797,7 +843,16 @@ export function exportSingleOrderPdf({
   doc.setFont('helvetica', 'italic');
   doc.setTextColor(100, 116, 139);
   const footerText = shop?.receipt_footer_text || 'Goods once sold in good condition are not returnable. Thank you for choosing us!';
-  doc.text(footerText, pageWidth / 2, pageHeight - 12, { align: 'center' });
+  doc.text(footerText, pageWidth / 2, pageHeight - 10, { align: 'center' });
+
+  const totalOrderPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalOrderPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(175, 183, 196);
+    doc.text('Powered by VectOS', pageWidth / 2, pageHeight - 3.5, { align: 'center' });
+  }
 
   const filename = `Clients_Order_${order.order_number}_${Date.now()}.pdf`;
   doc.save(filename);
@@ -840,18 +895,14 @@ export function exportStockPdf({
   doc.setTextColor(245, 158, 11);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text('VectOS ERP', margin, 11);
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Stock Inventory & Warehouse Count Sheet', margin + 35, 11);
+  doc.text(shop?.name || 'Main Store', margin, 11);
 
   doc.setFontSize(8.5);
-  doc.setTextColor(203, 213, 225);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(226, 232, 240);
   const stockTin = (shop?.tin_number || '').trim();
   const stockMetaParts = [
-    `STORE: ${shop?.name || 'Main Store'}`,
+    'Stock Inventory & Warehouse Count Sheet',
     `Location: ${shop?.location || 'Kigali, Rwanda'}`,
     ...(stockTin ? [`TIN: ${stockTin}`] : []),
     ...(shop?.phone ? [`Phone: ${shop.phone}`] : [])
@@ -870,6 +921,9 @@ export function exportStockPdf({
 
   currentY = 31;
 
+  const isStockOnly = shop?.pricing_mode === 'stock_only';
+  const showCosts = !isStockOnly && showBuyingPrices;
+
   // Stock Summary KPIs
   const totalItems = products.length;
   const totalUnits = products.reduce((sum, p) => sum + Number(p.quantity || 0), 0);
@@ -884,18 +938,25 @@ export function exportStockPdf({
     0
   );
 
-  const cards = [
-    { label: 'Products Listed', val: totalItems.toLocaleString() },
-    { label: 'Total Units in Stock', val: totalUnits.toLocaleString() },
-    { label: 'Total Units Sold', val: totalSold.toLocaleString() },
-    { label: 'Low / Out of Stock', val: `${lowOrOutCount} items` },
-    {
-      label: showBuyingPrices ? 'Stock Cost / Retail' : 'Total Retail Value',
-      val: showBuyingPrices
-        ? `${formatCurrency(totalCostValue)} / ${formatCurrency(totalRetailValue)}`
-        : formatCurrency(totalRetailValue),
-    },
-  ];
+  const cards = isStockOnly
+    ? [
+        { label: 'Products Listed', val: totalItems.toLocaleString() },
+        { label: 'Total Units in Stock', val: totalUnits.toLocaleString() },
+        { label: 'Total Units Dispatched', val: totalSold.toLocaleString() },
+        { label: 'Low / Out of Stock', val: `${lowOrOutCount} items` },
+      ]
+    : [
+        { label: 'Products Listed', val: totalItems.toLocaleString() },
+        { label: 'Total Units in Stock', val: totalUnits.toLocaleString() },
+        { label: 'Total Units Sold', val: totalSold.toLocaleString() },
+        { label: 'Low / Out of Stock', val: `${lowOrOutCount} items` },
+        {
+          label: showCosts ? 'Stock Cost / Retail' : 'Total Retail Value',
+          val: showCosts
+            ? `${formatCurrency(totalCostValue)} / ${formatCurrency(totalRetailValue)}`
+            : formatCurrency(totalRetailValue),
+        },
+      ];
 
   const cardW = (pageWidth - margin * 2 - 12) / cards.length;
   const cardH = 14;
@@ -929,7 +990,9 @@ export function exportStockPdf({
   );
   currentY += 3;
 
-  const headRow = showBuyingPrices
+  const headRow = isStockOnly
+    ? [['#', 'Code', 'Product Name', 'Category', 'Location', 'Unit', 'In Stock', 'Dispatched', 'Status', 'Date Added']]
+    : showCosts
     ? [['#', 'Code', 'Product Name', 'Category', 'Location', 'Unit', 'Buying Cost', 'Selling Price', 'In Stock', 'Sold', 'Status', 'Date Added']]
     : [['#', 'Code', 'Product Name', 'Category', 'Location', 'Unit', 'Selling Price', 'In Stock', 'Sold', 'Status', 'Date Added']];
 
@@ -951,7 +1014,22 @@ export function exportStockPdf({
       ? `${stockView.primary}\n(${stockView.totalText})`
       : qty.toLocaleString();
 
-    if (showBuyingPrices) {
+    if (isStockOnly) {
+      return [
+        idx + 1,
+        p.sku || '-',
+        p.name,
+        p.category,
+        p.stock_name || 'Main',
+        unitLabel,
+        stockCell,
+        Number(p.total_units_sold || 0).toLocaleString(),
+        statusLabel,
+        shortDate,
+      ];
+    }
+
+    if (showCosts) {
       return [
         idx + 1,
         p.sku || '-',
@@ -1001,7 +1079,16 @@ export function exportStockPdf({
     alternateRowStyles: {
       fillColor: [248, 250, 252],
     },
-    columnStyles: showBuyingPrices
+    columnStyles: isStockOnly
+      ? {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 26 },
+          2: { cellWidth: 64 },
+          6: { halign: 'right', fontStyle: 'bold' },
+          7: { halign: 'right' },
+          8: { halign: 'center' },
+        }
+      : showCosts
       ? {
           0: { cellWidth: 8, halign: 'center' },
           1: { cellWidth: 22 },
@@ -1044,14 +1131,18 @@ export function exportStockPdf({
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `VectOS Stock Inventory Sheet — ${shop?.name || 'Shop'} | Page ${i} of ${totalPages}`,
+      `Stock Inventory Sheet — ${shop?.name || 'Shop'} | Page ${i} of ${totalPages}`,
       pageWidth / 2,
-      pageHeight - 5,
+      pageHeight - 7,
       { align: 'center' }
     );
+    doc.setFontSize(5.5);
+    doc.setTextColor(175, 183, 196);
+    doc.text('Powered by VectOS', pageWidth / 2, pageHeight - 3.2, { align: 'center' });
   }
 
   doc.save(`VectOS_Stock_List_${Date.now()}.pdf`);
@@ -1176,6 +1267,15 @@ export function exportDeliveryNoticePdf({
   doc.text('Released by (Storekeeper)', margin, currentY + 15);
   doc.text('Received by (Customer / Driver)', pageWidth - margin - 70, currentY + 15);
 
+  const totalDeliveryPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalDeliveryPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(175, 183, 196);
+    doc.text('Powered by VectOS', pageWidth / 2, pageHeight - 3.5, { align: 'center' });
+  }
+
   doc.save(`Delivery_Notice_${order.order_number}_${Date.now()}.pdf`);
 }
 
@@ -1211,7 +1311,7 @@ export function exportCustomerStatementPdf({
   doc.setTextColor(245, 158, 11);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
-  doc.text(shop?.name || statement.shop?.name || 'VectOS Store', margin, 12);
+  doc.text(shop?.name || statement.shop?.name || 'Hardware Store', margin, 12);
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(10);
@@ -1467,14 +1567,18 @@ export function exportCustomerStatementPdf({
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
     doc.text(
       `Customer Account Statement — ${c.name} | Page ${i} of ${totalPages}`,
       pageWidth / 2,
-      pageHeight - 5,
+      pageHeight - 7,
       { align: 'center' }
     );
+    doc.setFontSize(5.5);
+    doc.setTextColor(175, 183, 196);
+    doc.text('Powered by VectOS', pageWidth / 2, pageHeight - 3.2, { align: 'center' });
   }
 
   const safeName = (c.name || 'Customer').replace(/[^a-zA-Z0-9_-]/g, '_');

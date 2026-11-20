@@ -117,6 +117,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     pack_selling_price: 0,
     quantity: 0,
     low_stock_threshold: 5,
+    is_watched: false,
+    stock_id: 1,
     description: ''
   });
   const [sellInBothModes, setSellInBothModes] = useState(false);
@@ -130,9 +132,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const isStrictChain = shop?.workflow_mode === 'strict_chain';
+  const isStockOnly = shop?.pricing_mode === 'stock_only';
   const canManageStock = hasPermission(user, 'can_manage_stock');
   const canBulkImport = hasPermission(user, 'can_import_export_stock');
-  const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices');
+  const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices') && !isStockOnly;
 
   useEffect(() => {
     if (user) {
@@ -472,6 +476,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       pack_selling_price: 0,
       quantity: 10,
       low_stock_threshold: 5,
+      is_watched: false,
+      stock_id: stocks[0]?.id || 1,
       description: ''
     });
     setModalError('');
@@ -507,10 +513,12 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       units_per_pack: packSize,
       pack_unit: p.pack_unit || 'Carton',
       ...(canViewBuyingPrices ? { buying_price: buyVal, pack_buying_price: packBuyVal } : {}),
-      selling_price: sellVal,
-      pack_selling_price: packSellVal,
+      selling_price: isStockOnly ? 0 : sellVal,
+      pack_selling_price: isStockOnly ? 0 : packSellVal,
       quantity: qty,
       low_stock_threshold: p.low_stock_threshold,
+      is_watched: Boolean(Number(p.is_watched || 0)),
+      stock_id: p.stock_id || 1,
       description: p.description || ''
     });
     setModalError('');
@@ -533,8 +541,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
         ...formData,
         units_per_pack: 1,
         pack_unit: null,
+        buying_price: isStockOnly ? 0 : formData.buying_price,
+        selling_price: isStockOnly ? 0 : formData.selling_price,
         pack_buying_price: 0,
         pack_selling_price: 0,
+        is_watched: Boolean(formData.is_watched),
         quantity: Math.max(0, Math.round(Number(formData.quantity || 0))),
         low_stock_threshold: Math.max(0, Math.round(Number(formData.low_stock_threshold || 0)))
       };
@@ -555,9 +566,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       unit: (formData.unit || 'pcs').trim() || 'pcs',
       units_per_pack: packSize,
       pack_unit: (formData.pack_unit || 'Carton').trim() || 'Carton',
-      ...(canViewBuyingPrices ? { buying_price: retailBuy, pack_buying_price: packBuy } : {}),
-      selling_price: Math.max(0, Number(formData.selling_price || 0)),
-      pack_selling_price: Math.max(0, Number(formData.pack_selling_price || 0)),
+      ...(isStockOnly
+        ? { buying_price: 0, pack_buying_price: 0, selling_price: 0, pack_selling_price: 0 }
+        : {
+            ...(canViewBuyingPrices ? { buying_price: retailBuy, pack_buying_price: packBuy } : {}),
+            selling_price: Math.max(0, Number(formData.selling_price || 0)),
+            pack_selling_price: Math.max(0, Number(formData.pack_selling_price || 0))
+          }),
+      is_watched: Boolean(formData.is_watched),
       quantity: totalBaseQty,
       low_stock_threshold: Math.max(0, Math.round(Number(formData.low_stock_threshold || 0)))
     };
@@ -803,8 +819,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
               <option value="date_asc">{tf('Sort: Date Entered (Oldest First)', 'Tondeka: Itariki Byinjiriye (Bishaje)')}</option>
               <option value="name_asc">{tf('Sort: Product Name (A → Z)', 'Tondeka: Izina (A → Z)')}</option>
               <option value="name_desc">{tf('Sort: Product Name (Z → A)', 'Tondeka: Izina (Z → A)')}</option>
-              <option value="price_desc">{tf('Sort: Selling Price (High → Low)', 'Tondeka: Igiciro (Kinini → Gito)')}</option>
-              <option value="price_asc">{tf('Sort: Selling Price (Low → High)', 'Tondeka: Igiciro (Gito → Kinini)')}</option>
+              {!isStockOnly && <option value="price_desc">{tf('Sort: Selling Price (High → Low)', 'Tondeka: Igiciro (Kinini → Gito)')}</option>}
+              {!isStockOnly && <option value="price_asc">{tf('Sort: Selling Price (Low → High)', 'Tondeka: Igiciro (Gito → Kinini)')}</option>}
             </select>
           </div>
 
@@ -885,16 +901,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                 </th>
                 <th className="py-3 px-4 font-semibold">{tf('Unit', 'Igipimo')}</th>
                 {canViewBuyingPrices && <th className="py-3 px-4 font-semibold">{tf('Buying Cost', 'Ikiguzi')}</th>}
-                <th className="py-3 px-4 font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => toggleColumnSort('price_desc', 'price_asc')}
-                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
-                  >
-                    <span>{tf('Selling Price', 'Igiciro cyo Kugurisha')}</span>
-                    {sortBy === 'price_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'price_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
-                  </button>
-                </th>
+                {!isStockOnly && (
+                  <th className="py-3 px-4 font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => toggleColumnSort('price_desc', 'price_asc')}
+                      className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                    >
+                      <span>{tf('Selling Price', 'Igiciro cyo Kugurisha')}</span>
+                      {sortBy === 'price_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'price_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                    </button>
+                  </th>
+                )}
                 <th className="py-3 px-4 font-semibold">
                   <button
                     type="button"
@@ -950,6 +968,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                             {tf('Wholesale + Retail', 'Ikarito + Uduce')}
                           </span>
                         )}
+                        {Boolean(Number(p.is_watched || 0)) && (
+                          <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] font-bold">
+                            {tf('Watched', 'Kiragenzurwa')}
+                          </span>
+                        )}
                       </div>
                       <p className="text-[10px] text-slate-400">
                         {p.category}{p.stock_name ? ` • ${p.stock_name}` : ''}
@@ -983,16 +1006,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                         )}
                       </td>
                     )}
-                    <td className="py-3 px-4 font-bold text-slate-200 font-mono">
-                      {breakdown.isMultiUnit ? (
-                        <div>
-                          <p className="text-sky-300">{formatRwf(sellingPrice)} <span className="text-[10px] font-normal text-slate-400">/{breakdown.retailUnit}</span></p>
-                          <p className="text-[11px] text-amber-400">{formatRwf(packSellPrice)} <span className="text-[10px] font-normal text-slate-400">/{breakdown.packUnit}</span></p>
-                        </div>
-                      ) : (
-                        formatRwf(sellingPrice)
-                      )}
-                    </td>
+                    {!isStockOnly && (
+                      <td className="py-3 px-4 font-bold text-slate-200 font-mono">
+                        {breakdown.isMultiUnit ? (
+                          <div>
+                            <p className="text-sky-300">{formatRwf(sellingPrice)} <span className="text-[10px] font-normal text-slate-400">/{breakdown.retailUnit}</span></p>
+                            <p className="text-[11px] text-amber-400">{formatRwf(packSellPrice)} <span className="text-[10px] font-normal text-slate-400">/{breakdown.packUnit}</span></p>
+                          </div>
+                        ) : (
+                          formatRwf(sellingPrice)
+                        )}
+                      </td>
+                    )}
                     <td className="py-3 px-4 font-mono">
                       {breakdown.isMultiUnit ? (
                         <div>
@@ -1263,35 +1288,39 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                       </div>
                     )}
 
-                    <div>
-                      <label className="text-xs font-semibold text-amber-300">
-                        {tf('Wholesale Selling Price', 'Igiciro cyo Kuranguza')} / {formData.pack_unit || 'Carton'} (RWF) *
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        required
-                        value={formData.pack_selling_price || ''}
-                        placeholder={tf('Price for 1 full carton/pack', 'Igiciro cy’ikarito/paketi yuzuye')}
-                        onChange={(e) => setFormData({ ...formData, pack_selling_price: Math.max(0, Number(e.target.value) || 0) })}
-                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-amber-500/40 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-amber-400"
-                      />
-                    </div>
+                    {!isStockOnly && (
+                      <>
+                        <div>
+                          <label className="text-xs font-semibold text-amber-300">
+                            {tf('Wholesale Selling Price', 'Igiciro cyo Kuranguza')} / {formData.pack_unit || 'Carton'} (RWF) *
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            required
+                            value={formData.pack_selling_price || ''}
+                            placeholder={tf('Price for 1 full carton/pack', 'Igiciro cy’ikarito/paketi yuzuye')}
+                            onChange={(e) => setFormData({ ...formData, pack_selling_price: Math.max(0, Number(e.target.value) || 0) })}
+                            className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-amber-500/40 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-amber-400"
+                          />
+                        </div>
 
-                    <div>
-                      <label className="text-xs font-semibold text-sky-300">
-                        {tf('Retail Selling Price', 'Igiciro cyo Kudandaza')} / 1 {formData.unit || 'pcs'} (RWF) *
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        required
-                        value={formData.selling_price || ''}
-                        placeholder={tf('Price for 1 loose piece', 'Igiciro cy’agace kamwe')}
-                        onChange={(e) => setFormData({ ...formData, selling_price: Math.max(0, Number(e.target.value) || 0) })}
-                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-xs text-sky-300 font-mono font-bold focus:outline-none focus:border-sky-400"
-                      />
-                    </div>
+                        <div>
+                          <label className="text-xs font-semibold text-sky-300">
+                            {tf('Retail Selling Price', 'Igiciro cyo Kudandaza')} / 1 {formData.unit || 'pcs'} (RWF) *
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            required
+                            value={formData.selling_price || ''}
+                            placeholder={tf('Price for 1 loose piece', 'Igiciro cy’agace kamwe')}
+                            onChange={(e) => setFormData({ ...formData, selling_price: Math.max(0, Number(e.target.value) || 0) })}
+                            className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-sky-500/40 text-xs text-sky-300 font-mono font-bold focus:outline-none focus:border-sky-400"
+                          />
+                        </div>
+                      </>
+                    )}
 
                     <div className="sm:col-span-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
                       <div className="flex items-center justify-between">
@@ -1353,16 +1382,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                       </div>
                     )}
 
-                    <div>
-                      <label className="text-xs font-semibold text-slate-300">{tf('Selling Price (RWF)', 'Igiciro cyo Kugurisha (RWF)')}</label>
-                      <input
-                        type="number"
-                        value={formData.selling_price || ''}
-                        placeholder={tf('Enter retail price', 'Andika igiciro cyo kugurisha')}
-                        onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
-                        className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
+                    {!isStockOnly && (
+                      <div>
+                        <label className="text-xs font-semibold text-slate-300">{tf('Selling Price (RWF)', 'Igiciro cyo Kugurisha (RWF)')}</label>
+                        <input
+                          type="number"
+                          value={formData.selling_price || ''}
+                          placeholder={tf('Enter retail price', 'Andika igiciro cyo kugurisha')}
+                          onChange={(e) => setFormData({ ...formData, selling_price: Number(e.target.value) })}
+                          className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    )}
 
                     <div>
                       <label className="text-xs font-semibold text-slate-300">{tf('Initial Quantity in Stock', 'Umubare utangiranye mu Bubiko')}</label>
@@ -1375,6 +1406,25 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                       />
                     </div>
                   </>
+                )}
+
+                {isAddModalOpen && stocks.length > 1 && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-300">
+                      {tf('Store / Warehouse Location', 'Ububiko / Iduka Biherereyemo')}
+                    </label>
+                    <select
+                      value={formData.stock_id || stocks[0]?.id || 1}
+                      onChange={(e) => setFormData({ ...formData, stock_id: Number(e.target.value) })}
+                      className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                    >
+                      {stocks.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.is_main ? tf('Main Shop', 'Iduka') : tf('Warehouse', 'Ububiko Bukuru')})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
 
                 <div>
@@ -1400,6 +1450,31 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                   />
                 </div>
               </div>
+
+              {isStrictChain && (
+                <label className="flex items-start gap-3 p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/30 cursor-pointer hover:bg-purple-500/15 transition">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData.is_watched)}
+                    onChange={(e) => setFormData({ ...formData, is_watched: e.target.checked })}
+                    className="mt-0.5 w-4 h-4 rounded accent-purple-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-purple-200 block">
+                      {tf(
+                        'Special Watched Product (Notify Manager Audit Dashboard on Sale)',
+                        'Igicuruzwa Cyihariye Gikurikiranwa (Menyesha Umuyobozi Iyo Gisohotse)'
+                      )}
+                    </span>
+                    <span className="text-[11px] text-slate-300 block mt-0.5">
+                      {tf(
+                        'Logs every verified release into the Manager Audit feed with buyer, seller, verifiers, and remaining stock.',
+                        'Buri gihe iki gicuruzwa gisohotse, cyandikwa mu bugenzuzi bw’Umuyobozi hamwe n’uwakiguze n’ibisigaye.'
+                      )}
+                    </span>
+                  </div>
+                </label>
+              )}
 
               {modalError && (
                 <p className="text-xs text-rose-400 font-semibold">{modalError}</p>

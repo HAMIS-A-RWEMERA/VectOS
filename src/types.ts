@@ -33,6 +33,8 @@ export interface User {
   can_reset_passwords?: boolean;
   can_view_all_tenants?: boolean;
   can_manage_subscriptions?: boolean;
+  can_verify_orders?: boolean;
+  can_resolve_flagged_orders?: boolean;
   shop_name?: string;
   created_at?: string;
 }
@@ -57,6 +59,8 @@ export interface Shop {
   stock_count?: number;
   product_count?: number;
   total_revenue?: number;
+  workflow_mode?: 'standard' | 'strict_chain';
+  pricing_mode?: 'standard' | 'stock_only';
   created_at?: string;
 }
 
@@ -78,6 +82,9 @@ export interface Product {
   pack_selling_price?: number;
   quantity: number;
   low_stock_threshold: number;
+  is_watched?: boolean | number;
+  reserved_quantity?: number;
+  available_quantity?: number;
   description?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -133,6 +140,16 @@ export interface OrderItem {
   profit: number | null;
   fulfillment_source?: string;
   item_status?: 'pending_store' | 'approved' | 'rejected' | 'partner_fulfilled' | 'unavailable';
+  source_stock_id?: number | null;
+  source_stock_name?: string | null;
+  leg_type?: 'shop' | 'warehouse';
+  leg_status?: 'pending' | 'seller_released' | 'warehouse_released' | 'supervisor_confirmed' | 'flagged';
+  leg_released_by?: number | null;
+  leg_released_by_name?: string | null;
+  leg_released_at?: string | null;
+  leg_verified_by?: number | null;
+  leg_verified_by_name?: string | null;
+  leg_verified_at?: string | null;
   rejection_reason?: string;
 }
 
@@ -181,6 +198,46 @@ export interface Order {
   stock_released_by?: number | null;
   stock_released_by_name?: string | null;
   stock_released_at?: string | null;
+  handwritten_photo_key?: string | null;
+  chain_status?: 'pending_supervisor_1' | 'returned_to_seller' | 'in_release' | 'flagged_for_manager' | 'completed' | 'cancelled';
+  first_verified_by?: number | null;
+  first_verified_by_name?: string | null;
+  first_verified_at?: string | null;
+  final_verified_by?: number | null;
+  final_verified_by_name?: string | null;
+  final_verified_at?: string | null;
+  flagged_by?: number | null;
+  flagged_by_name?: string | null;
+  flagged_at?: string | null;
+  flag_reason?: string | null;
+  resolved_by?: number | null;
+  resolved_by_name?: string | null;
+  resolved_at?: string | null;
+  resolution_note?: string | null;
+}
+
+export interface ProductWatchAlert {
+  id: number;
+  shop_id: number;
+  order_id: number;
+  order_number: string;
+  product_id: number;
+  product_name: string;
+  stock_id?: number | null;
+  stock_name?: string | null;
+  quantity_sold: number;
+  sold_unit?: string | null;
+  stock_remaining_after: number;
+  customer_name?: string | null;
+  seller_name?: string | null;
+  first_verifier_name?: string | null;
+  final_verifier_name?: string | null;
+  is_audited: number | boolean;
+  audited_by?: number | null;
+  audited_by_name?: string | null;
+  audited_at?: string | null;
+  audit_note?: string | null;
+  created_at: string;
 }
 
 export interface AuditLogEntry {

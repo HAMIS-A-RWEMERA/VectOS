@@ -180,14 +180,24 @@ export const Header: React.FC<HeaderProps> = ({
             <span>WhatsApp</span>
           </a>
 
-          {/* Quick POS Launch Button */}
+          {/* Quick POS / Order Chain Launch Button */}
           <button
             onClick={onOpenPos}
             className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
           >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{t('header.makeSale')}</span>
-            <span className="sm:hidden">{t('header.sell')}</span>
+            {shop?.workflow_mode === 'strict_chain' ? (
+              <>
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{tf('Order Chain', 'Uruhererekane')}</span>
+                <span className="sm:hidden">{tf('Chain', 'Igenzura')}</span>
+              </>
+            ) : (
+              <>
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t('header.makeSale')}</span>
+                <span className="sm:hidden">{t('header.sell')}</span>
+              </>
+            )}
           </button>
 
           {/* Compact Language Switcher (EN | RW) */}

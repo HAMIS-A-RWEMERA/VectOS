@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import apiRoutes from './routes/apiRoutes';
 import iomsRoutes from './routes/iomsRoutes';
 import billingRoutes from './routes/billingRoutes';
+import strictChainRoutes from './routes/strictChainRoutes';
 import { getDb, isPostgres, getPgPool, isProduction } from './database/db';
 import {
   helmetMiddleware,
@@ -156,6 +157,7 @@ app.use('/public', express.static(path.join(process.cwd(), 'public')));
 
 // 1. Mount JSON REST API routes FIRST
 app.use('/api', apiRoutes);
+app.use('/api/chain', strictChainRoutes);
 app.use('/api', billingRoutes);
 
 // 2. Mount Legacy SSR & Management routes

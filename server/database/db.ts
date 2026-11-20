@@ -204,6 +204,8 @@ async function initSqlJsSchema(): Promise<void> {
       billed_stocks INTEGER DEFAULT 1,
       monthly_fee REAL DEFAULT 20000.0,
       billing_notes TEXT,
+      workflow_mode TEXT DEFAULT 'standard',
+      pricing_mode TEXT DEFAULT 'standard',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -253,6 +255,8 @@ async function initSqlJsSchema(): Promise<void> {
       can_reset_passwords INTEGER DEFAULT 0,
       can_view_all_tenants INTEGER DEFAULT 0,
       can_manage_subscriptions INTEGER DEFAULT 0,
+      can_verify_orders INTEGER DEFAULT 0,
+      can_resolve_flagged_orders INTEGER DEFAULT 0,
       force_password_change INTEGER DEFAULT 0,
       twofa_secret TEXT,
       twofa_enabled INTEGER DEFAULT 0,
@@ -276,6 +280,7 @@ async function initSqlJsSchema(): Promise<void> {
       pack_selling_price REAL DEFAULT 0.0,
       quantity INTEGER NOT NULL DEFAULT 0,
       low_stock_threshold INTEGER DEFAULT 10,
+      is_watched INTEGER DEFAULT 0,
       description TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -323,6 +328,18 @@ async function initSqlJsSchema(): Promise<void> {
       payment_approved_at DATETIME,
       stock_released_by INTEGER REFERENCES users(id),
       stock_released_at DATETIME,
+      handwritten_photo_key TEXT,
+      chain_status TEXT DEFAULT 'completed',
+      first_verified_by INTEGER REFERENCES users(id),
+      first_verified_at DATETIME,
+      final_verified_by INTEGER REFERENCES users(id),
+      final_verified_at DATETIME,
+      flagged_by INTEGER REFERENCES users(id),
+      flagged_at DATETIME,
+      flag_reason TEXT,
+      resolved_by INTEGER REFERENCES users(id),
+      resolved_at DATETIME,
+      resolution_note TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -330,6 +347,7 @@ async function initSqlJsSchema(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       product_id INTEGER NOT NULL REFERENCES products(id),
+      source_stock_id INTEGER REFERENCES stocks(id) ON DELETE SET NULL,
       quantity INTEGER NOT NULL,
       sale_mode TEXT DEFAULT 'retail',
       sold_unit TEXT,
@@ -340,6 +358,12 @@ async function initSqlJsSchema(): Promise<void> {
       profit REAL NOT NULL,
       fulfillment_source TEXT DEFAULT 'Store',
       item_status TEXT DEFAULT 'pending_store',
+      leg_type TEXT DEFAULT 'shop',
+      leg_status TEXT DEFAULT 'pending',
+      leg_released_by INTEGER REFERENCES users(id),
+      leg_released_at DATETIME,
+      leg_verified_by INTEGER REFERENCES users(id),
+      leg_verified_at DATETIME,
       rejection_reason TEXT,
       partner_shop_id INTEGER REFERENCES partner_shops(id)
     );
@@ -442,6 +466,29 @@ async function initSqlJsSchema(): Promise<void> {
       reference_no TEXT,
       notes TEXT,
       recorded_by INTEGER REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS product_watch_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      order_number TEXT NOT NULL,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      product_name TEXT NOT NULL,
+      stock_id INTEGER REFERENCES stocks(id) ON DELETE SET NULL,
+      stock_name TEXT,
+      quantity_sold INTEGER NOT NULL,
+      sold_unit TEXT,
+      stock_remaining_after INTEGER NOT NULL,
+      customer_name TEXT,
+      seller_name TEXT,
+      first_verifier_name TEXT,
+      final_verifier_name TEXT,
+      is_audited INTEGER DEFAULT 0,
+      audited_by INTEGER REFERENCES users(id),
+      audited_at DATETIME,
+      audit_note TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `;
@@ -753,6 +800,52 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
       recorded_by INTEGER REFERENCES users(id),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );`,
+    `ALTER TABLE shops ADD COLUMN IF NOT EXISTS workflow_mode TEXT DEFAULT 'standard';`,
+    `ALTER TABLE shops ADD COLUMN IF NOT EXISTS pricing_mode TEXT DEFAULT 'standard';`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_verify_orders INTEGER DEFAULT 0;`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_resolve_flagged_orders INTEGER DEFAULT 0;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS is_watched INTEGER DEFAULT 0;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS handwritten_photo_key TEXT;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS chain_status TEXT DEFAULT 'completed';`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS first_verified_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS first_verified_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS final_verified_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS final_verified_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS flagged_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS flag_reason TEXT;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS resolved_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS resolution_note TEXT;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS source_stock_id INTEGER;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_type TEXT DEFAULT 'shop';`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_status TEXT DEFAULT 'pending';`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_released_by INTEGER;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_released_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_verified_by INTEGER;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_verified_at TIMESTAMP WITH TIME ZONE;`,
+    `CREATE TABLE IF NOT EXISTS product_watch_alerts (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      order_number TEXT NOT NULL,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      product_name TEXT NOT NULL,
+      stock_id INTEGER REFERENCES stocks(id) ON DELETE SET NULL,
+      stock_name TEXT,
+      quantity_sold INTEGER NOT NULL,
+      sold_unit TEXT,
+      stock_remaining_after INTEGER NOT NULL,
+      customer_name TEXT,
+      seller_name TEXT,
+      first_verifier_name TEXT,
+      final_verifier_name TEXT,
+      is_audited INTEGER DEFAULT 0,
+      audited_by INTEGER REFERENCES users(id),
+      audited_at TIMESTAMP WITH TIME ZONE,
+      audit_note TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`
@@ -833,7 +926,8 @@ export async function ensureAdminAccounts(dbToUse?: any): Promise<void> {
       'can_import_export_stock', 'can_partner_borrow', 'can_view_reports', 'can_view_buying_prices',
       'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
       'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
-      'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions'
+      'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions',
+      'can_verify_orders', 'can_resolve_flagged_orders'
     ];
 
     const activePerms = permKeys.filter(k => cols.size === 0 || cols.has(k));

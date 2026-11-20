@@ -1,5 +1,5 @@
 import React from 'react';
-import { User } from '../types';
+import { User, Shop } from '../types';
 import { hasPermission } from '../utils/permissions';
 import {
   LayoutDashboard,
@@ -9,7 +9,7 @@ import {
   FileText,
   Users,
   Handshake,
-  ShieldAlert,
+  ShieldCheck,
   BarChart3,
   Building,
   Settings,
@@ -25,6 +25,7 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   user: User | null;
+  shop?: Shop | null;
   lowStockCount: number;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
@@ -35,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   user,
+  shop,
   lowStockCount,
   isMobileOpen,
   onCloseMobile,
@@ -42,6 +44,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { t, tf } = useLanguage();
   const isSuperAdmin = user?.role === 'superadmin' || user?.email === 'rwemera30@gmail.com';
+  const isStrictChain = shop?.workflow_mode === 'strict_chain';
+  const isStockOnly = shop?.pricing_mode === 'stock_only';
+
   const canCreateOrders = hasPermission(user, 'can_create_orders');
   const canProcessPayments = hasPermission(user, 'can_process_payments');
   const canReleaseStock = hasPermission(user, 'can_release_stock');
@@ -53,26 +58,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canManageCustomers = hasPermission(user, 'can_manage_customers');
   const canVoidOrders = hasPermission(user, 'can_void_orders');
   const canEditCompanySettings = hasPermission(user, 'can_edit_company_settings');
+  const canVerifyOrders = hasPermission(user, 'can_verify_orders');
+  const canResolveFlagged = hasPermission(user, 'can_resolve_flagged_orders');
 
-  const canSeeProducts = canCreateOrders || canManageStock || canImportExportStock || canReleaseStock;
+  const canSeeChain = isStrictChain && (canCreateOrders || canReleaseStock || canVerifyOrders || canResolveFlagged);
+  const canSeeProducts = canCreateOrders || canManageStock || canImportExportStock || canReleaseStock || canVerifyOrders;
   const canSeeOrders = canCreateOrders || canProcessPayments || canReleaseStock || canVoidOrders || canViewReports;
 
   const navItems = [
     { id: 'dashboard', label: t('nav.home'), icon: LayoutDashboard, visible: true },
-    { id: 'pos', label: t('nav.makeSalePos'), icon: ShoppingBag, visible: canCreateOrders, highlight: true },
+    { id: 'chain', label: tf('Verification Chain', 'Uruhererekane rw’Igenzura'), icon: ShieldCheck, visible: canSeeChain, highlight: true },
+    { id: 'pos', label: t('nav.makeSalePos'), icon: ShoppingBag, visible: !isStrictChain && canCreateOrders, highlight: true },
     { 
       id: 'products', 
-      label: t('nav.productsStock'), 
+      label: isStockOnly ? tf('Products & Stock', 'Ibicuruzwa & Sitoki') : t('nav.productsStock'), 
       icon: Package, 
       visible: canSeeProducts,
       badge: lowStockCount > 0 ? `${lowStockCount}` : undefined,
       badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
     },
-    { id: 'stocks', label: t('nav.storesWarehouses'), icon: Boxes, visible: canManageStock || canReleaseStock || canCreateOrders },
-    { id: 'orders', label: t('nav.ordersReceipts'), icon: FileText, visible: canSeeOrders },
-    { id: 'customers', label: t('nav.customersDebt'), icon: Users, visible: canManageCustomers || canCreateOrders || canProcessPayments },
-    { id: 'partners', label: t('nav.partnerShops'), icon: Handshake, visible: canManagePartners },
-    { id: 'reports', label: t('nav.salesProfitReports'), icon: BarChart3, visible: canViewReports },
+    { id: 'stocks', label: t('nav.storesWarehouses'), icon: Boxes, visible: canManageStock || canReleaseStock || canCreateOrders || canVerifyOrders },
+    { id: 'orders', label: t('nav.ordersReceipts'), icon: FileText, visible: !isStrictChain && canSeeOrders },
+    { id: 'customers', label: isStockOnly ? tf('Clients / Buyers', 'Abakiriya') : t('nav.customersDebt'), icon: Users, visible: canManageCustomers || canCreateOrders || (!isStockOnly && canProcessPayments) },
+    { id: 'partners', label: t('nav.partnerShops'), icon: Handshake, visible: !isStockOnly && canManagePartners },
+    { id: 'reports', label: isStockOnly ? tf('Stock & Audit Reports', 'Raporo za Sitoki & Igenzura') : t('nav.salesProfitReports'), icon: BarChart3, visible: canViewReports },
     { id: 'shop_settings', label: t('nav.businessInfoTin'), icon: Building, visible: canEditCompanySettings },
     { id: 'users', label: t('nav.staffDuties'), icon: Settings, visible: canManageUsers },
     { id: 'superadmin', label: t('nav.platformApprovals'), icon: Crown, visible: isSuperAdmin, highlight: true },
@@ -272,8 +281,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="text-[10px] mt-0.5">{t('nav.mobileHome')}</span>
         </button>
 
-        {/* 2. POS Counter (Center highlighted action, only if user can create orders) */}
-        {canCreateOrders && (
+        {/* 2. Verification Chain OR POS Counter (Center highlighted action) */}
+        {canSeeChain ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab('chain')}
+            className={`flex flex-col items-center justify-center py-1 px-3.5 rounded-xl transition ${
+              activeTab === 'chain'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/30'
+                : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+            }`}
+          >
+            <ShieldCheck className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5 font-bold">{tf('Chain', 'Igenzura')}</span>
+          </button>
+        ) : (!isStrictChain && canCreateOrders) ? (
           <button
             type="button"
             onClick={() => setActiveTab('pos')}
@@ -286,7 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <ShoppingBag className="w-5 h-5" />
             <span className="text-[10px] mt-0.5 font-bold">{t('nav.mobilePosSales')}</span>
           </button>
-        )}
+        ) : null}
 
         {/* 3. Products */}
         {canSeeProducts && (
@@ -305,8 +327,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
 
-        {/* 4. Orders */}
-        {canSeeOrders && (
+        {/* 4. Orders (standard) OR Reports (strict_chain) */}
+        {!isStrictChain && canSeeOrders ? (
           <button
             type="button"
             onClick={() => setActiveTab('orders')}
@@ -317,7 +339,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <FileText className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">{t('nav.mobileOrders')}</span>
           </button>
-        )}
+        ) : (isStrictChain && canViewReports) ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab('reports')}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition ${
+              activeTab === 'reports' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">{tf('Reports', 'Raporo')}</span>
+          </button>
+        ) : null}
 
         {/* 5. More Menu */}
         <button

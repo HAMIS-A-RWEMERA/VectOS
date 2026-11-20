@@ -20,7 +20,9 @@ export type PermissionKey =
   | 'can_view_audit_trail'
   | 'can_reset_passwords'
   | 'can_view_all_tenants'
-  | 'can_manage_subscriptions';
+  | 'can_manage_subscriptions'
+  | 'can_verify_orders'
+  | 'can_resolve_flagged_orders';
 
 export function isFullAccessRole(user: User | null | undefined): boolean {
   if (!user) return false;

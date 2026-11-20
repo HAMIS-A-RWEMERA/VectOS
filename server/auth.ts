@@ -59,7 +59,9 @@ export type UserPermission =
   | 'can_reset_passwords'
   | 'can_view_all_tenants'
   | 'can_manage_subscriptions'
-  | 'can_edit_company_settings';
+  | 'can_edit_company_settings'
+  | 'can_verify_orders'
+  | 'can_resolve_flagged_orders';
 
 declare module 'express-session' {
   interface SessionData {
@@ -99,6 +101,8 @@ declare module 'express-session' {
       can_view_all_tenants?: number | boolean;
       can_manage_subscriptions?: number | boolean;
       can_edit_company_settings?: number | boolean;
+      can_verify_orders?: number | boolean;
+      can_resolve_flagged_orders?: number | boolean;
     };
   }
 }
@@ -156,7 +160,9 @@ export const ALL_USER_PERMISSION_KEYS: UserPermission[] = [
   'can_reset_passwords',
   'can_view_all_tenants',
   'can_manage_subscriptions',
-  'can_edit_company_settings'
+  'can_edit_company_settings',
+  'can_verify_orders',
+  'can_resolve_flagged_orders'
 ];
 
 export function hasUserPermission(user: any, permission: UserPermission): boolean {
@@ -462,7 +468,9 @@ export function requirePermission(permission: UserPermission) {
       can_reset_passwords: 'Reset Employee Passwords',
       can_view_all_tenants: 'View All Store Branches',
       can_manage_subscriptions: 'Manage Store Billing & Subscriptions',
-      can_edit_company_settings: 'Edit Store Profile & Tax Info'
+      can_edit_company_settings: 'Edit Store Profile & Tax Info',
+      can_verify_orders: 'Verify & Authorize Orders (Supervisor Step 1 & 2)',
+      can_resolve_flagged_orders: 'Resolve Flagged Orders & Override Verifier Lock'
     };
 
     return handleAuthFailure(

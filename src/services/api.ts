@@ -9,8 +9,10 @@ import {
   CustomerStatement,
   PartnerShop, 
   DashboardStats, 
-  ReportSummary 
+  ReportSummary,
+  ProductWatchAlert
 } from '../types';
+import { compressOrderPhoto } from '../utils/imageCompression';
 
 function persistToken(token?: string) {
   try {
@@ -411,5 +413,112 @@ export const api = {
   askAiHelp: (question: string, history?: { role: string; text: string }[]) => request<{ success: boolean; reply: string }>('/api/ai/help', {
     method: 'POST',
     body: JSON.stringify({ question, history })
-  })
+  }),
+
+  // Strict Verification Chain (Isolated Enterprise Workflow)
+  chain: {
+    getR2Status: () => request<{ configured: boolean }>('/api/chain/r2-status'),
+    getUploadUrl: (contentType: string, orderHint?: string) =>
+      request<{ success: boolean; uploadUrl: string; photoKey: string; expiresInSeconds: number }>('/api/chain/upload-url', {
+        method: 'POST',
+        body: JSON.stringify({ contentType, orderHint })
+      }),
+    uploadCompressedOrderPhoto: async (file: File | Blob, orderHint?: string) => {
+      const compressed = await compressOrderPhoto(file);
+      const { uploadUrl, photoKey } = await request<{
+        success: boolean;
+        uploadUrl: string;
+        photoKey: string;
+      }>('/api/chain/upload-url', {
+        method: 'POST',
+        body: JSON.stringify({ contentType: compressed.contentType, orderHint })
+      });
+
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': compressed.contentType },
+        body: compressed.blob
+      });
+      if (!putRes.ok) {
+        throw new Error(`Direct storage upload failed (HTTP ${putRes.status}). Check R2 bucket CORS configuration.`);
+      }
+      return {
+        photoKey,
+        originalBytes: compressed.originalBytes,
+        compressedBytes: compressed.compressedBytes,
+        width: compressed.width,
+        height: compressed.height
+      };
+    },
+    getOrderPhotoViewUrl: (orderId: number) =>
+      request<{ success: boolean; viewUrl: string; photoKey: string; expiresInSeconds: number }>(`/api/chain/orders/${orderId}/photo-url`),
+    getProductsAvailability: () =>
+      request<{ products: Product[]; pricing_mode: string }>('/api/chain/products-availability'),
+    getOrders: (queue: string = 'all') =>
+      request<{ orders: Order[]; pricing_mode: string }>(`/api/chain/orders?queue=${encodeURIComponent(queue)}`),
+    createOrder: (payload: {
+      customer_id?: number | null;
+      customer_name?: string;
+      customer_phone?: string;
+      handwritten_photo_key?: string | null;
+      notes?: string;
+      items: { product_id: number; quantity: number; sale_mode?: 'retail' | 'pack' }[];
+    }) =>
+      request<{ success: boolean; order: Order }>('/api/chain/orders', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    verifyStep1: (orderId: number, decision: 'approve' | 'return', reason?: string) =>
+      request<{ success: boolean; chain_status: string }>(`/api/chain/orders/${orderId}/verify-1`, {
+        method: 'POST',
+        body: JSON.stringify({ decision, reason })
+      }),
+    sellerEditReturnedOrder: (
+      orderId: number,
+      payload: {
+        notes?: string;
+        handwritten_photo_key?: string | null;
+        items: { product_id: number; quantity: number; sale_mode?: 'retail' | 'pack' }[];
+      }
+    ) =>
+      request<{ success: boolean; chain_status: string }>(`/api/chain/orders/${orderId}/seller-edit`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }),
+    releaseLeg: (orderId: number, leg: 'shop' | 'warehouse') =>
+      request<{ success: boolean; leg: string; leg_status: string }>(`/api/chain/orders/${orderId}/release-leg`, {
+        method: 'POST',
+        body: JSON.stringify({ leg })
+      }),
+    flagOrder: (orderId: number, reason: string) =>
+      request<{ success: boolean; chain_status: string }>(`/api/chain/orders/${orderId}/flag`, {
+        method: 'POST',
+        body: JSON.stringify({ reason })
+      }),
+    verifyStep2: (orderId: number, leg?: 'shop' | 'warehouse', override_reason?: string) =>
+      request<{ success: boolean; completed: boolean; chain_status: string }>(`/api/chain/orders/${orderId}/verify-2`, {
+        method: 'POST',
+        body: JSON.stringify({ leg, override_reason })
+      }),
+    managerResolve: (
+      orderId: number,
+      payload: {
+        action: 'edit_and_release' | 'approve_as_is' | 'reassign_supervisor' | 'cancel';
+        resolution_note?: string;
+        reassign_supervisor_id?: number;
+        items?: { product_id: number; quantity: number; sale_mode?: 'retail' | 'pack' }[];
+      }
+    ) =>
+      request<{ success: boolean; chain_status: string }>(`/api/chain/orders/${orderId}/manager-resolve`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    getWatchAlerts: (filter: 'all' | 'unaudited' = 'all') =>
+      request<{ alerts: ProductWatchAlert[]; unauditedCount: number }>(`/api/chain/watch-alerts?filter=${filter}`),
+    markWatchAlertAudited: (alertId: number, audit_note?: string) =>
+      request<{ success: boolean }>(`/api/chain/watch-alerts/${alertId}/audit`, {
+        method: 'POST',
+        body: JSON.stringify({ audit_note })
+      })
+  }
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Shop } from '../types';
+import { User, Shop, StockLocation } from '../types';
 import { api } from '../services/api';
 import {
   Users,
@@ -16,13 +16,15 @@ import {
   CheckCircle2,
   Sparkles,
   Eraser,
-  X
+  X,
+  Building2
 } from 'lucide-react';
 import { matchesSearch } from '../utils/searchMatch';
 import { useLanguage } from '../i18n/LanguageContext';
 
 interface UsersViewProps {
   currentUser: User | null;
+  shop?: Shop | null;
 }
 
 const ALL_SHOP_PERMISSION_KEYS = [
@@ -43,7 +45,9 @@ const ALL_SHOP_PERMISSION_KEYS = [
   'can_manage_users',
   'can_reset_passwords',
   'can_view_audit_trail',
-  'can_edit_company_settings'
+  'can_edit_company_settings',
+  'can_verify_orders',
+  'can_resolve_flagged_orders'
 ] as const;
 
 type ShopPermissionKey = (typeof ALL_SHOP_PERMISSION_KEYS)[number];
@@ -103,6 +107,14 @@ const PERMISSION_GROUPS: {
     ]
   },
   {
+    name: 'Order Verification & Manager Delegation',
+    description: 'Two-step verification supervision and delegated resolution of flagged warehouse discrepancies',
+    items: [
+      { key: 'can_verify_orders', label: 'Verify customer orders & final releases (Supervisor Verify #1 & #2)' },
+      { key: 'can_resolve_flagged_orders', label: 'Resolve flagged discrepancies & override Step-2 lock (Manager Delegate)' }
+    ]
+  },
+  {
     name: 'Staff & Store Settings',
     description: 'Managing staff accounts, passwords, activity history, and shop info',
     items: [
@@ -122,6 +134,7 @@ interface RoleTemplate {
   desc: string;
   permissions: PermissionMap;
   superAdminOnly?: boolean;
+  strictChainOnly?: boolean;
 }
 
 const ROLE_TEMPLATES: RoleTemplate[] = [
@@ -206,6 +219,31 @@ const ROLE_TEMPLATES: RoleTemplate[] = [
     permissions: buildPermissionMap({}, true)
   },
   {
+    id: 'supervisor',
+    title: 'Supervisor (Verify #1 & #2)',
+    role: 'employee',
+    job_title: 'Order Supervisor',
+    desc: 'Performs Step-1 authorization against handwritten photo and Step-2 final release check',
+    permissions: buildPermissionMap({
+      can_verify_orders: true,
+      can_print_delivery_note: true,
+      can_view_reports: true
+    }),
+    strictChainOnly: true
+  },
+  {
+    id: 'warehouse_officer',
+    title: 'Warehouse Officer',
+    role: 'storekeeper',
+    job_title: 'Warehouse Officer',
+    desc: 'Sees warehouse items only, confirms physical pickup or flags discrepancies to Manager',
+    permissions: buildPermissionMap({
+      can_release_stock: true,
+      can_print_delivery_note: true
+    }),
+    strictChainOnly: true
+  },
+  {
     id: 'platform_ops',
     title: 'Platform Support',
     role: 'platform_ops',
@@ -228,9 +266,11 @@ const ROLE_LABELS: Record<string, string> = {
   employee: 'Shop Staff'
 };
 
-export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
+export const UsersView: React.FC<UsersViewProps> = ({ currentUser, shop }) => {
   const { tf } = useLanguage();
   const [users, setUsers] = useState<User[]>([]);
+  const [stocks, setStocks] = useState<StockLocation[]>([]);
+  const isStrictChain = shop?.workflow_mode === 'strict_chain';
 
   const permissionGroups = PERMISSION_GROUPS.map((g) => ({
     ...g,
@@ -243,6 +283,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
         ? tf('Store Room & Stock Handling', 'Ububiko & Gutanga Ibicuruzwa')
         : g.name === 'Customers & Partner Shops'
         ? tf('Customers & Partner Shops', 'Abakiriya & Amaduka Dukuraho')
+        : g.name === 'Order Verification & Manager Delegation'
+        ? tf('Order Verification & Manager Delegation', 'Igenzura rya Komande & Uhagarariye Umuyobozi')
         : tf('Staff & Store Settings', 'Abakozi & Igenamiterere ry’Iduka'),
     displayDesc:
       g.name === 'Selling & Customer Orders'
@@ -253,6 +295,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
         ? tf('Handing out sold items, counting stock, and importing stock lists', 'Gutanga ibicuruzwa byaguzwe, kubara sitoki, no kwinjiza ibicuruzwa')
         : g.name === 'Customers & Partner Shops'
         ? tf('Managing regular buyers, credit accounts, and neighboring partner shops', 'Gucunga abakiriya bahoraho, amadeni, n’amaduka dutiranaho')
+        : g.name === 'Order Verification & Manager Delegation'
+        ? tf('Two-step verification supervision and delegated resolution of flagged warehouse discrepancies', 'Igenzura ry’ibyiciro bibiri n’uburenganzira bwo gukemura komande zafunzwe mu bubiko')
         : tf('Managing staff accounts, passwords, activity history, and shop info', 'Gucunga konti z’abakozi, amagambo y’ibanga, amateka y’ibikorwa, n’amakuru y’iduka'),
     items: g.items.map((it) => ({
       ...it,
@@ -271,6 +315,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
         it.key === 'can_partner_borrow' ? tf('Borrow items from partner shops', 'Gutira ibicuruzwa ku maduka dutiranaho') :
         it.key === 'can_manage_customers' ? tf('Add & edit customers', 'Kongera no guhindura abakiriya') :
         it.key === 'can_manage_partners' ? tf('Manage partner shops', 'Gucunga amaduka dutiranaho') :
+        it.key === 'can_verify_orders' ? tf('Verify customer orders & final releases (Supervisor #1 & #2)', 'Kugenzura komande & ibyasohotse (Umugenzuzi #1 & #2)') :
+        it.key === 'can_resolve_flagged_orders' ? tf('Resolve flagged discrepancies & override Step-2 lock (Manager Delegate)', 'Gukemura komande zafunzwe no gufungura Igenzura #2 (Uhagarariye Umuyobozi)') :
         it.key === 'can_manage_users' ? tf('Add staff & change staff duties', 'Kongera abakozi no guhindura inshingano') :
         it.key === 'can_reset_passwords' ? tf('Reset staff passwords', 'Guhindura amagambo y’ibanga y’abakozi') :
         it.key === 'can_view_audit_trail' ? tf('View staff activity history', 'Kureba amateka y’ibikorwa by’abakozi') :
@@ -309,6 +355,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
       title: tf('Store Manager', 'Umuyobozi w’Iduka'),
       desc: tf('Full access to everything in the shop including staff duties and store settings', 'Afite uburenganzira bwose mu iduka harimo gucunga abakozi n’igenamiterere')
     };
+    if (tpl.id === 'supervisor') return {
+      title: tf('Supervisor (Verify #1 & #2)', 'Umugenzuzi (Igenzura #1 & #2)'),
+      desc: tf('Authorizes orders against handwritten slip photo (#1) and checks final stock release (#2)', 'Yemeza komande arebye ifoto y’inyandiko (#1) akanagenzura ibyasohotse (#2)')
+    };
+    if (tpl.id === 'warehouse_officer') return {
+      title: tf('Warehouse Officer', 'Umukozi w’Ububiko (Warehouse)'),
+      desc: tf('Sees warehouse items only, releases them or flags errors to the Manager', 'Areba iby’ububiko gusa, akabitanga cyangwa akabifunga akabimenyesha Umuyobozi')
+    };
     return {
       title: tf('Platform Support', 'Ubufasha bw’Urubuga'),
       desc: tf('Platform support staff across shops', 'Umukozi ufasha amaduka atandukanye')
@@ -337,6 +391,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
     job_title: 'Custom Staff',
     phone: '',
     shop_id: currentUser?.shop_id || 1,
+    stock_id: currentUser?.stock_id || 1,
     is_active: 1,
     ...EMPTY_PERMISSIONS
   });
@@ -352,16 +407,17 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isSuperAdmin = currentUser?.role === 'superadmin';
-  const visibleTemplates = ROLE_TEMPLATES.filter((t) => !t.superAdminOnly || isSuperAdmin);
+  const visibleTemplates = ROLE_TEMPLATES.filter((t) => (!t.superAdminOnly || isSuperAdmin) && (!t.strictChainOnly || isStrictChain));
 
   useEffect(() => {
     if (currentUser) {
       fetchUsers();
+      fetchStocks();
       if (isSuperAdmin) {
         fetchShops();
       }
     }
-  }, [currentUser]);
+  }, [currentUser, shop?.id]);
 
   const fetchUsers = async () => {
     try {
@@ -375,6 +431,15 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
       console.error('Error fetching users:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchStocks = async () => {
+    try {
+      const res = await api.getStocks();
+      setStocks(res.stocks || []);
+    } catch (e) {
+      console.error('Failed to fetch stocks:', e);
     }
   };
 
@@ -392,6 +457,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
     setEditingUserId(null);
     setSelectedTemplateId('salesperson');
     const defaultTpl = ROLE_TEMPLATES.find((t) => t.id === 'salesperson')!;
+    const defaultStockId = stocks.find((s) => Number(s.is_main) === 1)?.id || stocks[0]?.id || 1;
     setFormData({
       name: '',
       email: '',
@@ -400,6 +466,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
       job_title: defaultTpl.job_title,
       phone: '',
       shop_id: currentUser?.shop_id || 1,
+      stock_id: defaultStockId,
       is_active: 1,
       ...defaultTpl.permissions
     });
@@ -426,6 +493,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
       job_title: u.job_title || '',
       phone: u.phone || '',
       shop_id: u.shop_id || currentUser?.shop_id || 1,
+      stock_id: u.stock_id || stocks.find((s) => Number(s.is_main) === 1)?.id || stocks[0]?.id || 1,
       is_active: u.is_active !== undefined ? Number(u.is_active) : 1,
       ...perms
     });
@@ -481,6 +549,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           phone: formData.phone || '',
           role: formData.role,
           job_title: formData.job_title || '',
+          stock_id: formData.stock_id ? Number(formData.stock_id) : 1,
           is_active: Number(formData.is_active) === 1 ? 1 : 0,
           permissions: explicitPermissions,
           ...explicitPermissions
@@ -496,6 +565,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
           role: formData.role,
           job_title: formData.job_title || 'Shop Staff',
           shop_id: formData.shop_id,
+          stock_id: formData.stock_id ? Number(formData.stock_id) : 1,
           permissions: explicitPermissions,
           ...explicitPermissions
         };
@@ -783,6 +853,15 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                         <span className="font-mono text-slate-400">{u.phone}</span>
                       </div>
                     )}
+                    {stocks.length > 1 && u.stock_id && (
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+                        <span className="text-slate-300 font-medium">
+                          {tf('Depot:', 'Ububiko:')}{' '}
+                          {stocks.find((s) => Number(s.id) === Number(u.stock_id))?.name || `#${u.stock_id}`}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Permission Count & Highlights */}
@@ -796,6 +875,12 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                     <div className="flex flex-wrap gap-1">
                       {(isFullRole || u.can_create_orders) && (
                         <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">{tf('Make Sales', 'Gucuruza')}</span>
+                      )}
+                      {(isFullRole || u.can_verify_orders) && (
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-950/70 text-indigo-300 text-[10px] border border-indigo-700/50">{tf('Verify Orders (#1 & #2)', 'Kugenzura Komande')}</span>
+                      )}
+                      {(isFullRole || u.can_resolve_flagged_orders) && (
+                        <span className="px-1.5 py-0.5 rounded bg-rose-950/70 text-rose-300 text-[10px] border border-rose-700/50">{tf('Manager Delegate / Resolve Flags', 'Uhagarariye Umuyobozi')}</span>
                       )}
                       {(isFullRole || u.can_process_payments) && (
                         <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 text-[10px] border border-emerald-800/40">{tf('Take Payments', 'Kwakira Ubwishyu')}</span>
@@ -1078,6 +1163,25 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                 </div>
               )}
 
+              {stocks.length > 0 && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">
+                    {tf('Assigned Depot / Store Location', 'Ububiko / Ishami Abarizwamo')}
+                  </label>
+                  <select
+                    value={formData.stock_id || stocks[0]?.id || 1}
+                    onChange={(e) => setFormData({ ...formData, stock_id: Number(e.target.value) })}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    {stocks.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name} {Number(st.is_main) === 1 ? tf('(Main Shop)', '(Iduka Rikuru)') : tf('(Warehouse)', '(Ububiko)')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {isSuperAdmin && shops.length > 0 && (
                 <div>
                   <label className="text-xs font-semibold text-slate-300">{tf('Assigned Shop', 'Iduka Abarizwamo')}</label>
@@ -1168,6 +1272,11 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                               {isLockedOwnerSetting && (
                                 <p className="text-[10px] text-amber-400 mt-0.5">
                                   {tf('Shop Owner / Manager always keeps this duty', 'Nyir’iduka / Umuyobozi ahorana iyi nshingano')}
+                                </p>
+                              )}
+                              {item.key === 'can_resolve_flagged_orders' && (
+                                <p className="text-[10px] text-rose-300/90 mt-0.5">
+                                  {tf('Delegate authority while Manager is away (edits flagged orders & overrides Step-2 lock).', 'Uhagarariye Umuyobozi igihe adahari (ahindura ibyafunzwe akanafungura Igenzura #2).')}
                                 </p>
                               )}
                             </div>
