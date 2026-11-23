@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import path from 'path';
 import bcrypt from 'bcryptjs';
 import { queryAll, queryOne, execute, withTransaction, isPostgres, isProduction } from '../database/db';
 import { createBackup, restoreBackup, BackupManifest } from '../database/backup';
@@ -1175,8 +1176,15 @@ router.post('/products/ai-extract-invoice', requireAuth, requireTenant, requireP
   }
 
   try {
+    const geminiApiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || '').trim();
+    if (!geminiApiKey) {
+      return res.status(503).json({
+        error: 'Gemini AI key is not configured on this server (GEMINI_API_KEY missing).'
+      });
+    }
+
     const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
+      apiKey: geminiApiKey,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
@@ -1185,19 +1193,49 @@ router.post('/products/ai-extract-invoice', requireAuth, requireTenant, requireP
     });
 
     const parts: any[] = [];
+    let extractedSpreadsheetText = '';
 
     if (file) {
-      const mime = file.mimetype || 'image/jpeg';
-      parts.push({
-        inlineData: {
-          mimeType: mime,
-          data: file.buffer.toString('base64')
-        }
-      });
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      if (ext === '.xlsx' || ext === '.xls') {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+        const sheetChunks = workbook.SheetNames.map((sheetName) => {
+          const sheet = workbook.Sheets[sheetName];
+          const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+          return `--- Sheet: ${sheetName} ---\n${csv}`;
+        });
+        extractedSpreadsheetText = sheetChunks.join('\n\n').slice(0, 60000);
+      } else if (ext === '.csv' || file.mimetype === 'text/csv') {
+        extractedSpreadsheetText = file.buffer.toString('utf8').slice(0, 60000);
+      } else {
+        const extMimeMap: Record<string, string> = {
+          '.pdf': 'application/pdf',
+          '.png': 'image/png',
+          '.webp': 'image/webp',
+          '.gif': 'image/gif',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+        };
+        const rawMime = (file.mimetype || '').toLowerCase().trim();
+        const mime =
+          rawMime && rawMime !== 'application/octet-stream'
+            ? rawMime
+            : extMimeMap[ext] || 'image/jpeg';
+
+        parts.push({
+          inlineData: {
+            mimeType: mime,
+            data: file.buffer.toString('base64')
+          }
+        });
+      }
     }
 
+    const combinedTextContext = [extractedSpreadsheetText, rawText].filter(Boolean).join('\n\n');
+
     const promptText = `You are an expert Kigali / Rwandan hardware store (quincaillerie) and construction materials inventory assistant.
-Analyze this supplier invoice, delivery note, paper receipt photo, bill of materials, or pasted inventory text.
+Analyze this supplier invoice, delivery note, paper receipt photo, PDF pricing list, spreadsheet, or pasted inventory text.
 Extract all distinct inventory products, construction materials, plumbing, electrical, steel, paints, or tools into a clean JSON array.
 
 CRITICAL EXTRACTION RULES:
@@ -1212,7 +1250,7 @@ CRITICAL EXTRACTION RULES:
 5. Packaging Units: Standardize to:
    "pcs", "bags", "bars", "sheets", "meters", "cartons", "rolls", "liters", "boxes", "kg".
 6. SKU: Short practical SKU (e.g., "CIM-TWI-325", "STL-IRN-12M").
-${rawText ? `Additional pasted invoice text/context: ${rawText}` : ''}`;
+${combinedTextContext ? `Document / pasted invoice content:\n${combinedTextContext}` : ''}`;
 
     parts.push({ text: promptText });
 
