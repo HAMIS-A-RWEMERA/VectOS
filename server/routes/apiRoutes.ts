@@ -1615,12 +1615,18 @@ router.get('/storage/r2-status', requireAuth, (req: Request, res: Response) => {
 
 router.post('/orders/upload-photo-url', requireAuth, requireTenant, async (req: Request, res: Response) => {
   const user = req.session?.user;
+  if (!hasUserPermission(user, 'can_upload_photos')) {
+    return res.status(403).json({
+      error: 'Permission required to upload photos. Ask your store manager to enable Upload Photos.',
+    });
+  }
   if (
     !hasUserPermission(user, 'can_create_orders') &&
+    !hasUserPermission(user, 'can_process_payments') &&
     !hasUserPermission(user, 'can_edit_company_settings') &&
     !hasUserPermission(user, 'can_resolve_flagged_orders')
   ) {
-    return res.status(403).json({ error: 'Permission required to upload order photos.' });
+    return res.status(403).json({ error: 'Permission required to upload order or payment photos.' });
   }
 
   if (!isR2Configured()) {
@@ -1631,11 +1637,13 @@ router.post('/orders/upload-photo-url', requireAuth, requireTenant, async (req: 
   }
 
   try {
-    const { contentType, orderHint } = req.body || {};
+    const { contentType, orderHint, purpose } = req.body || {};
+    const folder = purpose === 'payment' ? 'payments' : 'orders';
     const result = await createOrderPhotoUploadUrl({
       shopId: res.locals.shopId,
       contentType: String(contentType || 'image/webp'),
-      orderHint: orderHint ? String(orderHint) : 'slip',
+      orderHint: orderHint ? String(orderHint) : (folder === 'payments' ? 'payment' : 'slip'),
+      folder,
     });
     res.json({ success: true, ...result });
   } catch (err: any) {
@@ -1694,6 +1702,109 @@ router.get('/orders/:id/photo-url', requireAuth, requireTenant, async (req: Requ
   } catch (err: any) {
     console.error('Order R2 Presigned GET error:', err);
     res.status(400).json({ error: err.message || 'Failed to sign photo URL.' });
+  }
+});
+
+router.get('/payments/:id/photo-url', requireAuth, requireTenant, async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const paymentId = Number(req.params.id);
+  const user = req.session?.user;
+
+  const canViewPaymentProof =
+    user?.role === 'superadmin' ||
+    user?.role === 'manager' ||
+    hasUserPermission(user, 'can_create_orders') ||
+    hasUserPermission(user, 'can_process_payments') ||
+    hasUserPermission(user, 'can_release_stock') ||
+    hasUserPermission(user, 'can_view_reports') ||
+    hasUserPermission(user, 'can_void_orders') ||
+    hasUserPermission(user, 'can_verify_orders') ||
+    hasUserPermission(user, 'can_resolve_flagged_orders') ||
+    hasUserPermission(user, 'can_view_audit_trail');
+
+  if (!canViewPaymentProof) {
+    return res.status(403).json({ error: 'Permission required to view payment proof photos.' });
+  }
+
+  try {
+    const payment = await queryOne<any>(
+      'SELECT id, proof_photo_key FROM payments WHERE id = ? AND shop_id = ?',
+      [paymentId, shopId]
+    );
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment record not found in this store.' });
+    }
+    if (!payment.proof_photo_key) {
+      return res.status(404).json({ error: 'No proof of payment photo attached to this payment.' });
+    }
+    if (!isValidTenantPhotoKey(shopId, payment.proof_photo_key)) {
+      return res.status(403).json({ error: 'Invalid photo key for this store.' });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        error: 'Cloudflare R2 storage is not configured on the server.',
+        code: 'R2_NOT_CONFIGURED',
+      });
+    }
+
+    const signed = await createOrderPhotoViewUrl({
+      shopId,
+      photoKey: payment.proof_photo_key,
+    });
+    res.json({ success: true, photoKey: payment.proof_photo_key, ...signed });
+  } catch (err: any) {
+    console.error('Payment Proof R2 Presigned GET error:', err);
+    res.status(400).json({ error: err.message || 'Failed to sign payment proof URL.' });
+  }
+});
+
+router.get('/credit-ledger/:id/photo-url', requireAuth, requireTenant, async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const entryId = Number(req.params.id);
+  const user = req.session?.user;
+
+  const canViewProof =
+    user?.role === 'superadmin' ||
+    user?.role === 'manager' ||
+    hasUserPermission(user, 'can_create_orders') ||
+    hasUserPermission(user, 'can_process_payments') ||
+    hasUserPermission(user, 'can_manage_customers') ||
+    hasUserPermission(user, 'can_view_reports') ||
+    hasUserPermission(user, 'can_view_audit_trail');
+
+  if (!canViewProof) {
+    return res.status(403).json({ error: 'Permission required to view payment proof photos.' });
+  }
+
+  try {
+    const entry = await queryOne<any>(
+      'SELECT id, proof_photo_key FROM customer_credit_ledger WHERE id = ? AND shop_id = ?',
+      [entryId, shopId]
+    );
+    if (!entry) {
+      return res.status(404).json({ error: 'Credit ledger entry not found in this store.' });
+    }
+    if (!entry.proof_photo_key) {
+      return res.status(404).json({ error: 'No proof of payment photo attached to this entry.' });
+    }
+    if (!isValidTenantPhotoKey(shopId, entry.proof_photo_key)) {
+      return res.status(403).json({ error: 'Invalid photo key for this store.' });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        error: 'Cloudflare R2 storage is not configured on the server.',
+        code: 'R2_NOT_CONFIGURED',
+      });
+    }
+
+    const signed = await createOrderPhotoViewUrl({
+      shopId,
+      photoKey: entry.proof_photo_key,
+    });
+    res.json({ success: true, photoKey: entry.proof_photo_key, ...signed });
+  } catch (err: any) {
+    console.error('Ledger Proof R2 Presigned GET error:', err);
+    res.status(400).json({ error: err.message || 'Failed to sign payment proof URL.' });
   }
 });
 
@@ -2134,7 +2245,8 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
     notes,
     payment_reference,
     release_immediately,
-    handwritten_photo_key
+    handwritten_photo_key,
+    payment_proof_photo_key
   } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -2144,6 +2256,17 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
   const cleanPhotoKey = handwritten_photo_key ? String(handwritten_photo_key).trim() : null;
   if (cleanPhotoKey && !isValidTenantPhotoKey(shopId, cleanPhotoKey)) {
     return res.status(400).json({ error: 'Invalid order photo key for this store.' });
+  }
+
+  const cleanPaymentProofKey = payment_proof_photo_key ? String(payment_proof_photo_key).trim() : null;
+  if (cleanPaymentProofKey && !isValidTenantPhotoKey(shopId, cleanPaymentProofKey)) {
+    return res.status(400).json({ error: 'Invalid payment proof photo key for this store.' });
+  }
+
+  if ((cleanPhotoKey || cleanPaymentProofKey) && !hasUserPermission(currentUser, 'can_upload_photos')) {
+    return res.status(403).json({
+      error: 'Permission required to upload photos. Ask your store manager to enable Upload Photos.',
+    });
   }
 
   const shopSetting = await queryOne<any>('SELECT require_order_photo FROM shops WHERE id = ?', [shopId]);
@@ -2377,14 +2500,15 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
       // 5. Insert Payment Records (cash/MoMo/bank + optional Store Credit Offset)
       if (cashPaid > 0) {
         await execute(
-          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, proof_photo_key, recorded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             shopId,
             orderId,
             cashPaid,
             payment_method || 'cash',
             payment_reference || null,
+            cleanPaymentProofKey,
             currentUserId
           ]
         );
@@ -2474,13 +2598,23 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
 router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermission('can_process_payments'), async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
-  const { amount, payment_method, reference_no } = req.body;
+  const { amount, payment_method, reference_no, proof_photo_key } = req.body;
   const currentUserId = req.session?.user?.id || 1;
   const currentUserName = req.session?.user?.name || 'Cashier';
 
   const payAmt = Number(amount);
   if (isNaN(payAmt) || payAmt <= 0) {
     return res.status(400).json({ error: 'Valid payment amount greater than 0 is required' });
+  }
+
+  const cleanProofKey = proof_photo_key ? String(proof_photo_key).trim() : null;
+  if (cleanProofKey && !isValidTenantPhotoKey(shopId, cleanProofKey)) {
+    return res.status(400).json({ error: 'Invalid payment proof photo key for this store.' });
+  }
+  if (cleanProofKey && !hasUserPermission(req.session?.user, 'can_upload_photos')) {
+    return res.status(403).json({
+      error: 'Permission required to upload photos. Ask your store manager to enable Upload Photos.',
+    });
   }
 
   try {
@@ -2494,14 +2628,15 @@ router.post('/orders/:id/payments', requireAuth, requireTenant, requirePermissio
 
     await withTransaction(async () => {
       await execute(
-        `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, proof_photo_key, recorded_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           shopId,
           orderId,
           payAmt,
           payment_method || 'cash',
           reference_no || null,
+          cleanProofKey,
           currentUserId
         ]
       );
@@ -3179,7 +3314,7 @@ router.get('/customers/:id/statement', requireAuth, requireTenant, async (req: R
 router.post('/customers/:id/settle-debt', requireAuth, requireTenant, requirePermission('can_process_payments'), async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const customerId = Number(req.params.id);
-  const { amount, payment_method, reference_no, notes, excess_to_store_credit } = req.body || {};
+  const { amount, payment_method, reference_no, notes, excess_to_store_credit, proof_photo_key } = req.body || {};
   const currentUserId = req.session?.user?.id || 1;
   const currentUserName = req.session?.user?.name || 'Cashier';
 
@@ -3189,6 +3324,16 @@ router.post('/customers/:id/settle-debt', requireAuth, requireTenant, requirePer
   }
   if (isNaN(payTotal) || payTotal <= 0) {
     return res.status(400).json({ error: 'Valid payment amount greater than 0 is required.' });
+  }
+
+  const cleanProofKey = proof_photo_key ? String(proof_photo_key).trim() : null;
+  if (cleanProofKey && !isValidTenantPhotoKey(shopId, cleanProofKey)) {
+    return res.status(400).json({ error: 'Invalid payment proof photo key for this store.' });
+  }
+  if (cleanProofKey && !hasUserPermission(req.session?.user, 'can_upload_photos')) {
+    return res.status(403).json({
+      error: 'Permission required to upload photos. Ask your store manager to enable Upload Photos.',
+    });
   }
 
   const allowedMethods = new Set(['cash', 'momo', 'bank_transfer']);
@@ -3237,9 +3382,9 @@ router.post('/customers/:id/settle-debt', requireAuth, requireTenant, requirePer
         const newPaymentStatus = newDebt === 0 ? 'paid' : 'partial';
 
         await execute(
-          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [shopId, order.id, payForOrder, safeMethod, refText, currentUserId]
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, proof_photo_key, recorded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [shopId, order.id, payForOrder, safeMethod, refText, cleanProofKey, currentUserId]
         );
 
         await execute(
@@ -3283,14 +3428,15 @@ router.post('/customers/:id/settle-debt', requireAuth, requireTenant, requirePer
           [addedToStoreCredit, customerId, shopId]
         );
         await execute(
-          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
-           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?)`,
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, proof_photo_key, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?, ?)`,
           [
             shopId,
             customerId,
             addedToStoreCredit,
             safeMethod,
             reference_no || null,
+            cleanProofKey,
             notes ? `${String(notes).trim()} (Excess payment moved to store credit)` : 'Excess from bulk debt settlement added as store credit owed to client',
             currentUserId
           ]
@@ -3300,14 +3446,15 @@ router.post('/customers/:id/settle-debt', requireAuth, requireTenant, requirePer
       if (appliedToDebt > 0) {
         const orderRefs = settledOrders.map((s) => s.order_number).join(', ');
         await execute(
-          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
-           VALUES (?, ?, ?, 'bulk_payment', ?, ?, ?, ?)`,
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, proof_photo_key, notes, recorded_by)
+           VALUES (?, ?, ?, 'bulk_payment', ?, ?, ?, ?, ?)`,
           [
             shopId,
             customerId,
             appliedToDebt,
             safeMethod,
             reference_no || null,
+            cleanProofKey,
             notes ? `${String(notes).trim()} | Settled across: ${orderRefs}` : `Bulk payment applied across ${settledOrders.length} receipt(s): ${orderRefs}`,
             currentUserId
           ]
@@ -3578,14 +3725,14 @@ router.get('/users', requireAuth, requireTenant, requireManager, async (req: Req
                 u.can_partner_borrow, u.can_view_reports, u.can_view_buying_prices, u.can_give_discounts, u.can_manage_users,
                 u.can_print_full_receipt, u.can_print_delivery_note, u.can_manage_customers, u.can_manage_partners, u.can_void_orders,
                 u.can_edit_company_settings, u.can_view_audit_trail, u.can_reset_passwords, u.can_view_all_tenants, u.can_manage_subscriptions,
-                u.can_verify_orders, u.can_resolve_flagged_orders, u.force_password_change, s.name as shop_name 
+                u.can_verify_orders, u.can_resolve_flagged_orders, u.can_upload_photos, u.force_password_change, s.name as shop_name 
          FROM users u LEFT JOIN shops s ON u.shop_id = s.id ORDER BY u.role DESC, u.name ASC`
       : `SELECT id, shop_id, stock_id, name, email, role, job_title, phone, is_active, activation_status,
                 can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
                 can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
                 can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
                 can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-                can_verify_orders, can_resolve_flagged_orders, force_password_change
+                can_verify_orders, can_resolve_flagged_orders, can_upload_photos, force_password_change
          FROM users WHERE shop_id = ? ORDER BY role DESC, name ASC`;
     const params = isSuper ? [] : [shopId];
 
@@ -3618,6 +3765,14 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
     const p = { ...req.body, ...(permissions || {}) };
     const isOwnerOrManagerRole = assignedRole === 'manager' || assignedRole === 'superadmin';
 
+    const defaultUploadPhotos =
+      isOwnerOrManagerRole ||
+      Boolean(p.can_create_orders) ||
+      Boolean(p.can_process_payments) ||
+      ['salesperson', 'accountant', 'cashier'].includes(assignedRole)
+        ? 1
+        : 0;
+
     const assignedStockId = req.body.stock_id ? Number(req.body.stock_id) : 1;
     const result = await execute(
       `INSERT INTO users (
@@ -3626,8 +3781,8 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
         can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
         can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-        can_verify_orders, can_resolve_flagged_orders, force_password_change
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        can_verify_orders, can_resolve_flagged_orders, can_upload_photos, force_password_change
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         targetShopId,
         assignedStockId,
@@ -3658,7 +3813,8 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         p.can_view_all_tenants !== undefined ? (p.can_view_all_tenants ? 1 : 0) : (assignedRole === 'platform_ops' ? 1 : 0),
         p.can_manage_subscriptions ? 1 : 0,
         p.can_verify_orders ? 1 : 0,
-        isOwnerOrManagerRole || p.can_resolve_flagged_orders ? 1 : 0
+        isOwnerOrManagerRole || p.can_resolve_flagged_orders ? 1 : 0,
+        p.can_upload_photos !== undefined ? (p.can_upload_photos ? 1 : 0) : defaultUploadPhotos
       ]
     );
 
@@ -3723,7 +3879,7 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
       'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
       'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
       'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions',
-      'can_verify_orders', 'can_resolve_flagged_orders'
+      'can_verify_orders', 'can_resolve_flagged_orders', 'can_upload_photos'
     ];
     const effectiveRole = role && (currentUser.role === 'superadmin' || role !== 'superadmin')
       ? String(role).toLowerCase()

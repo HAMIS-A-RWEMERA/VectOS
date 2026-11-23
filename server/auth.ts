@@ -61,7 +61,8 @@ export type UserPermission =
   | 'can_manage_subscriptions'
   | 'can_edit_company_settings'
   | 'can_verify_orders'
-  | 'can_resolve_flagged_orders';
+  | 'can_resolve_flagged_orders'
+  | 'can_upload_photos';
 
 declare module 'express-session' {
   interface SessionData {
@@ -103,6 +104,7 @@ declare module 'express-session' {
       can_edit_company_settings?: number | boolean;
       can_verify_orders?: number | boolean;
       can_resolve_flagged_orders?: number | boolean;
+      can_upload_photos?: number | boolean;
     };
   }
 }
@@ -162,7 +164,8 @@ export const ALL_USER_PERMISSION_KEYS: UserPermission[] = [
   'can_manage_subscriptions',
   'can_edit_company_settings',
   'can_verify_orders',
-  'can_resolve_flagged_orders'
+  'can_resolve_flagged_orders',
+  'can_upload_photos'
 ];
 
 export function hasUserPermission(user: any, permission: UserPermission): boolean {
@@ -470,7 +473,8 @@ export function requirePermission(permission: UserPermission) {
       can_manage_subscriptions: 'Manage Store Billing & Subscriptions',
       can_edit_company_settings: 'Edit Store Profile & Tax Info',
       can_verify_orders: 'Verify & Authorize Orders (Supervisor Step 1 & 2)',
-      can_resolve_flagged_orders: 'Resolve Flagged Orders & Override Verifier Lock'
+      can_resolve_flagged_orders: 'Resolve Flagged Orders & Override Verifier Lock',
+      can_upload_photos: 'Upload Order Slips & Payment Proof Photos'
     };
 
     return handleAuthFailure(

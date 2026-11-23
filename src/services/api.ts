@@ -223,7 +223,11 @@ export const api = {
   },
   getOrderDetail: (id: number) => request<{ order: Order; items: any[]; payments: any[] }>(`/api/orders/${id}`),
   getOrderR2Status: () => request<{ configured: boolean }>('/api/storage/r2-status'),
-  uploadCompressedOrderPhoto: async (file: File | Blob, orderHint?: string) => {
+  uploadCompressedOrderPhoto: async (
+    file: File | Blob,
+    orderHint?: string,
+    purpose: 'order' | 'payment' = 'order'
+  ) => {
     const compressed = await compressOrderPhoto(file);
     const { uploadUrl, photoKey } = await request<{
       success: boolean;
@@ -231,7 +235,7 @@ export const api = {
       photoKey: string;
     }>('/api/orders/upload-photo-url', {
       method: 'POST',
-      body: JSON.stringify({ contentType: compressed.contentType, orderHint })
+      body: JSON.stringify({ contentType: compressed.contentType, orderHint, purpose })
     });
 
     const putRes = await fetch(uploadUrl, {
@@ -252,6 +256,10 @@ export const api = {
   },
   getOrderPhotoViewUrl: (orderId: number) =>
     request<{ success: boolean; viewUrl: string; photoKey: string; expiresInSeconds: number }>(`/api/orders/${orderId}/photo-url`),
+  getPaymentPhotoViewUrl: (paymentId: number) =>
+    request<{ success: boolean; viewUrl: string; photoKey: string; expiresInSeconds: number }>(`/api/payments/${paymentId}/photo-url`),
+  getCreditLedgerPhotoViewUrl: (entryId: number) =>
+    request<{ success: boolean; viewUrl: string; photoKey: string; expiresInSeconds: number }>(`/api/credit-ledger/${entryId}/photo-url`),
   createOrder: (orderData: {
     customer_id?: number | null;
     customer_name?: string;
@@ -265,6 +273,7 @@ export const api = {
     payment_reference?: string;
     release_immediately?: boolean;
     handwritten_photo_key?: string | null;
+    payment_proof_photo_key?: string | null;
   }) => request<{ success: boolean; order: Order; store_credit_applied?: number }>('/api/orders', {
     method: 'POST',
     body: JSON.stringify(orderData)
@@ -279,7 +288,7 @@ export const api = {
     method: 'PUT',
     body: JSON.stringify(orderData)
   }),
-  recordPayment: (orderId: number, data: { amount: number; payment_method: string; reference_no?: string }) =>
+  recordPayment: (orderId: number, data: { amount: number; payment_method: string; reference_no?: string; proof_photo_key?: string | null }) =>
     request<{ success: boolean; order: Order }>(`/api/orders/${orderId}/payments`, {
       method: 'POST',
       body: JSON.stringify(data)
@@ -334,6 +343,7 @@ export const api = {
       reference_no?: string;
       notes?: string;
       excess_to_store_credit?: boolean;
+      proof_photo_key?: string | null;
     }
   ) => request<{
     success: boolean;

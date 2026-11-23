@@ -76,6 +76,7 @@ export const users = pgTable('users', {
   canManageSubscriptions: integer('can_manage_subscriptions').default(0),
   canVerifyOrders: integer('can_verify_orders').default(0),
   canResolveFlaggedOrders: integer('can_resolve_flagged_orders').default(0),
+  canUploadPhotos: integer('can_upload_photos').default(1),
   forcePasswordChange: integer('force_password_change').default(0),
   twofaSecret: text('twofa_secret'),
   twofaEnabled: integer('twofa_enabled').default(0),
@@ -200,6 +201,7 @@ export const payments = pgTable('payments', {
   amount: numeric('amount').notNull(),
   paymentMethod: text('payment_method').notNull(),
   referenceNo: text('reference_no'),
+  proofPhotoKey: text('proof_photo_key'),
   recordedBy: integer('recorded_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at').defaultNow(),
 });
@@ -267,6 +269,7 @@ export const customerCreditLedger = pgTable('customer_credit_ledger', {
   entryType: text('entry_type').notNull(),
   paymentMethod: text('payment_method'),
   referenceNo: text('reference_no'),
+  proofPhotoKey: text('proof_photo_key'),
   notes: text('notes'),
   recordedBy: integer('recorded_by').references(() => users.id),
   createdAt: timestamp('created_at').defaultNow(),

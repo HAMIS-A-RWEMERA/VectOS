@@ -95,10 +95,23 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const [compressingPhoto, setCompressingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState('');
 
+  // Optional Payment Proof Photo State (Cashier / Solo Operator at Checkout)
+  const payProofCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const payProofGalleryInputRef = useRef<HTMLInputElement | null>(null);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentProofPreviewUrl, setPaymentProofPreviewUrl] = useState<string | null>(null);
+  const [paymentProofMetrics, setPaymentProofMetrics] = useState<{
+    originalBytes: number;
+    compressedBytes: number;
+  } | null>(null);
+  const [compressingPayProof, setCompressingPayProof] = useState(false);
+  const [payProofError, setPayProofError] = useState('');
+
   const canProcessPayments = hasPermission(user, 'can_process_payments');
   const canGiveDiscounts = hasPermission(user, 'can_give_discounts');
   const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices');
   const canPrintReceipt = hasPermission(user, 'can_print_full_receipt');
+  const canUploadPhotos = hasPermission(user, 'can_upload_photos');
   const isSoloOperator = isSoloAllInOneUser(user);
 
   // Load products, categories, customers, stocks, and R2 status
@@ -113,6 +126,12 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
       if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
     };
   }, [photoPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (paymentProofPreviewUrl) URL.revokeObjectURL(paymentProofPreviewUrl);
+    };
+  }, [paymentProofPreviewUrl]);
 
   const loadData = async () => {
     try {
@@ -170,6 +189,38 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     setPhotoPreviewUrl(null);
     setPhotoMetrics(null);
     setPhotoError('');
+  };
+
+  const handleSelectPaymentProofFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setCompressingPayProof(true);
+      setPayProofError('');
+      setErrorMsg('');
+      const result = await compressOrderPhoto(file);
+      if (paymentProofPreviewUrl) URL.revokeObjectURL(paymentProofPreviewUrl);
+      const url = URL.createObjectURL(result.blob);
+      setPaymentProofFile(file);
+      setPaymentProofPreviewUrl(url);
+      setPaymentProofMetrics({
+        originalBytes: result.originalBytes,
+        compressedBytes: result.compressedBytes
+      });
+    } catch (err: any) {
+      setPayProofError(
+        err?.message || tf('Could not read or compress selected proof image.', 'Ntibyakunze gufata iyi foto y’ubwishyu.')
+      );
+    } finally {
+      setCompressingPayProof(false);
+    }
+  };
+
+  const clearPaymentProof = () => {
+    if (paymentProofPreviewUrl) URL.revokeObjectURL(paymentProofPreviewUrl);
+    setPaymentProofFile(null);
+    setPaymentProofPreviewUrl(null);
+    setPaymentProofMetrics(null);
+    setPayProofError('');
   };
 
   // Filter products by search and category
@@ -366,6 +417,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     setUseStoreCredit(false);
     setErrorMsg('');
     clearDraftPhoto();
+    clearPaymentProof();
   };
 
   // Totals calculations
@@ -392,6 +444,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     }
     setPaymentRef('');
     setReleaseImmediately(false);
+    clearPaymentProof();
     setErrorMsg('');
     setIsCheckoutOpen(true);
   };
@@ -421,21 +474,27 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
       if (isPhotoMandatory && !photoFile) {
         setErrorMsg(
-          tf(
-            'This store requires attaching an order photo before completing an order. Please take or upload a photo first.',
-            'Iri duka ritegeka gufata ifoto ya komande mbere yo kwemeza igurisha. Banza ufate cyangwa uhitemo ifoto.'
-          )
+          !canUploadPhotos
+            ? tf(
+                'This store requires attaching an order photo, and your account does not have Upload Photos enabled yet. Ask your manager to enable it in Staff & Duties.',
+                'Iri duka ritegeka ifoto ya komande, kandi konti yawe ntifite uburenganzira bwo gufata amafoto. Saba umuyobozi kubigufungurira.'
+              )
+            : tf(
+                'This store requires attaching an order photo before completing an order. Please take or upload a photo first.',
+                'Iri duka ritegeka gufata ifoto ya komande mbere yo kwemeza igurisha. Banza ufate cyangwa uhitemo ifoto.'
+              )
         );
         setIsSubmitting(false);
         return;
       }
 
       let uploadedPhotoKey: string | null = null;
-      if (photoFile) {
+      if (photoFile && canUploadPhotos) {
         if (r2Configured) {
           const uploaded = await api.uploadCompressedOrderPhoto(
             photoFile,
-            selectedCustomer?.name || customCustomerName || 'order'
+            selectedCustomer?.name || customCustomerName || 'order',
+            'order'
           );
           uploadedPhotoKey = uploaded.photoKey;
         } else if (isPhotoMandatory) {
@@ -448,6 +507,23 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
           setIsSubmitting(false);
           return;
         }
+      }
+
+      let uploadedPayProofKey: string | null = null;
+      if (
+        canProcessPayments &&
+        canUploadPhotos &&
+        paymentMethod !== 'debt_credit' &&
+        (Number(paidAmount) || 0) > 0 &&
+        paymentProofFile &&
+        r2Configured
+      ) {
+        const uploadedProof = await api.uploadCompressedOrderPhoto(
+          paymentProofFile,
+          selectedCustomer?.name || customCustomerName || 'payment',
+          'payment'
+        );
+        uploadedPayProofKey = uploadedProof.photoKey;
       }
 
       const payload = {
@@ -474,7 +550,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         payment_reference: canProcessPayments ? paymentRef : '',
         notes: orderNotes,
         release_immediately: isSoloOperator && releaseImmediately,
-        handwritten_photo_key: uploadedPhotoKey
+        handwritten_photo_key: uploadedPhotoKey,
+        payment_proof_photo_key: uploadedPayProofKey
       };
 
       const res = await api.createOrder(payload);
@@ -1099,7 +1176,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
             }}
           />
 
-          {/* Compact Order Photo Attachment Strip */}
+          {/* Compact Order Photo Attachment Strip (Only shown if permitted or required by store) */}
+          {(canUploadPhotos || isPhotoMandatory) && (
           <div className={`p-2.5 rounded-xl border space-y-2 ${
             isPhotoMandatory && !photoPreviewUrl
               ? 'bg-amber-500/10 border-amber-500/40'
@@ -1120,7 +1198,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 </span>
               </div>
 
-              {!photoPreviewUrl ? (
+              {!canUploadPhotos ? (
+                <span className="text-[10px] text-rose-300 font-semibold">
+                  {tf('Ask manager for Upload Photos duty', 'Saba uburenganzira bw’amafoto')}
+                </span>
+              ) : !photoPreviewUrl ? (
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
@@ -1183,6 +1265,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               <p className="text-[10px] text-rose-300">{photoError}</p>
             )}
           </div>
+          )}
 
           <div className="space-y-1 text-xs">
             <div className="flex justify-between text-slate-400">
@@ -1427,6 +1510,105 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   </div>
                 )}
 
+                {/* Optional Proof of Payment Photo (MoMo screenshot / bank slip / cash receipt) */}
+                {canUploadPhotos && paymentMethod !== 'debt_credit' && (
+                  <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+                    <input
+                      ref={payProofCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleSelectPaymentProofFile(e.target.files?.[0]);
+                        e.target.value = '';
+                      }}
+                    />
+                    <input
+                      ref={payProofGalleryInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleSelectPaymentProofFile(e.target.files?.[0]);
+                        e.target.value = '';
+                      }}
+                    />
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <FileImage className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="text-xs font-bold text-slate-200">
+                          {tf('Proof of Payment Photo', 'Ifoto y’Icyemezo cy’Ubwishyu')}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                          {tf('Optional', 'Ku Bushake')}
+                        </span>
+                      </div>
+
+                      {!paymentProofPreviewUrl ? (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            disabled={compressingPayProof}
+                            onClick={() => payProofCameraInputRef.current?.click()}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-[10px] transition"
+                          >
+                            <Camera className="w-3 h-3 text-emerald-400" />
+                            <span>{compressingPayProof ? '...' : tf('Take Photo', 'Fata Ifoto')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={compressingPayProof}
+                            onClick={() => payProofGalleryInputRef.current?.click()}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-[10px] transition"
+                          >
+                            <FileImage className="w-3 h-3 text-sky-400" />
+                            <span>{tf('Upload', 'Hitamo')}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={clearPaymentProof}
+                          className="text-[10px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                          <span>{tf('Remove', 'Kuraho')}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {paymentProofPreviewUrl ? (
+                      <div className="flex items-center gap-2.5 bg-slate-950/80 p-1.5 rounded-lg border border-slate-800">
+                        <img
+                          src={paymentProofPreviewUrl}
+                          alt={tf('Payment proof preview', 'Ifoto y’ubwishyu')}
+                          className="w-10 h-10 rounded object-cover border border-slate-700 shrink-0"
+                        />
+                        <div className="min-w-0 flex-1 text-[10px]">
+                          <p className="font-bold text-emerald-300 truncate">
+                            {tf('Payment proof ready', 'Icyemezo kiriteguye')}
+                          </p>
+                          {paymentProofMetrics && (
+                            <p className="text-slate-400 font-mono">
+                              {formatKb(paymentProofMetrics.originalBytes)} → <strong className="text-emerald-400">{formatKb(paymentProofMetrics.compressedBytes)}</strong>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-400">
+                        {tf('Optional: attach MoMo screenshot, bank slip, or cash receipt photo.', 'Ku bushake: ifoto ya MoMo, banki, cyangwa inyemezabwishyu.')}
+                      </p>
+                    )}
+
+                    {payProofError && (
+                      <p className="text-[10px] text-rose-300">{payProofError}</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Solo Operator Immediate Stock Release Toggle */}
                 {isSoloOperator && (
                   <label className="flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 cursor-pointer hover:bg-emerald-500/15 transition">
@@ -1492,7 +1674,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
               </div>
             )}
 
-            {/* Order Photo Confirmation / Capture inside Checkout Modal */}
+            {/* Order Photo Confirmation / Capture inside Checkout Modal (Only shown if permitted or required by store) */}
+            {(canUploadPhotos || isPhotoMandatory) && (
             <div className={`p-3 rounded-xl border space-y-2 ${
               isPhotoMandatory && !photoPreviewUrl
                 ? 'bg-rose-500/10 border-rose-500/40'
@@ -1513,7 +1696,11 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                   </span>
                 </div>
 
-                {!photoPreviewUrl ? (
+                {!canUploadPhotos ? (
+                  <span className="text-[11px] font-semibold text-rose-300">
+                    {tf('Ask manager to enable Upload Photos', 'Saba umuyobozi gufungura ifoto')}
+                  </span>
+                ) : !photoPreviewUrl ? (
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
@@ -1567,10 +1754,15 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 </div>
               ) : isPhotoMandatory ? (
                 <p className="text-[11px] text-rose-200">
-                  {tf(
-                    'Your manager requires an order photo on all new orders. Take or upload a photo before completing this order.',
-                    'Umuyobozi yashyizeho itegeko ryo gufotora komande zose nshya. Fata cyangwa uhitemo ifoto mbere yo kurangiza.'
-                  )}
+                  {!canUploadPhotos
+                    ? tf(
+                        'Your manager requires an order photo on all new orders, and needs to grant your account the Upload Photos permission.',
+                        'Umuyobozi yashyizeho itegeko ry’ifoto ya komande, kandi akeneye kuguha uburenganzira bwo gufata amafoto.'
+                      )
+                    : tf(
+                        'Your manager requires an order photo on all new orders. Take or upload a photo before completing this order.',
+                        'Umuyobozi yashyizeho itegeko ryo gufotora komande zose nshya. Fata cyangwa uhitemo ifoto mbere yo kurangiza.'
+                      )}
                 </p>
               ) : (
                 <p className="text-[11px] text-slate-400">
@@ -1581,6 +1773,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 </p>
               )}
             </div>
+            )}
 
             {errorMsg && (
               <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs text-rose-300 flex items-center gap-2">

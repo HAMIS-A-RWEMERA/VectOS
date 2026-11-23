@@ -35,6 +35,7 @@ export interface User {
   can_manage_subscriptions?: boolean;
   can_verify_orders?: boolean;
   can_resolve_flagged_orders?: boolean;
+  can_upload_photos?: boolean;
   shop_name?: string;
   created_at?: string;
 }
@@ -161,6 +162,7 @@ export interface Payment {
   amount: number;
   payment_method: 'cash' | 'momo' | 'bank_transfer' | 'debt_credit';
   reference_no?: string;
+  proof_photo_key?: string | null;
   recorded_by?: number;
   recorded_by_name?: string;
   created_at: string;
@@ -282,6 +284,7 @@ export interface CustomerCreditEntry {
   entry_type: 'credit_added' | 'credit_used' | 'credit_payout' | 'bulk_payment';
   payment_method?: string | null;
   reference_no?: string | null;
+  proof_photo_key?: string | null;
   notes?: string | null;
   recorded_by?: number | null;
   recorded_by_name?: string | null;

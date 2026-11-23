@@ -47,7 +47,8 @@ const ALL_SHOP_PERMISSION_KEYS = [
   'can_view_audit_trail',
   'can_edit_company_settings',
   'can_verify_orders',
-  'can_resolve_flagged_orders'
+  'can_resolve_flagged_orders',
+  'can_upload_photos'
 ] as const;
 
 type ShopPermissionKey = (typeof ALL_SHOP_PERMISSION_KEYS)[number];
@@ -76,6 +77,7 @@ const PERMISSION_GROUPS: {
       { key: 'can_give_discounts', label: 'Give discounts or lower item prices' },
       { key: 'can_print_full_receipt', label: 'Print full payment receipts' },
       { key: 'can_print_delivery_note', label: 'Print delivery notes (quantities only)' },
+      { key: 'can_upload_photos', label: 'Upload order slips & payment proof photos' },
       { key: 'can_void_orders', label: 'Cancel mistaken orders' }
     ]
   },
@@ -162,7 +164,8 @@ const ROLE_TEMPLATES: RoleTemplate[] = [
       can_manage_users: false,
       can_reset_passwords: false,
       can_view_audit_trail: false,
-      can_edit_company_settings: false
+      can_edit_company_settings: false,
+      can_upload_photos: true
     })
   },
   {
@@ -175,7 +178,8 @@ const ROLE_TEMPLATES: RoleTemplate[] = [
       can_create_orders: true,
       can_give_discounts: true,
       can_print_delivery_note: true,
-      can_manage_customers: true
+      can_manage_customers: true,
+      can_upload_photos: true
     })
   },
   {
@@ -192,7 +196,8 @@ const ROLE_TEMPLATES: RoleTemplate[] = [
       can_view_reports: true,
       can_view_buying_prices: true,
       can_manage_customers: true,
-      can_view_audit_trail: true
+      can_view_audit_trail: true,
+      can_upload_photos: true
     })
   },
   {
@@ -305,6 +310,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser, shop }) => {
         it.key === 'can_give_discounts' ? tf('Give discounts or lower item prices', 'Kugabanya ibiciro ku bicuruzwa') :
         it.key === 'can_print_full_receipt' ? tf('Print full payment receipts', 'Gusohora inyemezabuguzi yuzuye (iriho ibiciro)') :
         it.key === 'can_print_delivery_note' ? tf('Print delivery notes (quantities only)', 'Gusohora urupapuro rw’ibitangwa (ingano gusa)') :
+        it.key === 'can_upload_photos' ? tf('Upload order slips & payment proof photos', 'Gufata amafoto ya komande n’ay’ubwishyu') :
         it.key === 'can_void_orders' ? tf('Cancel mistaken orders', 'Guhagarika komande zibeshyewe') :
         it.key === 'can_process_payments' ? tf('Take Cash, MoMo & Bank payments', 'Kwakira ubwishyu bwa Kashi, MoMo & Banki') :
         it.key === 'can_view_reports' ? tf('View sales reports', 'Kureba raporo z’igurisha') :
@@ -884,6 +890,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser, shop }) => {
                       )}
                       {(isFullRole || u.can_process_payments) && (
                         <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 text-[10px] border border-emerald-800/40">{tf('Take Payments', 'Kwakira Ubwishyu')}</span>
+                      )}
+                      {(isFullRole || u.can_upload_photos) && (
+                        <span className="px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-300 text-[10px] border border-sky-800/40">{tf('Upload Photos', 'Gufata Amafoto')}</span>
                       )}
                       {(isFullRole || u.can_release_stock) && (
                         <span className="px-1.5 py-0.5 rounded bg-blue-950/60 text-blue-300 text-[10px] border border-blue-800/40">{tf('Release Stock', 'Gutanga Sitoki')}</span>

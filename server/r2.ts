@@ -51,25 +51,28 @@ function createR2Client(cfg: R2Config): S3Client {
 }
 
 /**
- * Validates that an object key strictly belongs to the given tenant's order-photo prefix.
+ * Validates that an object key strictly belongs to the given tenant's orders or payments photo prefix.
  * Prevents cross-tenant key access or path traversal.
  */
 export function isValidTenantPhotoKey(shopId: number, photoKey: string): boolean {
   if (!photoKey || typeof photoKey !== 'string') return false;
   if (photoKey.includes('..') || photoKey.startsWith('/')) return false;
-  const expectedPrefix = `shops/${Number(shopId)}/orders/`;
-  if (!photoKey.startsWith(expectedPrefix)) return false;
-  return /^shops\/\d+\/orders\/[a-zA-Z0-9._-]+$/.test(photoKey);
+  const sid = Number(shopId);
+  const validOrders = photoKey.startsWith(`shops/${sid}/orders/`);
+  const validPayments = photoKey.startsWith(`shops/${sid}/payments/`);
+  if (!validOrders && !validPayments) return false;
+  return /^shops\/\d+\/(orders|payments)\/[a-zA-Z0-9._-]+$/.test(photoKey);
 }
 
 /**
- * Generates a short-lived Presigned PUT URL for uploading a compressed handwritten order photo
+ * Generates a short-lived Presigned PUT URL for uploading a compressed order or payment proof photo
  * directly from the worker's browser to Cloudflare R2 (bypassing Vercel's 4.5MB serverless limit).
  */
 export async function createOrderPhotoUploadUrl(params: {
   shopId: number;
   contentType: string;
   orderHint?: string;
+  folder?: 'orders' | 'payments';
 }): Promise<{ uploadUrl: string; photoKey: string; expiresInSeconds: number }> {
   const cfg = getR2Config();
   if (!cfg) {
@@ -81,12 +84,13 @@ export async function createOrderPhotoUploadUrl(params: {
     throw new Error('Unsupported photo format. Please use WebP, JPEG, or PNG.');
   }
 
+  const folder = params.folder === 'payments' ? 'payments' : 'orders';
   const ext = MIME_TO_EXT[normalizedMime] || 'webp';
-  const safeHint = (params.orderHint || 'order')
+  const safeHint = (params.orderHint || (folder === 'payments' ? 'payment' : 'order'))
     .replace(/[^a-zA-Z0-9_-]/g, '')
-    .slice(0, 24) || 'order';
+    .slice(0, 24) || (folder === 'payments' ? 'payment' : 'order');
   const uniqueId = crypto.randomBytes(8).toString('hex');
-  const photoKey = `shops/${Number(params.shopId)}/orders/${safeHint}-${Date.now()}-${uniqueId}.${ext}`;
+  const photoKey = `shops/${Number(params.shopId)}/${folder}/${safeHint}-${Date.now()}-${uniqueId}.${ext}`;
 
   const client = createR2Client(cfg);
   const expiresInSeconds = 300; // 5 minutes to complete upload

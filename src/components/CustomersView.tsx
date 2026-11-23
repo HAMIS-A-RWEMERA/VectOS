@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Customer, Shop, User } from '../types';
 import { api } from '../services/api';
 import { hasPermission } from '../utils/permissions';
+import { compressOrderPhoto } from '../utils/imageCompression';
 import { CustomerStatementModal } from './CustomerStatementModal';
 import { matchesSearch } from '../utils/searchMatch';
 import {
@@ -16,7 +17,9 @@ import {
   ArrowUpDown,
   CheckCircle2,
   AlertCircle,
-  X
+  X,
+  Camera,
+  FileImage
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -61,6 +64,15 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
   const [bulkError, setBulkError] = useState('');
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkResultBanner, setBulkResultBanner] = useState<string | null>(null);
+  const bulkProofCameraRef = useRef<HTMLInputElement | null>(null);
+  const bulkProofGalleryRef = useRef<HTMLInputElement | null>(null);
+  const [bulkProofFile, setBulkProofFile] = useState<File | null>(null);
+  const [bulkProofPreviewUrl, setBulkProofPreviewUrl] = useState<string | null>(null);
+  const [bulkProofMetrics, setBulkProofMetrics] = useState<{
+    originalBytes: number;
+    compressedBytes: number;
+  } | null>(null);
+  const [compressingBulkProof, setCompressingBulkProof] = useState(false);
 
   // Store Credit (We Owe Client) Modal
   const [creditCustomer, setCreditCustomer] = useState<Customer | null>(null);
@@ -74,6 +86,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
 
   const canManageCustomers = hasPermission(user, 'can_manage_customers');
   const canProcessPayments = !isStockOnly && hasPermission(user, 'can_process_payments');
+  const canUploadPhotos = hasPermission(user, 'can_upload_photos');
 
   useEffect(() => {
     if (isStockOnly && (sortBy === 'debt' || sortBy === 'top_spent' || sortBy === 'store_credit')) {
@@ -124,6 +137,45 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (bulkProofPreviewUrl) URL.revokeObjectURL(bulkProofPreviewUrl);
+    };
+  }, [bulkProofPreviewUrl]);
+
+  const formatKb = (bytes: number) =>
+    bytes >= 1024 * 1024
+      ? `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+      : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+  const clearBulkProofDraft = () => {
+    if (bulkProofPreviewUrl) URL.revokeObjectURL(bulkProofPreviewUrl);
+    setBulkProofFile(null);
+    setBulkProofPreviewUrl(null);
+    setBulkProofMetrics(null);
+  };
+
+  const handleSelectBulkProofFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setCompressingBulkProof(true);
+      setBulkError('');
+      const compressed = await compressOrderPhoto(file);
+      if (bulkProofPreviewUrl) URL.revokeObjectURL(bulkProofPreviewUrl);
+      const url = URL.createObjectURL(compressed.blob);
+      setBulkProofFile(file);
+      setBulkProofPreviewUrl(url);
+      setBulkProofMetrics({
+        originalBytes: compressed.originalBytes,
+        compressedBytes: compressed.compressedBytes
+      });
+    } catch (err: any) {
+      setBulkError(err?.message || tf('Could not read selected proof image.', 'Ntibyakunze gufata iyi foto.'));
+    } finally {
+      setCompressingBulkProof(false);
+    }
+  };
+
   const openBulkSettleModal = (c: Customer) => {
     setBulkCustomer(c);
     setBulkAmount(c.credit_balance > 0 ? String(Math.round(c.credit_balance)) : '');
@@ -131,6 +183,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
     setBulkRef('');
     setBulkNotes('');
     setExcessToCredit(true);
+    clearBulkProofDraft();
     setBulkError('');
   };
 
@@ -146,13 +199,26 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
     try {
       setBulkSubmitting(true);
       setBulkError('');
+
+      let uploadedProofKey: string | null = null;
+      if (canUploadPhotos && bulkProofFile) {
+        const uploaded = await api.uploadCompressedOrderPhoto(
+          bulkProofFile,
+          bulkCustomer.name || `cust-${bulkCustomer.id}`,
+          'payment'
+        );
+        uploadedProofKey = uploaded.photoKey;
+      }
+
       const res = await api.settleCustomerDebt(bulkCustomer.id, {
         amount: amt,
         payment_method: bulkMethod,
         reference_no: bulkRef,
         notes: bulkNotes,
         excess_to_store_credit: excessToCredit,
+        proof_photo_key: uploadedProofKey,
       });
+      clearBulkProofDraft();
       setBulkCustomer(null);
       setBulkResultBanner(res.message);
       setTimeout(() => setBulkResultBanner(null), 8000);
@@ -805,6 +871,100 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ user, shop = null,
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
+
+              {canUploadPhotos && (
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+                  <input
+                    ref={bulkProofCameraRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleSelectBulkProofFile(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                  <input
+                    ref={bulkProofGalleryRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleSelectBulkProofFile(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <FileImage className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-bold text-slate-200">
+                        {tf('Proof of Payment Photo', 'Ifoto y’Icyemezo cy’Ubwishyu')}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                        {tf('Optional', 'Ku Bushake')}
+                      </span>
+                    </div>
+
+                    {!bulkProofPreviewUrl ? (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={compressingBulkProof}
+                          onClick={() => bulkProofCameraRef.current?.click()}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-[10px] transition"
+                        >
+                          <Camera className="w-3 h-3 text-emerald-400" />
+                          <span>{compressingBulkProof ? '...' : tf('Take Photo', 'Fata Ifoto')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={compressingBulkProof}
+                          onClick={() => bulkProofGalleryRef.current?.click()}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-[10px] transition"
+                        >
+                          <FileImage className="w-3 h-3 text-sky-400" />
+                          <span>{tf('Upload', 'Hitamo')}</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={clearBulkProofDraft}
+                        className="text-[10px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>{tf('Remove', 'Kuraho')}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {bulkProofPreviewUrl ? (
+                    <div className="flex items-center gap-2.5 bg-slate-950/80 p-1.5 rounded-lg border border-slate-800">
+                      <img
+                        src={bulkProofPreviewUrl}
+                        alt={tf('Payment proof preview', 'Ifoto y’ubwishyu')}
+                        className="w-10 h-10 rounded object-cover border border-slate-700 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1 text-[10px]">
+                        <p className="font-bold text-emerald-300 truncate">
+                          {tf('Payment proof ready', 'Icyemezo kiriteguye')}
+                        </p>
+                        {bulkProofMetrics && (
+                          <p className="text-slate-400 font-mono">
+                            {formatKb(bulkProofMetrics.originalBytes)} → <strong className="text-emerald-400">{formatKb(bulkProofMetrics.compressedBytes)}</strong>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400">
+                      {tf('Optional: MoMo screenshot, bank transfer slip, or cash receipt photo.', 'Ku bushake: ifoto ya MoMo, banki, cyangwa inyemezabwishyu.')}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {previewExcessCredit > 0 && (
                 <label className="flex items-center gap-2 text-xs text-purple-300 cursor-pointer">

@@ -258,6 +258,7 @@ async function initSqlJsSchema(): Promise<void> {
       can_manage_subscriptions INTEGER DEFAULT 0,
       can_verify_orders INTEGER DEFAULT 0,
       can_resolve_flagged_orders INTEGER DEFAULT 0,
+      can_upload_photos INTEGER DEFAULT 1,
       force_password_change INTEGER DEFAULT 0,
       twofa_secret TEXT,
       twofa_enabled INTEGER DEFAULT 0,
@@ -376,6 +377,7 @@ async function initSqlJsSchema(): Promise<void> {
       amount REAL NOT NULL,
       payment_method TEXT NOT NULL,
       reference_no TEXT,
+      proof_photo_key TEXT,
       recorded_by INTEGER NOT NULL REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -465,6 +467,7 @@ async function initSqlJsSchema(): Promise<void> {
       entry_type TEXT NOT NULL,
       payment_method TEXT,
       reference_no TEXT,
+      proof_photo_key TEXT,
       notes TEXT,
       recorded_by INTEGER REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -505,6 +508,23 @@ async function initSqlJsSchema(): Promise<void> {
     if (!existingShopCols.has('require_order_photo')) {
       sqlJsDbInstance.run(`ALTER TABLE shops ADD COLUMN require_order_photo INTEGER DEFAULT 0`);
     }
+  } catch {}
+
+  try {
+    const checkAndAddSqliteCol = (table: string, col: string, ddlDef: string) => {
+      const stmt = sqlJsDbInstance.prepare(`PRAGMA table_info(${table})`);
+      const cols = new Set<string>();
+      while (stmt.step()) {
+        cols.add(String(stmt.getAsObject().name || '').toLowerCase());
+      }
+      stmt.free();
+      if (!cols.has(col.toLowerCase())) {
+        sqlJsDbInstance.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddlDef}`);
+      }
+    };
+    checkAndAddSqliteCol('users', 'can_upload_photos', 'INTEGER DEFAULT 1');
+    checkAndAddSqliteCol('payments', 'proof_photo_key', 'TEXT');
+    checkAndAddSqliteCol('customer_credit_ledger', 'proof_photo_key', 'TEXT');
   } catch {}
 
   // Seed default shop and warehouse
@@ -818,6 +838,9 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
     `ALTER TABLE shops ADD COLUMN IF NOT EXISTS require_order_photo INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_verify_orders INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_resolve_flagged_orders INTEGER DEFAULT 0;`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_upload_photos INTEGER DEFAULT 1;`,
+    `ALTER TABLE payments ADD COLUMN IF NOT EXISTS proof_photo_key TEXT;`,
+    `ALTER TABLE customer_credit_ledger ADD COLUMN IF NOT EXISTS proof_photo_key TEXT;`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS is_watched INTEGER DEFAULT 0;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS handwritten_photo_key TEXT;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS chain_status TEXT DEFAULT 'completed';`,
@@ -941,7 +964,7 @@ export async function ensureAdminAccounts(dbToUse?: any): Promise<void> {
       'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
       'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
       'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions',
-      'can_verify_orders', 'can_resolve_flagged_orders'
+      'can_verify_orders', 'can_resolve_flagged_orders', 'can_upload_photos'
     ];
 
     const activePerms = permKeys.filter(k => cols.size === 0 || cols.has(k));

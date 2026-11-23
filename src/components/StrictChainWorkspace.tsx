@@ -86,6 +86,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const canReleaseStock = hasPermission(user, 'can_release_stock');
   const canVerifyOrders = hasPermission(user, 'can_verify_orders');
   const canResolveFlagged = hasPermission(user, 'can_resolve_flagged_orders');
+  const canUploadPhotos = hasPermission(user, 'can_upload_photos');
 
   const isWarehouseOnly =
     canReleaseStock && !canCreateOrders && !canVerifyOrders && !canResolveFlagged;
@@ -398,17 +399,22 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
 
       if (isPhotoMandatory && !photoFile) {
         setErrorBanner(
-          tf(
-            'Store settings require attaching a handwritten order photo before submitting.',
-            'Amategeko y’iduka asaba kubanza gufotora urupapuro rwa komande mbere yo kohereza.'
-          )
+          !canUploadPhotos
+            ? tf(
+                'Store settings require attaching an order photo, and your account needs the Upload Photos duty enabled by your manager.',
+                'Amategeko y’iduka asaba ifoto ya komande, kandi umuyobozi akeneye gufungura uburenganzira bw’amafoto kuri konti yawe.'
+              )
+            : tf(
+                'Store settings require attaching a handwritten order photo before submitting.',
+                'Amategeko y’iduka asaba kubanza gufotora urupapuro rwa komande mbere yo kohereza.'
+              )
         );
         setSubmittingOrder(false);
         return;
       }
 
       let uploadedKey: string | null = null;
-      if (photoFile) {
+      if (photoFile && canUploadPhotos) {
         if (r2Configured) {
           const uploaded = await api.chain.uploadCompressedOrderPhoto(
             photoFile,
@@ -1131,7 +1137,8 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
 
           {/* Right: Handwritten Photo + Order Cart Submission */}
           <form onSubmit={handleSubmitNewOrder} className="lg:col-span-5 space-y-4">
-            {/* Handwritten Slip Photo Card */}
+            {/* Handwritten Slip Photo Card (shown when permitted or required by store) */}
+            {(canUploadPhotos || isPhotoMandatory) && (
             <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -1179,7 +1186,14 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                 }}
               />
 
-              {!photoPreviewUrl ? (
+              {!canUploadPhotos ? (
+                <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/30 text-[11px] text-rose-200">
+                  {tf(
+                    'This store requires an order photo. Ask your store manager to enable "Upload Photos" on your account in Staff & Duties.',
+                    'Iri duka ritegeka ifoto ya komande. Saba umuyobozi gufungura uburenganzira bw’amafoto kuri konti yawe.'
+                  )}
+                </div>
+              ) : !photoPreviewUrl ? (
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
@@ -1229,6 +1243,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                 </div>
               )}
             </div>
+            )}
 
             {/* Client Info & Cart Items */}
             <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800 space-y-3">

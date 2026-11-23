@@ -23,6 +23,7 @@ import {
   Ban,
   X,
   Camera,
+  FileImage,
   ZoomIn,
   ZoomOut,
   RotateCw
@@ -30,6 +31,7 @@ import {
 import { EditOrderModal } from './EditOrderModal';
 import { hasPermission } from '../utils/permissions';
 import { matchesSearch } from '../utils/searchMatch';
+import { compressOrderPhoto } from '../utils/imageCompression';
 import { useLanguage } from '../i18n/LanguageContext';
 
 interface OrdersViewProps {
@@ -72,6 +74,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Optional Proof of Payment Photo State (for Record Payment Modal)
+  const payProofCameraRef = useRef<HTMLInputElement | null>(null);
+  const payProofGalleryRef = useRef<HTMLInputElement | null>(null);
+  const [payProofFile, setPayProofFile] = useState<File | null>(null);
+  const [payProofPreviewUrl, setPayProofPreviewUrl] = useState<string | null>(null);
+  const [payProofMetrics, setPayProofMetrics] = useState<{
+    originalBytes: number;
+    compressedBytes: number;
+  } | null>(null);
+  const [compressingPayProof, setCompressingPayProof] = useState(false);
+
   // Edit Receipt / Order modal state
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
 
@@ -86,16 +99,60 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const handledInitialOrderRef = useRef<number | null>(null);
   const handledInitialEditRef = useRef<number | null>(null);
 
-  // Order Photo Viewer Modal State
+  // Order / Payment Proof Photo Viewer Modal State
   const [photoModalOrder, setPhotoModalOrder] = useState<Order | null>(null);
+  const [photoModalMeta, setPhotoModalMeta] = useState<{ title: string; subtitle: string } | null>(null);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
   const [photoModalLoading, setPhotoModalLoading] = useState(false);
   const [photoModalError, setPhotoModalError] = useState('');
   const [photoZoom, setPhotoZoom] = useState(1);
   const [photoRotate, setPhotoRotate] = useState(0);
 
+  useEffect(() => {
+    return () => {
+      if (payProofPreviewUrl) URL.revokeObjectURL(payProofPreviewUrl);
+    };
+  }, [payProofPreviewUrl]);
+
+  const formatKb = (bytes: number) =>
+    bytes >= 1024 * 1024
+      ? `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+      : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+  const clearPayProofDraft = () => {
+    if (payProofPreviewUrl) URL.revokeObjectURL(payProofPreviewUrl);
+    setPayProofFile(null);
+    setPayProofPreviewUrl(null);
+    setPayProofMetrics(null);
+  };
+
+  const handleSelectPayProofFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setCompressingPayProof(true);
+      setModalError('');
+      const compressed = await compressOrderPhoto(file);
+      if (payProofPreviewUrl) URL.revokeObjectURL(payProofPreviewUrl);
+      const url = URL.createObjectURL(compressed.blob);
+      setPayProofFile(file);
+      setPayProofPreviewUrl(url);
+      setPayProofMetrics({
+        originalBytes: compressed.originalBytes,
+        compressedBytes: compressed.compressedBytes
+      });
+    } catch (err: any) {
+      setModalError(err?.message || tf('Could not read selected proof image.', 'Ntibyakunze gufata iyi foto.'));
+    } finally {
+      setCompressingPayProof(false);
+    }
+  };
+
   const openPhotoViewer = async (order: Order) => {
     setPhotoModalOrder(order);
+    setPhotoModalMeta({
+      title: `${tf('Order Photo Attachment', 'Ifoto Yometse kuri Komande')} — ${order.order_number}`,
+      subtitle: order.customer_name || tf('Walk-in Cash Client', 'Umukiriya usanzwe')
+    });
     setPhotoModalUrl(null);
     setPhotoModalError('');
     setPhotoZoom(1);
@@ -115,6 +172,37 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     } catch (err: any) {
       setPhotoModalError(
         err?.message || tf('Unable to load order photo.', 'Ntibyakunze gufungura ifoto ya komande.')
+      );
+    } finally {
+      setPhotoModalLoading(false);
+    }
+  };
+
+  const openPaymentProofViewer = async (payment: any, order: Order) => {
+    setPhotoModalOrder(order);
+    setPhotoModalMeta({
+      title: `${tf('Proof of Payment', 'Icyemezo cy’Ubwishyu')} — ${order.order_number}`,
+      subtitle: `${(payment.payment_method || 'cash').toUpperCase()} • ${formatRwf(payment.amount)}${payment.reference_no ? ` • Ref: ${payment.reference_no}` : ''}`
+    });
+    setPhotoModalUrl(null);
+    setPhotoModalError('');
+    setPhotoZoom(1);
+    setPhotoRotate(0);
+
+    if (!payment.proof_photo_key) {
+      setPhotoModalError(
+        tf('No proof photo attached to this payment.', 'Nta foto y’ubwishyu yometseho.')
+      );
+      return;
+    }
+
+    try {
+      setPhotoModalLoading(true);
+      const res = await api.getPaymentPhotoViewUrl(payment.id);
+      setPhotoModalUrl(res.viewUrl);
+    } catch (err: any) {
+      setPhotoModalError(
+        err?.message || tf('Unable to load payment proof photo.', 'Ntibyakunze gufungura ifoto y’ubwishyu.')
       );
     } finally {
       setPhotoModalLoading(false);
@@ -245,6 +333,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const canPrintReceipt = hasPermission(user, 'can_print_full_receipt');
   const canPrintDeliveryNote = hasPermission(user, 'can_print_delivery_note');
   const canVoidOrders = hasPermission(user, 'can_void_orders');
+  const canUploadPhotos = hasPermission(user, 'can_upload_photos');
   const canEditAnyOrder = canCreateOrders || canProcessPayments;
 
   useEffect(() => {
@@ -371,11 +460,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     try {
       setIsSubmitting(true);
       setModalError('');
+
+      let uploadedProofKey: string | null = null;
+      if (canUploadPhotos && payProofFile) {
+        const uploaded = await api.uploadCompressedOrderPhoto(
+          payProofFile,
+          selectedOrder.order_number || `ord-${selectedOrder.id}`,
+          'payment'
+        );
+        uploadedProofKey = uploaded.photoKey;
+      }
+
       await api.recordPayment(selectedOrder.id, {
         amount: amountNum,
         payment_method: payMethod,
-        reference_no: payRef
+        reference_no: payRef,
+        proof_photo_key: uploadedProofKey
       });
+      clearPayProofDraft();
       setIsPaymentModalOpen(false);
       handleViewOrder(selectedOrder.id);
       fetchOrders();
@@ -1249,6 +1351,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     onClick={() => {
                       setPayAmount(String(selectedOrder.debt_amount));
                       setPayRef('');
+                      clearPayProofDraft();
                       setModalError('');
                       setIsPaymentModalOpen(true);
                     }}
@@ -1261,21 +1364,33 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
               <div className="space-y-2">
                 {orderPayments.map((p) => (
-                  <div key={p.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-slate-200 uppercase font-mono">
-                        {p.payment_method === 'momo' ? 'MTN MoMo' : p.payment_method.replace('_', ' ')}
-                      </span>
-                      {selectedOrder.fulfillment_status === 'cancelled' && (
-                        <span className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                          {tf('CANCELLED', 'CYAHAGARITSWE')}
+                  <div key={p.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-200 uppercase font-mono">
+                          {p.payment_method === 'momo' ? 'MTN MoMo' : p.payment_method.replace('_', ' ')}
                         </span>
-                      )}
+                        {selectedOrder.fulfillment_status === 'cancelled' && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                            {tf('CANCELLED', 'CYAHAGARITSWE')}
+                          </span>
+                        )}
+                        {p.proof_photo_key && (
+                          <button
+                            type="button"
+                            onClick={() => openPaymentProofViewer(p, selectedOrder)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px] font-bold transition"
+                          >
+                            <Camera className="w-3 h-3" />
+                            <span>{tf('View Proof', 'Reba Icyemezo')}</span>
+                          </button>
+                        )}
+                      </div>
                       {p.reference_no && (
                         <p className="text-[10px] text-slate-400 font-mono">{tf('Ref:', 'Nomero:')} {p.reference_no}</p>
                       )}
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       {selectedOrder.fulfillment_status === 'cancelled' ? (
                         <div>
                           <span className="font-mono font-bold text-slate-200">RWF 0</span>
@@ -1342,6 +1457,100 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
               </div>
+
+              {canUploadPhotos && (
+                <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+                  <input
+                    ref={payProofCameraRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleSelectPayProofFile(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+                  <input
+                    ref={payProofGalleryRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      handleSelectPayProofFile(e.target.files?.[0]);
+                      e.target.value = '';
+                    }}
+                  />
+
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <FileImage className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-bold text-slate-200">
+                        {tf('Proof of Payment Photo', 'Ifoto y’Icyemezo cy’Ubwishyu')}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                        {tf('Optional', 'Ku Bushake')}
+                      </span>
+                    </div>
+
+                    {!payProofPreviewUrl ? (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={compressingPayProof}
+                          onClick={() => payProofCameraRef.current?.click()}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-[10px] transition"
+                        >
+                          <Camera className="w-3 h-3 text-emerald-400" />
+                          <span>{compressingPayProof ? '...' : tf('Take Photo', 'Fata Ifoto')}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={compressingPayProof}
+                          onClick={() => payProofGalleryRef.current?.click()}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-[10px] transition"
+                        >
+                          <FileImage className="w-3 h-3 text-sky-400" />
+                          <span>{tf('Upload', 'Hitamo')}</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={clearPayProofDraft}
+                        className="text-[10px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>{tf('Remove', 'Kuraho')}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {payProofPreviewUrl ? (
+                    <div className="flex items-center gap-2.5 bg-slate-950/80 p-1.5 rounded-lg border border-slate-800">
+                      <img
+                        src={payProofPreviewUrl}
+                        alt={tf('Payment proof preview', 'Ifoto y’ubwishyu')}
+                        className="w-10 h-10 rounded object-cover border border-slate-700 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1 text-[10px]">
+                        <p className="font-bold text-emerald-300 truncate">
+                          {tf('Payment proof ready', 'Icyemezo kiriteguye')}
+                        </p>
+                        {payProofMetrics && (
+                          <p className="text-slate-400 font-mono">
+                            {formatKb(payProofMetrics.originalBytes)} → <strong className="text-emerald-400">{formatKb(payProofMetrics.compressedBytes)}</strong>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400">
+                      {tf('Optional: MoMo screenshot, bank transfer slip, or cash receipt photo.', 'Ku bushake: ifoto ya MoMo, banki, cyangwa inyemezabwishyu.')}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {modalError && <p className="text-xs text-rose-400 font-semibold">{modalError}</p>}
 
@@ -1516,10 +1725,10 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
                   <Camera className="w-4 h-4 text-sky-400" />
-                  <span>{tf('Order Photo Attachment', 'Ifoto Yometse kuri Komande')} &mdash; {photoModalOrder.order_number}</span>
+                  <span>{photoModalMeta?.title || `${tf('Order Photo Attachment', 'Ifoto Yometse kuri Komande')} — ${photoModalOrder.order_number}`}</span>
                 </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {photoModalOrder.customer_name || tf('Walk-in Cash Client', 'Umukiriya usanzwe')}
+                  {photoModalMeta?.subtitle || photoModalOrder.customer_name || tf('Walk-in Cash Client', 'Umukiriya usanzwe')}
                 </p>
               </div>
               <div className="flex items-center gap-1.5">

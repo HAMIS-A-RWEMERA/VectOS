@@ -214,8 +214,13 @@ router.get('/r2-status', requireAuth, requireStrictChainShop, (req: Request, res
 
 router.post('/upload-url', requireAuth, requireStrictChainShop, async (req: Request, res: Response) => {
   const user = req.session.user;
-  if (!hasUserPermission(user, 'can_create_orders') && !hasUserPermission(user, 'can_resolve_flagged_orders')) {
-    return res.status(403).json({ error: 'Permission required to upload order photos.' });
+  if (
+    !hasUserPermission(user, 'can_upload_photos') ||
+    (!hasUserPermission(user, 'can_create_orders') && !hasUserPermission(user, 'can_resolve_flagged_orders'))
+  ) {
+    return res.status(403).json({
+      error: 'Permission required to upload order photos. Ask your store manager to enable Upload Photos.',
+    });
   }
 
   if (!isR2Configured()) {

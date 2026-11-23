@@ -13,7 +13,8 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
-  Clock
+  Clock,
+  Camera
 } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -44,6 +45,24 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'orders' | 'payments'>('orders');
+  const [proofViewer, setProofViewer] = useState<{ title: string; url: string | null; loading: boolean; error: string } | null>(null);
+
+  const openProofViewer = async (kind: 'payment' | 'ledger', id: number, title: string) => {
+    setProofViewer({ title, url: null, loading: true, error: '' });
+    try {
+      const res = kind === 'payment'
+        ? await api.getPaymentPhotoViewUrl(id)
+        : await api.getCreditLedgerPhotoViewUrl(id);
+      setProofViewer({ title, url: res.viewUrl, loading: false, error: '' });
+    } catch (err: any) {
+      setProofViewer({
+        title,
+        url: null,
+        loading: false,
+        error: err?.message || tf('Unable to load payment proof photo.', 'Ntibyakunze gufungura ifoto y’ubwishyu.')
+      });
+    }
+  };
 
   const formatRwf = (val: number) => `RWF ${Math.round(val || 0).toLocaleString()}`;
   const formatDate = (iso?: string | null) => {
@@ -708,7 +727,27 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                                     <span className="text-emerald-400">{formatRwf(p.amount)}</span>
                                   )}
                                 </td>
-                                <td className="py-2 px-3 text-slate-400">{p.reference_no || p.recorded_by_name || tf('Confirmed', 'Byemejwe')}</td>
+                                <td className="py-2 px-3 text-slate-400">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span>{p.reference_no || p.recorded_by_name || tf('Confirmed', 'Byemejwe')}</span>
+                                    {p.proof_photo_key && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          openProofViewer(
+                                            'payment',
+                                            p.id,
+                                            `${tf('Proof of Payment', 'Icyemezo cy’Ubwishyu')} — ${p.order_number || `#${p.order_id}`}`
+                                          )
+                                        }
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px] font-bold"
+                                      >
+                                        <Camera className="w-3 h-3" />
+                                        <span>{tf('Proof', 'Ifoto')}</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
                               </tr>
                             );
                           })}
@@ -752,7 +791,27 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
                                   : tf('Bulk Debt Settlement', 'Kwishyura Amadeni Icyarimwe')}
                               </td>
                               <td className="py-2 px-3 text-right font-mono font-bold text-purple-300">{formatRwf(l.amount)}</td>
-                              <td className="py-2 px-3 text-slate-300">{l.notes || l.reference_no || '—'}</td>
+                              <td className="py-2 px-3 text-slate-300">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span>{l.notes || l.reference_no || '—'}</span>
+                                  {l.proof_photo_key && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openProofViewer(
+                                          'ledger',
+                                          l.id,
+                                          `${tf('Bulk Settlement Proof', 'Icyemezo cy’Ubwishyu')}`
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[10px] font-bold"
+                                    >
+                                      <Camera className="w-3 h-3" />
+                                      <span>{tf('Proof', 'Ifoto')}</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           ))}
                           {statement.creditLedger.length === 0 && (
@@ -772,6 +831,39 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
           ) : null}
         </div>
       </div>
+
+      {proofViewer && (
+        <div className="fixed inset-0 z-[110] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-[#131722] border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+            <div className="p-3.5 border-b border-slate-800 flex items-center justify-between gap-3">
+              <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                <Camera className="w-4 h-4 text-sky-400" />
+                <span>{proofViewer.title}</span>
+              </h4>
+              <button
+                type="button"
+                onClick={() => setProofViewer(null)}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="bg-slate-950 p-4 flex-1 flex items-center justify-center overflow-auto min-h-[260px]">
+              {proofViewer.loading ? (
+                <p className="text-xs text-slate-400">{tf('Loading payment proof...', 'Ifoto irimo gufungurwa...')}</p>
+              ) : proofViewer.error ? (
+                <p className="text-xs text-rose-300 text-center">{proofViewer.error}</p>
+              ) : proofViewer.url ? (
+                <img
+                  src={proofViewer.url}
+                  alt={proofViewer.title}
+                  className="max-h-[70vh] object-contain rounded"
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

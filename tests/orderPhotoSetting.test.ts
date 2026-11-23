@@ -195,4 +195,151 @@ describe('Shop-Wide Order Photo Attachment & Manager Mandatory Toggle', () => {
     });
     expect(withPhoto.status).toBe(200);
   });
+
+  it('defaults can_upload_photos appropriately and enforces manager control on uploads & attachments', async () => {
+    // Salesperson created above defaulted to can_upload_photos = 1
+    const spMe = await sellerAgent.get('/api/auth/me');
+    expect(Number(spMe.body.user.can_upload_photos)).toBe(1);
+
+    // Create a storekeeper (no order creation / no payment taking) without specifying can_upload_photos -> defaults to 0
+    const skEmail = `sk-nophoto-${Date.now()}@test.rw`;
+    const pass = 'StaffPass2025!';
+    const skRes = await managerAgent.post('/api/users').send({
+      name: 'Quiet Storekeeper',
+      email: skEmail,
+      password: pass,
+      role: 'storekeeper',
+      permissions: { can_release_stock: true, can_create_orders: false, can_process_payments: false },
+    });
+    expect(skRes.status).toBe(200);
+    const skSess = await login(skEmail, pass);
+    const skMe = await skSess.agent.get('/api/auth/me');
+    expect(Number(skMe.body.user.can_upload_photos)).toBe(0);
+
+    // Create a cashier -> defaults to can_upload_photos = 1
+    const cashEmail = `cashier-proof-${Date.now()}@test.rw`;
+    const cashRes = await managerAgent.post('/api/users').send({
+      name: 'Proof Cashier',
+      email: cashEmail,
+      password: pass,
+      role: 'accountant',
+      permissions: { can_process_payments: true, can_create_orders: false },
+    });
+    expect(cashRes.status).toBe(200);
+    const cashierId = cashRes.body.user.id;
+    const cashSess = await login(cashEmail, pass);
+    const cashAgent = cashSess.agent as any;
+    const cashMe = await cashAgent.get('/api/auth/me');
+    expect(Number(cashMe.body.user.can_upload_photos)).toBe(1);
+
+    // Manager revokes can_upload_photos from cashier
+    const revokeRes = await managerAgent.put(`/api/users/${cashierId}`).send({
+      can_upload_photos: false,
+    });
+    expect(revokeRes.status).toBe(200);
+
+    // Cashier is now blocked from requesting upload URLs or attaching payment proof photos (403)
+    const uploadBlocked = await cashAgent.post('/api/orders/upload-photo-url').send({
+      contentType: 'image/webp',
+      purpose: 'payment',
+    });
+    expect(uploadBlocked.status).toBe(403);
+
+    // Create an unpaid order via seller so cashier can record payment without photo (still works!)
+    const unpaidOrderRes = await sellerAgent.post('/api/orders').send({
+      customer_name: 'Proof Test Client',
+      items: [{ product_id: productId, quantity: 2 }],
+      payment_method: 'cash',
+      paid_amount: 0,
+    });
+    expect(unpaidOrderRes.status).toBe(200);
+    const unpaidOrderId = unpaidOrderRes.body.order.id;
+
+    // Cashier blocked if trying to attach a proof key while revoked
+    const proofKey = `shops/${shopId}/payments/momo-${Date.now()}.webp`;
+    const blockedPayProof = await cashAgent.post(`/api/orders/${unpaidOrderId}/payments`).send({
+      amount: 3000,
+      payment_method: 'momo',
+      reference_no: 'TXN-BLOCKED',
+      proof_photo_key: proofKey,
+    });
+    expect(blockedPayProof.status).toBe(403);
+
+    // Cashier recording payment WITHOUT photo still works seamlessly
+    const plainPay = await cashAgent.post(`/api/orders/${unpaidOrderId}/payments`).send({
+      amount: 3000,
+      payment_method: 'momo',
+      reference_no: 'TXN-NO-PHOTO',
+    });
+    expect(plainPay.status).toBe(200);
+
+    // Manager grants can_upload_photos back to cashier -> attaching proof photo now works immediately
+    const grantRes = await managerAgent.put(`/api/users/${cashierId}`).send({
+      can_upload_photos: true,
+    });
+    expect(grantRes.status).toBe(200);
+
+    const allowedPayProof = await cashAgent.post(`/api/orders/${unpaidOrderId}/payments`).send({
+      amount: 4000,
+      payment_method: 'momo',
+      reference_no: 'TXN-WITH-PROOF',
+      proof_photo_key: proofKey,
+    });
+    expect(allowedPayProof.status).toBe(200);
+
+    // Order detail returns the stored proof_photo_key on the payment row
+    const detailRes = await cashAgent.get(`/api/orders/${unpaidOrderId}`);
+    expect(detailRes.status).toBe(200);
+    const proofPayment = (detailRes.body.payments || []).find((p: any) => p.reference_no === 'TXN-WITH-PROOF');
+    expect(proofPayment).toBeTruthy();
+    expect(proofPayment.proof_photo_key).toBe(proofKey);
+
+    // Cross-tenant payment proof key rejected (400)
+    const foreignProofKey = `shops/${otherShopId}/payments/stolen.webp`;
+    const crossKeyPay = await cashAgent.post(`/api/orders/${unpaidOrderId}/payments`).send({
+      amount: 1000,
+      payment_method: 'cash',
+      proof_photo_key: foreignProofKey,
+    });
+    expect(crossKeyPay.status).toBe(400);
+
+    // POS checkout order with optional payment_proof_photo_key saves it onto initial payment row
+    const checkoutProofKey = `shops/${shopId}/payments/pos-${Date.now()}.webp`;
+    const posOrderWithProof = await managerAgent.post('/api/orders').send({
+      customer_name: 'Proof Test Client',
+      items: [{ product_id: productId, quantity: 1 }],
+      payment_method: 'momo',
+      paid_amount: 7000,
+      payment_reference: 'MOMO-POS-1',
+      payment_proof_photo_key: checkoutProofKey,
+    });
+    expect(posOrderWithProof.status).toBe(200);
+    const posDetail = await managerAgent.get(`/api/orders/${posOrderWithProof.body.order.id}`);
+    expect(posDetail.status).toBe(200);
+    expect(posDetail.body.payments[0].proof_photo_key).toBe(checkoutProofKey);
+
+    // Bulk debt settlement accepts optional proof_photo_key and stores it cleanly
+    const custRes = await managerAgent.get('/api/customers?q=Proof+Test+Client');
+    const customerId = custRes.body.customers[0].id;
+    const bulkProofKey = `shops/${shopId}/payments/bulk-${Date.now()}.webp`;
+    const settleRes = await cashAgent.post(`/api/customers/${customerId}/settle-debt`).send({
+      amount: 2000,
+      payment_method: 'bank_transfer',
+      reference_no: 'BK-992',
+      proof_photo_key: bulkProofKey,
+    });
+    expect(settleRes.status).toBe(200);
+
+    const stmtRes = await cashAgent.get(`/api/customers/${customerId}/statement?period=all`);
+    expect(stmtRes.status).toBe(200);
+    const ledgerEntry = (stmtRes.body.creditLedger || []).find((l: any) => l.reference_no === 'BK-992');
+    expect(ledgerEntry).toBeTruthy();
+    expect(ledgerEntry.proof_photo_key).toBe(bulkProofKey);
+
+    // Tenant isolation on GET /api/payments/:id/photo-url
+    const otherSess = await createTestShop('UnauthorizedProofTenant');
+    const otherLogin = await login(otherSess.managerEmail, otherSess.managerPassword);
+    const foreignPhotoReq = await otherLogin.agent.get(`/api/payments/${proofPayment.id}/photo-url`);
+    expect(foreignPhotoReq.status).toBe(404);
+  });
 });
