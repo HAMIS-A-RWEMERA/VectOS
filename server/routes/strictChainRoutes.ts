@@ -430,6 +430,10 @@ router.post('/orders', requireAuth, requirePermission('can_create_orders'), requ
     return res.status(400).json({ error: 'At least one product item is required.' });
   }
 
+  if (Number(shop.require_order_photo || 0) === 1 && !handwritten_photo_key) {
+    return res.status(400).json({ error: 'Order photo is required by store settings before creating an order.' });
+  }
+
   if (handwritten_photo_key && !isValidTenantPhotoKey(shopId, handwritten_photo_key)) {
     return res.status(400).json({ error: 'Invalid handwritten order photo key for this store.' });
   }

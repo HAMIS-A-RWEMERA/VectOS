@@ -61,6 +61,7 @@ export interface Shop {
   total_revenue?: number;
   workflow_mode?: 'standard' | 'strict_chain';
   pricing_mode?: 'standard' | 'stock_only';
+  require_order_photo?: boolean | number;
   created_at?: string;
 }
 

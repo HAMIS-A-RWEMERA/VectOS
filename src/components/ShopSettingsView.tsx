@@ -15,7 +15,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Receipt,
-  Eraser
+  Eraser,
+  Camera
 } from 'lucide-react';
 
 interface ShopSettingsViewProps {
@@ -39,6 +40,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
   const [location, setLocation] = useState(shop?.location || '');
   const [tinNumber, setTinNumber] = useState(shop?.tin_number || '');
   const [receiptFooterText, setReceiptFooterText] = useState(shop?.receipt_footer_text || '');
+  const [requireOrderPhoto, setRequireOrderPhoto] = useState(Boolean(Number(shop?.require_order_photo)));
 
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -52,6 +54,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
       setLocation(shop.location || '');
       setTinNumber(shop.tin_number || '');
       setReceiptFooterText(shop.receipt_footer_text || '');
+      setRequireOrderPhoto(Boolean(Number(shop.require_order_photo)));
       setFeedback(null);
     }
   }, [shop]);
@@ -100,7 +103,8 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
         email: email.trim().toLowerCase(),
         location: location.trim(),
         tin_number: tinNumber.trim(),
-        receipt_footer_text: receiptFooterText.trim()
+        receipt_footer_text: receiptFooterText.trim(),
+        require_order_photo: requireOrderPhoto ? 1 : 0
       });
 
       if (res?.shop) {
@@ -297,6 +301,40 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
           </div>
+
+          <label className="flex items-start gap-3 p-4 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-amber-500/40 cursor-pointer transition">
+            <input
+              type="checkbox"
+              checked={requireOrderPhoto}
+              onChange={(e) => setRequireOrderPhoto(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded accent-amber-500 cursor-pointer shrink-0"
+            />
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{tf('Make Order Photo Upload Mandatory', 'Gufotora Komande bibe Itegeko')}</span>
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                    requireOrderPhoto
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}
+                >
+                  {requireOrderPhoto
+                    ? tf('Mandatory on New Orders', 'Ni Itegeko kuri Buri Komande')
+                    : tf('Optional (Recommended)', 'Si Itegeko (Ku Bushake)')}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                {tf(
+                  'When OFF (default), workers can optionally attach a compressed photo of a handwritten or client order. Turn this ON if every new order in this shop must have a photo attached before submission.',
+                  'Iyo ifunze (bisanzwe), abakozi bashobora kongeraho ifoto ya komande ku bushake. Yifungure niba buri komande nshya muri iri duka igomba kubanza gufotorwa mbere yo kwemezwa.'
+                )}
+              </p>
+            </div>
+          </label>
 
           <div className="pt-3 border-t border-slate-800 flex items-center justify-end">
             <button

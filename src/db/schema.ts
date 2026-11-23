@@ -21,6 +21,7 @@ export const shops = pgTable('shops', {
   billingNotes: text('billing_notes'),
   workflowMode: text('workflow_mode').default('standard'),
   pricingMode: text('pricing_mode').default('standard'),
+  requireOrderPhoto: integer('require_order_photo').default(0),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

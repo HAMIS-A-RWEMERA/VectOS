@@ -206,6 +206,7 @@ async function initSqlJsSchema(): Promise<void> {
       billing_notes TEXT,
       workflow_mode TEXT DEFAULT 'standard',
       pricing_mode TEXT DEFAULT 'standard',
+      require_order_photo INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -493,6 +494,18 @@ async function initSqlJsSchema(): Promise<void> {
     );
   `;
   sqlJsDbInstance.run(ddl);
+
+  try {
+    const shopColsStmt = sqlJsDbInstance.prepare(`PRAGMA table_info(shops)`);
+    const existingShopCols = new Set<string>();
+    while (shopColsStmt.step()) {
+      existingShopCols.add(String(shopColsStmt.getAsObject().name || '').toLowerCase());
+    }
+    shopColsStmt.free();
+    if (!existingShopCols.has('require_order_photo')) {
+      sqlJsDbInstance.run(`ALTER TABLE shops ADD COLUMN require_order_photo INTEGER DEFAULT 0`);
+    }
+  } catch {}
 
   // Seed default shop and warehouse
   const shopCountRes = sqlJsDbInstance.exec('SELECT COUNT(*) FROM shops');
@@ -802,6 +815,7 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
     );`,
     `ALTER TABLE shops ADD COLUMN IF NOT EXISTS workflow_mode TEXT DEFAULT 'standard';`,
     `ALTER TABLE shops ADD COLUMN IF NOT EXISTS pricing_mode TEXT DEFAULT 'standard';`,
+    `ALTER TABLE shops ADD COLUMN IF NOT EXISTS require_order_photo INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_verify_orders INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_resolve_flagged_orders INTEGER DEFAULT 0;`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS is_watched INTEGER DEFAULT 0;`,

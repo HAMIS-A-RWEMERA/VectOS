@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Product, Customer, User, Shop, StockLocation } from '../types';
 import { api } from '../services/api';
 import { 
@@ -19,12 +19,16 @@ import {
   Building,
   AlertCircle,
   Lock,
-  PackageCheck
+  PackageCheck,
+  Camera,
+  FileImage,
+  X
 } from 'lucide-react';
 import { hasPermission, isSoloAllInOneUser } from '../utils/permissions';
 import { SearchableSelect, SearchableSelectOption } from './SearchableSelect';
 import { matchesSearch } from '../utils/searchMatch';
 import { useLanguage } from '../i18n/LanguageContext';
+import { compressOrderPhoto } from '../utils/imageCompression';
 import {
   formatPackStock,
   getPackSize,
@@ -77,36 +81,95 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
   const [releaseImmediately, setReleaseImmediately] = useState(false);
   const [useStoreCredit, setUseStoreCredit] = useState(false);
 
+  // Order Photo Capture & R2 Storage State
+  const isPhotoMandatory = Boolean(Number(shop?.require_order_photo));
+  const [r2Configured, setR2Configured] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [photoMetrics, setPhotoMetrics] = useState<{
+    originalBytes: number;
+    compressedBytes: number;
+  } | null>(null);
+  const [compressingPhoto, setCompressingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+
   const canProcessPayments = hasPermission(user, 'can_process_payments');
   const canGiveDiscounts = hasPermission(user, 'can_give_discounts');
   const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices');
   const canPrintReceipt = hasPermission(user, 'can_print_full_receipt');
   const isSoloOperator = isSoloAllInOneUser(user);
 
-  // Load products, categories, customers, stocks
+  // Load products, categories, customers, stocks, and R2 status
   useEffect(() => {
     if (user) {
       loadData();
     }
   }, [user]);
 
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    };
+  }, [photoPreviewUrl]);
+
   const loadData = async () => {
     try {
-      const [prodRes, custRes, stockRes] = await Promise.all([
+      const [prodRes, custRes, stockRes, r2Res] = await Promise.all([
         api.getProducts(),
         api.getCustomers(),
-        api.getStocks()
+        api.getStocks(),
+        api.getOrderR2Status().catch(() => ({ configured: false }))
       ]);
       setProducts(prodRes.products || []);
       setCategories(['All', ...(prodRes.categories || [])]);
       setCustomers(custRes.customers || []);
       setStocks(stockRes.stocks || []);
+      setR2Configured(Boolean(r2Res?.configured));
     } catch (err: any) {
       if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
         return;
       }
       console.error('POS Load Error:', err);
     }
+  };
+
+  const formatKb = (bytes: number) =>
+    bytes >= 1024 * 1024
+      ? `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+      : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+  const handleSelectPhotoFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setCompressingPhoto(true);
+      setPhotoError('');
+      setErrorMsg('');
+      const result = await compressOrderPhoto(file);
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+      const url = URL.createObjectURL(result.blob);
+      setPhotoFile(file);
+      setPhotoPreviewUrl(url);
+      setPhotoMetrics({
+        originalBytes: result.originalBytes,
+        compressedBytes: result.compressedBytes
+      });
+    } catch (err: any) {
+      setPhotoError(
+        err?.message || tf('Could not read or compress selected photo.', 'Ntibyakunze gufata iyi foto.')
+      );
+    } finally {
+      setCompressingPhoto(false);
+    }
+  };
+
+  const clearDraftPhoto = () => {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    setPhotoFile(null);
+    setPhotoPreviewUrl(null);
+    setPhotoMetrics(null);
+    setPhotoError('');
   };
 
   // Filter products by search and category
@@ -302,6 +365,7 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
     setOrderNotes('');
     setUseStoreCredit(false);
     setErrorMsg('');
+    clearDraftPhoto();
   };
 
   // Totals calculations
@@ -355,6 +419,37 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         return;
       }
 
+      if (isPhotoMandatory && !photoFile) {
+        setErrorMsg(
+          tf(
+            'This store requires attaching an order photo before completing an order. Please take or upload a photo first.',
+            'Iri duka ritegeka gufata ifoto ya komande mbere yo kwemeza igurisha. Banza ufate cyangwa uhitemo ifoto.'
+          )
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      let uploadedPhotoKey: string | null = null;
+      if (photoFile) {
+        if (r2Configured) {
+          const uploaded = await api.uploadCompressedOrderPhoto(
+            photoFile,
+            selectedCustomer?.name || customCustomerName || 'order'
+          );
+          uploadedPhotoKey = uploaded.photoKey;
+        } else if (isPhotoMandatory) {
+          setErrorMsg(
+            tf(
+              'Order photo upload is required by store settings, but R2 cloud storage is not configured on the server.',
+              'Ifoto ya komande ni itegeko muri iri duka, ariko ububiko bw’amafoto (R2) ntiburashyirwaho kuri seriveri.'
+            )
+          );
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const payload = {
         customer_id: selectedCustomerId,
         customer_name: selectedCustomer?.name || customCustomerName || 'Walk-in Cash Client',
@@ -378,7 +473,8 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
         store_credit_amount: appliedStoreCredit > 0 ? appliedStoreCredit : undefined,
         payment_reference: canProcessPayments ? paymentRef : '',
         notes: orderNotes,
-        release_immediately: isSoloOperator && releaseImmediately
+        release_immediately: isSoloOperator && releaseImmediately,
+        handwritten_photo_key: uploadedPhotoKey
       };
 
       const res = await api.createOrder(payload);
@@ -980,6 +1076,114 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
 
         {/* Cart Checkout Footer */}
         <div className="p-3 sm:p-4 bg-[#111622] border-t border-slate-800/90 space-y-3 shrink-0">
+          {/* Hidden camera/gallery file inputs */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              handleSelectPhotoFile(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              handleSelectPhotoFile(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+
+          {/* Compact Order Photo Attachment Strip */}
+          <div className={`p-2.5 rounded-xl border space-y-2 ${
+            isPhotoMandatory && !photoPreviewUrl
+              ? 'bg-amber-500/10 border-amber-500/40'
+              : 'bg-slate-900/80 border-slate-800'
+          }`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Camera className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-[11px] font-bold text-slate-200 truncate">
+                  {tf('Order Photo', 'Ifoto ya Komande')}
+                </span>
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border shrink-0 ${
+                  isPhotoMandatory
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {isPhotoMandatory ? tf('Required', 'Itegeko') : tf('Optional', 'Si Itegeko')}
+                </span>
+              </div>
+
+              {!photoPreviewUrl ? (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={compressingPhoto}
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] transition"
+                  >
+                    <Camera className="w-3 h-3" />
+                    <span>{compressingPhoto ? '...' : tf('Take Photo', 'Fata Ifoto')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={compressingPhoto}
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-[10px] transition"
+                    title={tf('Upload image from device', 'Hitamo ifoto kuri telefoni')}
+                  >
+                    <FileImage className="w-3 h-3 text-sky-400" />
+                    <span>{tf('Upload', 'Hitamo')}</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={clearDraftPhoto}
+                  className="text-[10px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-0.5"
+                >
+                  <X className="w-3 h-3" />
+                  <span>{tf('Remove', 'Kuraho')}</span>
+                </button>
+              )}
+            </div>
+
+            {photoPreviewUrl && (
+              <div className="flex items-center gap-2.5 bg-slate-950/70 p-1.5 rounded-lg border border-slate-800">
+                <img
+                  src={photoPreviewUrl}
+                  alt={tf('Order photo preview', 'Ifoto ya komande')}
+                  className="w-10 h-10 rounded object-cover border border-slate-700 shrink-0"
+                />
+                <div className="min-w-0 flex-1 text-[10px]">
+                  <p className="font-bold text-emerald-300 truncate">
+                    {tf('Photo ready for upload', 'Ifoto iriteguye')}
+                  </p>
+                  {photoMetrics && (
+                    <p className="text-slate-400 font-mono">
+                      {formatKb(photoMetrics.originalBytes)} → <strong className="text-emerald-400">{formatKb(photoMetrics.compressedBytes)}</strong>
+                    </p>
+                  )}
+                  {!r2Configured && (
+                    <p className="text-amber-300">
+                      {tf('Cloud storage (R2) not configured yet.', 'Ububiko bwa R2 ntiburashyirwaho.')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {photoError && (
+              <p className="text-[10px] text-rose-300">{photoError}</p>
+            )}
+          </div>
+
           <div className="space-y-1 text-xs">
             <div className="flex justify-between text-slate-400">
               <span>{tf('Items Count', 'Umubare w’ibicuruzwa')}</span>
@@ -1287,6 +1491,96 @@ export const PosView: React.FC<PosViewProps> = ({ user, shop, onOrderCompleted }
                 </div>
               </div>
             )}
+
+            {/* Order Photo Confirmation / Capture inside Checkout Modal */}
+            <div className={`p-3 rounded-xl border space-y-2 ${
+              isPhotoMandatory && !photoPreviewUrl
+                ? 'bg-rose-500/10 border-rose-500/40'
+                : 'bg-slate-900 border-slate-800'
+            }`}>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <Camera className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="text-xs font-bold text-white">
+                    {tf('Order Photo Attachment', 'Ifoto ya Komande')}
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                    isPhotoMandatory
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}>
+                    {isPhotoMandatory ? tf('Required', 'Ni Itegeko') : tf('Optional', 'Ku Bushake')}
+                  </span>
+                </div>
+
+                {!photoPreviewUrl ? (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={compressingPhoto}
+                      onClick={() => cameraInputRef.current?.click()}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] transition"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{compressingPhoto ? tf('Shrinking...', 'Biragabanywa...') : tf('Take Photo', 'Fata Ifoto')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={compressingPhoto}
+                      onClick={() => galleryInputRef.current?.click()}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-[11px] transition"
+                    >
+                      <FileImage className="w-3.5 h-3.5 text-sky-400" />
+                      <span>{tf('Upload', 'Hitamo')}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={clearDraftPhoto}
+                    className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>{tf('Remove', 'Kuraho')}</span>
+                  </button>
+                )}
+              </div>
+
+              {photoPreviewUrl ? (
+                <div className="flex items-center gap-2.5 p-2 rounded-lg bg-slate-950 border border-slate-800">
+                  <img
+                    src={photoPreviewUrl}
+                    alt={tf('Order photo preview', 'Ifoto ya komande')}
+                    className="w-11 h-11 rounded object-cover border border-slate-700 shrink-0"
+                  />
+                  <div className="text-[11px] min-w-0">
+                    <p className="font-bold text-emerald-300 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{tf('Compressed photo ready to upload', 'Ifoto iriteguye koherezwa')}</span>
+                    </p>
+                    {photoMetrics && (
+                      <p className="text-slate-400 font-mono text-[10px]">
+                        {formatKb(photoMetrics.originalBytes)} &rarr; <strong className="text-emerald-400">{formatKb(photoMetrics.compressedBytes)}</strong>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : isPhotoMandatory ? (
+                <p className="text-[11px] text-rose-200">
+                  {tf(
+                    'Your manager requires an order photo on all new orders. Take or upload a photo before completing this order.',
+                    'Umuyobozi yashyizeho itegeko ryo gufotora komande zose nshya. Fata cyangwa uhitemo ifoto mbere yo kurangiza.'
+                  )}
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-400">
+                  {tf(
+                    'Optional: attach a compressed photo of the client/handwritten order.',
+                    'Ku bushake: ushobora kongeraho ifoto y’urupapuro rwa komande.'
+                  )}
+                </p>
+              )}
+            </div>
 
             {errorMsg && (
               <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-xs text-rose-300 flex items-center gap-2">

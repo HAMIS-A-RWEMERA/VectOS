@@ -21,7 +21,11 @@ import {
   Download,
   Edit3,
   Ban,
-  X
+  X,
+  Camera,
+  ZoomIn,
+  ZoomOut,
+  RotateCw
 } from 'lucide-react';
 import { EditOrderModal } from './EditOrderModal';
 import { hasPermission } from '../utils/permissions';
@@ -81,6 +85,41 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [actionFeedback, setActionFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const handledInitialOrderRef = useRef<number | null>(null);
   const handledInitialEditRef = useRef<number | null>(null);
+
+  // Order Photo Viewer Modal State
+  const [photoModalOrder, setPhotoModalOrder] = useState<Order | null>(null);
+  const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
+  const [photoModalLoading, setPhotoModalLoading] = useState(false);
+  const [photoModalError, setPhotoModalError] = useState('');
+  const [photoZoom, setPhotoZoom] = useState(1);
+  const [photoRotate, setPhotoRotate] = useState(0);
+
+  const openPhotoViewer = async (order: Order) => {
+    setPhotoModalOrder(order);
+    setPhotoModalUrl(null);
+    setPhotoModalError('');
+    setPhotoZoom(1);
+    setPhotoRotate(0);
+
+    if (!order.handwritten_photo_key) {
+      setPhotoModalError(
+        tf('No photo is attached to this order.', 'Nta foto yometse kuri iyi komande.')
+      );
+      return;
+    }
+
+    try {
+      setPhotoModalLoading(true);
+      const res = await api.getOrderPhotoViewUrl(order.id);
+      setPhotoModalUrl(res.viewUrl);
+    } catch (err: any) {
+      setPhotoModalError(
+        err?.message || tf('Unable to load order photo.', 'Ntibyakunze gufungura ifoto ya komande.')
+      );
+    } finally {
+      setPhotoModalLoading(false);
+    }
+  };
 
   const handleOrderUpdated = (updated: Order) => {
     setOrders(prev => prev.map(o => o.id === updated.id ? { ...o, ...updated } : o));
@@ -530,7 +569,19 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                 return (
                   <tr key={ord.id} className={isCancelled ? 'bg-rose-950/15 hover:bg-rose-950/25 transition' : 'hover:bg-slate-800/40 transition'}>
                     <td className={`py-3 px-4 font-mono font-bold ${isCancelled ? 'text-rose-400 line-through' : 'text-amber-400'}`}>
-                      {ord.order_number}
+                      <div className="flex items-center gap-1.5">
+                        <span>{ord.order_number}</span>
+                        {ord.handwritten_photo_key && (
+                          <button
+                            type="button"
+                            onClick={() => openPhotoViewer(ord)}
+                            title={tf('View attached order photo', 'Reba ifoto yometse kuri komande')}
+                            className="p-1 rounded bg-sky-500/15 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 transition"
+                          >
+                            <Camera className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-slate-400 font-mono">
                       {new Date(ord.created_at).toLocaleString()}
@@ -684,6 +735,17 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                   <FileText className="w-3.5 h-3.5 text-rose-400" />
                   <span>{tf('Invoice PDF', 'Fagitire PDF')}</span>
                 </button>
+                {selectedOrder.handwritten_photo_key && (
+                  <button
+                    type="button"
+                    onClick={() => openPhotoViewer(selectedOrder)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 font-bold text-xs transition"
+                    title={tf('View attached order photo', 'Reba ifoto yometse kuri komande')}
+                  >
+                    <Camera className="w-3.5 h-3.5 text-sky-400" />
+                    <span>{tf('View Photo', 'Reba Ifoto')}</span>
+                  </button>
+                )}
                 {(canPrintReceipt || canPrintDeliveryNote) && (
                   <button
                     onClick={() => onPrintReceipt(selectedOrder)}
@@ -1444,6 +1506,77 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           onClose={() => setEditingOrder(null)}
           onOrderUpdated={handleOrderUpdated}
         />
+      )}
+
+      {/* Inline Order Photo Viewer Modal */}
+      {photoModalOrder && (
+        <div className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6">
+          <div className="w-full max-w-4xl rounded-2xl bg-[#131722] border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-sky-400" />
+                  <span>{tf('Order Photo Attachment', 'Ifoto Yometse kuri Komande')} &mdash; {photoModalOrder.order_number}</span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {photoModalOrder.customer_name || tf('Walk-in Cash Client', 'Umukiriya usanzwe')}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPhotoZoom((z) => Math.max(0.75, Number((z - 0.25).toFixed(2))))}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title={tf('Zoom Out', 'Gabanya')}
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhotoZoom((z) => Math.min(2.5, Number((z + 0.25).toFixed(2))))}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title={tf('Zoom In', 'Zamura')}
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhotoRotate((r) => (r + 90) % 360)}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200"
+                  title={tf('Rotate 90°', 'Zengurutsa 90°')}
+                >
+                  <RotateCw className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhotoModalOrder(null)}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white"
+                  title={tf('Close', 'Funga')}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 flex-1 flex items-center justify-center overflow-auto p-4 min-h-[300px]">
+              {photoModalLoading ? (
+                <p className="text-xs text-slate-400">{tf('Loading order photo...', 'Ifoto irimo gufungurwa...')}</p>
+              ) : photoModalError ? (
+                <p className="text-xs text-rose-300 text-center max-w-sm">{photoModalError}</p>
+              ) : photoModalUrl ? (
+                <img
+                  src={photoModalUrl}
+                  alt={`Order slip ${photoModalOrder.order_number}`}
+                  style={{
+                    transform: `scale(${photoZoom}) rotate(${photoRotate}deg)`,
+                    transformOrigin: 'center center'
+                  }}
+                  className="max-h-[74vh] object-contain transition-transform duration-150"
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

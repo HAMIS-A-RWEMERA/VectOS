@@ -16,6 +16,12 @@ import { throttleCheck, throttleFail, throttleClear } from '../security';
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 import { upload } from '../upload';
 import { VECTOS_SYSTEM_INSTRUCTION, buildUserContextNote, getVectOSKnowledgeResponse } from '../aiHelpKnowledge';
+import {
+  isR2Configured,
+  isValidTenantPhotoKey,
+  createOrderPhotoUploadUrl,
+  createOrderPhotoViewUrl
+} from '../r2';
 
 const router = Router();
 
@@ -132,7 +138,7 @@ router.get('/auth/me', async (req: Request, res: Response) => {
   // SuperAdmin gets list of all registered store tenants
   let availableShops: any[] = [];
   if (user.role === 'superadmin') {
-    availableShops = await queryAll('SELECT id, name, code, location, status, subscription_plan, workflow_mode, pricing_mode FROM shops ORDER BY name ASC');
+    availableShops = await queryAll('SELECT id, name, code, location, status, subscription_plan, workflow_mode, pricing_mode, require_order_photo FROM shops ORDER BY name ASC');
   }
 
   const token = req.session?.user ? createAuthToken(req.session.user) : undefined;
@@ -1599,6 +1605,98 @@ router.post('/stocks/transfer', requireAuth, requireTenant, requirePermission('c
 // 5. ORDERS & POS CHECKOUT (CONCURRENCY-SAFE ATOMIC INVENTORY)
 // ============================================================================
 
+// ============================================================================
+// ORDER PHOTO STORAGE (R2) - AVAILABLE TO ALL AUTHENTICATED STORES
+// ============================================================================
+
+router.get('/storage/r2-status', requireAuth, (req: Request, res: Response) => {
+  res.json({ configured: isR2Configured() });
+});
+
+router.post('/orders/upload-photo-url', requireAuth, requireTenant, async (req: Request, res: Response) => {
+  const user = req.session?.user;
+  if (
+    !hasUserPermission(user, 'can_create_orders') &&
+    !hasUserPermission(user, 'can_edit_company_settings') &&
+    !hasUserPermission(user, 'can_resolve_flagged_orders')
+  ) {
+    return res.status(403).json({ error: 'Permission required to upload order photos.' });
+  }
+
+  if (!isR2Configured()) {
+    return res.status(503).json({
+      error: 'Cloudflare R2 storage is not configured yet.',
+      code: 'R2_NOT_CONFIGURED',
+    });
+  }
+
+  try {
+    const { contentType, orderHint } = req.body || {};
+    const result = await createOrderPhotoUploadUrl({
+      shopId: res.locals.shopId,
+      contentType: String(contentType || 'image/webp'),
+      orderHint: orderHint ? String(orderHint) : 'slip',
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error('Order R2 Presigned PUT error:', err);
+    res.status(400).json({ error: err.message || 'Failed to generate upload URL.' });
+  }
+});
+
+router.get('/orders/:id/photo-url', requireAuth, requireTenant, async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const user = req.session?.user;
+
+  const canViewOrderPhoto =
+    user?.role === 'superadmin' ||
+    user?.role === 'manager' ||
+    hasUserPermission(user, 'can_create_orders') ||
+    hasUserPermission(user, 'can_process_payments') ||
+    hasUserPermission(user, 'can_release_stock') ||
+    hasUserPermission(user, 'can_view_reports') ||
+    hasUserPermission(user, 'can_void_orders') ||
+    hasUserPermission(user, 'can_verify_orders') ||
+    hasUserPermission(user, 'can_resolve_flagged_orders') ||
+    hasUserPermission(user, 'can_view_audit_trail');
+
+  if (!canViewOrderPhoto) {
+    return res.status(403).json({ error: 'Permission required to view order photos.' });
+  }
+
+  try {
+    const order = await queryOne<any>(
+      'SELECT id, handwritten_photo_key FROM orders WHERE id = ? AND shop_id = ?',
+      [orderId, shopId]
+    );
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found in this store.' });
+    }
+    if (!order.handwritten_photo_key) {
+      return res.status(404).json({ error: 'No order photo attached to this order.' });
+    }
+    if (!isValidTenantPhotoKey(shopId, order.handwritten_photo_key)) {
+      return res.status(403).json({ error: 'Invalid photo key for this store.' });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        error: 'Cloudflare R2 storage is not configured on the server.',
+        code: 'R2_NOT_CONFIGURED',
+      });
+    }
+
+    const signed = await createOrderPhotoViewUrl({
+      shopId,
+      photoKey: order.handwritten_photo_key,
+    });
+    res.json({ success: true, photoKey: order.handwritten_photo_key, ...signed });
+  } catch (err: any) {
+    console.error('Order R2 Presigned GET error:', err);
+    res.status(400).json({ error: err.message || 'Failed to sign photo URL.' });
+  }
+});
+
 router.get('/orders', requireAuth, requireTenant, async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const status = (req.query.status as string || '').trim();
@@ -2035,11 +2133,22 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
     store_credit_amount,
     notes,
     payment_reference,
-    release_immediately
+    release_immediately,
+    handwritten_photo_key
   } = req.body;
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'At least one product item is required to place an order.' });
+  }
+
+  const cleanPhotoKey = handwritten_photo_key ? String(handwritten_photo_key).trim() : null;
+  if (cleanPhotoKey && !isValidTenantPhotoKey(shopId, cleanPhotoKey)) {
+    return res.status(400).json({ error: 'Invalid order photo key for this store.' });
+  }
+
+  const shopSetting = await queryOne<any>('SELECT require_order_photo FROM shops WHERE id = ?', [shopId]);
+  if (Number(shopSetting?.require_order_photo || 0) === 1 && !cleanPhotoKey) {
+    return res.status(400).json({ error: 'Order photo is required by store settings before creating an order.' });
   }
 
   try {
@@ -2213,8 +2322,8 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
         `INSERT INTO orders (
           shop_id, stock_id, order_number, customer_id, salesperson_id,
           total_amount, paid_amount, debt_amount, payment_status, fulfillment_status,
-          notes, payment_approved_by, payment_approved_at, stock_released_by, stock_released_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          notes, handwritten_photo_key, payment_approved_by, payment_approved_at, stock_released_by, stock_released_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           shopId,
           1,
@@ -2227,6 +2336,7 @@ router.post('/orders', requireAuth, requireTenant, requirePermission('can_create
           paymentStatus,
           fulfillmentStatus,
           notes || null,
+          cleanPhotoKey,
           paid > 0 ? currentUserId : null,
           paid > 0 ? nowIso : null,
           releaseNow ? currentUserId : null,
@@ -3818,10 +3928,20 @@ router.put('/shops/:id', requireAuth, requirePermission('can_edit_company_settin
     const newPricingMode = user.role === 'superadmin' && req.body.pricing_mode
       ? (req.body.pricing_mode === 'stock_only' ? 'stock_only' : 'standard')
       : (existing.pricing_mode || 'standard');
+    const newRequireOrderPhoto = req.body.require_order_photo !== undefined
+      ? (
+          req.body.require_order_photo === true ||
+          req.body.require_order_photo === 1 ||
+          req.body.require_order_photo === '1' ||
+          req.body.require_order_photo === 'true'
+            ? 1
+            : 0
+        )
+      : Number(existing.require_order_photo || 0);
 
     await execute(
       `UPDATE shops 
-       SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?, workflow_mode = ?, pricing_mode = ?
+       SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?, workflow_mode = ?, pricing_mode = ?, require_order_photo = ?
        WHERE id = ?`,
       [
         cleanName,
@@ -3835,6 +3955,7 @@ router.put('/shops/:id', requireAuth, requirePermission('can_edit_company_settin
         newPlan,
         newWorkflowMode,
         newPricingMode,
+        newRequireOrderPhoto,
         shopId
       ]
     );

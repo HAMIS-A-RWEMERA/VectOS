@@ -118,6 +118,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const [orderNotes, setOrderNotes] = useState('');
   const [cart, setCart] = useState<DraftCartItem[]>([]);
   const [submittingOrder, setSubmittingOrder] = useState(false);
+  const isPhotoMandatory = Boolean(Number(shop?.require_order_photo));
 
   // Photo capture & compression state
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -395,6 +396,17 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       setSubmittingOrder(true);
       setErrorBanner('');
 
+      if (isPhotoMandatory && !photoFile) {
+        setErrorBanner(
+          tf(
+            'Store settings require attaching a handwritten order photo before submitting.',
+            'Amategeko y’iduka asaba kubanza gufotora urupapuro rwa komande mbere yo kohereza.'
+          )
+        );
+        setSubmittingOrder(false);
+        return;
+      }
+
       let uploadedKey: string | null = null;
       if (photoFile) {
         if (r2Configured) {
@@ -403,6 +415,15 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
             customerName.trim() || 'order'
           );
           uploadedKey = uploaded.photoKey;
+        } else if (isPhotoMandatory) {
+          setErrorBanner(
+            tf(
+              'Order photo upload is required by store settings, but R2 cloud storage is not configured yet.',
+              'Ifoto ya komande ni itegeko mu iduka, ariko ububiko bw’amafoto (R2) ntiburashyirwaho.'
+            )
+          );
+          setSubmittingOrder(false);
+          return;
         } else {
           notify(
             tf(
@@ -1114,9 +1135,18 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
             <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
                     <Camera className="w-4 h-4 text-amber-400" />
                     <span>{tf('Handwritten Order Photo', 'Ifoto y’Urupapuro Rwanditseho')}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                        isPhotoMandatory
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : 'bg-slate-800 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      {isPhotoMandatory ? tf('Required', 'Ni Itegeko') : tf('Optional', 'Si Itegeko')}
+                    </span>
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     {tf(

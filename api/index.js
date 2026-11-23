@@ -182,6 +182,9 @@ async function initSqlJsSchema() {
       billed_stocks INTEGER DEFAULT 1,
       monthly_fee REAL DEFAULT 20000.0,
       billing_notes TEXT,
+      workflow_mode TEXT DEFAULT 'standard',
+      pricing_mode TEXT DEFAULT 'standard',
+      require_order_photo INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -231,6 +234,8 @@ async function initSqlJsSchema() {
       can_reset_passwords INTEGER DEFAULT 0,
       can_view_all_tenants INTEGER DEFAULT 0,
       can_manage_subscriptions INTEGER DEFAULT 0,
+      can_verify_orders INTEGER DEFAULT 0,
+      can_resolve_flagged_orders INTEGER DEFAULT 0,
       force_password_change INTEGER DEFAULT 0,
       twofa_secret TEXT,
       twofa_enabled INTEGER DEFAULT 0,
@@ -246,10 +251,15 @@ async function initSqlJsSchema() {
       barcode TEXT,
       category TEXT NOT NULL,
       unit TEXT DEFAULT 'pcs',
+      units_per_pack INTEGER DEFAULT 1,
+      pack_unit TEXT,
       buying_price REAL NOT NULL,
       selling_price REAL DEFAULT 0.0,
+      pack_buying_price REAL DEFAULT 0.0,
+      pack_selling_price REAL DEFAULT 0.0,
       quantity INTEGER NOT NULL DEFAULT 0,
       low_stock_threshold INTEGER DEFAULT 10,
+      is_watched INTEGER DEFAULT 0,
       description TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -297,6 +307,18 @@ async function initSqlJsSchema() {
       payment_approved_at DATETIME,
       stock_released_by INTEGER REFERENCES users(id),
       stock_released_at DATETIME,
+      handwritten_photo_key TEXT,
+      chain_status TEXT DEFAULT 'completed',
+      first_verified_by INTEGER REFERENCES users(id),
+      first_verified_at DATETIME,
+      final_verified_by INTEGER REFERENCES users(id),
+      final_verified_at DATETIME,
+      flagged_by INTEGER REFERENCES users(id),
+      flagged_at DATETIME,
+      flag_reason TEXT,
+      resolved_by INTEGER REFERENCES users(id),
+      resolved_at DATETIME,
+      resolution_note TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -304,13 +326,23 @@ async function initSqlJsSchema() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       product_id INTEGER NOT NULL REFERENCES products(id),
+      source_stock_id INTEGER REFERENCES stocks(id) ON DELETE SET NULL,
       quantity INTEGER NOT NULL,
+      sale_mode TEXT DEFAULT 'retail',
+      sold_unit TEXT,
+      pack_size INTEGER DEFAULT 1,
       buying_price REAL NOT NULL,
       selling_price REAL NOT NULL,
       subtotal REAL NOT NULL,
       profit REAL NOT NULL,
       fulfillment_source TEXT DEFAULT 'Store',
       item_status TEXT DEFAULT 'pending_store',
+      leg_type TEXT DEFAULT 'shop',
+      leg_status TEXT DEFAULT 'pending',
+      leg_released_by INTEGER REFERENCES users(id),
+      leg_released_at DATETIME,
+      leg_verified_by INTEGER REFERENCES users(id),
+      leg_verified_at DATETIME,
       rejection_reason TEXT,
       partner_shop_id INTEGER REFERENCES partner_shops(id)
     );
@@ -415,8 +447,43 @@ async function initSqlJsSchema() {
       recorded_by INTEGER REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS product_watch_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      order_number TEXT NOT NULL,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      product_name TEXT NOT NULL,
+      stock_id INTEGER REFERENCES stocks(id) ON DELETE SET NULL,
+      stock_name TEXT,
+      quantity_sold INTEGER NOT NULL,
+      sold_unit TEXT,
+      stock_remaining_after INTEGER NOT NULL,
+      customer_name TEXT,
+      seller_name TEXT,
+      first_verifier_name TEXT,
+      final_verifier_name TEXT,
+      is_audited INTEGER DEFAULT 0,
+      audited_by INTEGER REFERENCES users(id),
+      audited_at DATETIME,
+      audit_note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `;
   sqlJsDbInstance.run(ddl);
+  try {
+    const shopColsStmt = sqlJsDbInstance.prepare(`PRAGMA table_info(shops)`);
+    const existingShopCols = /* @__PURE__ */ new Set();
+    while (shopColsStmt.step()) {
+      existingShopCols.add(String(shopColsStmt.getAsObject().name || "").toLowerCase());
+    }
+    shopColsStmt.free();
+    if (!existingShopCols.has("require_order_photo")) {
+      sqlJsDbInstance.run(`ALTER TABLE shops ADD COLUMN require_order_photo INTEGER DEFAULT 0`);
+    }
+  } catch {
+  }
   const shopCountRes = sqlJsDbInstance.exec("SELECT COUNT(*) FROM shops");
   const shopCount = shopCountRes[0]?.values[0]?.[0] || 0;
   if (shopCount === 0) {
@@ -674,6 +741,13 @@ async function initPostgresSchemaIfNeeded() {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_manage_subscriptions INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS selling_price NUMERIC(15,2) DEFAULT 0.0;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS units_per_pack INTEGER DEFAULT 1;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_unit TEXT;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_buying_price NUMERIC(15,2) DEFAULT 0.0;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_selling_price NUMERIC(15,2) DEFAULT 0.0;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS sale_mode TEXT DEFAULT 'retail';`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS sold_unit TEXT;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS pack_size INTEGER DEFAULT 1;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_by INTEGER;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_approved_at TIMESTAMP WITH TIME ZONE;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_released_by INTEGER;`,
@@ -693,6 +767,53 @@ async function initPostgresSchemaIfNeeded() {
       recorded_by INTEGER REFERENCES users(id),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );`,
+    `ALTER TABLE shops ADD COLUMN IF NOT EXISTS workflow_mode TEXT DEFAULT 'standard';`,
+    `ALTER TABLE shops ADD COLUMN IF NOT EXISTS pricing_mode TEXT DEFAULT 'standard';`,
+    `ALTER TABLE shops ADD COLUMN IF NOT EXISTS require_order_photo INTEGER DEFAULT 0;`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_verify_orders INTEGER DEFAULT 0;`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_resolve_flagged_orders INTEGER DEFAULT 0;`,
+    `ALTER TABLE products ADD COLUMN IF NOT EXISTS is_watched INTEGER DEFAULT 0;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS handwritten_photo_key TEXT;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS chain_status TEXT DEFAULT 'completed';`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS first_verified_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS first_verified_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS final_verified_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS final_verified_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS flagged_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS flagged_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS flag_reason TEXT;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS resolved_by INTEGER;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS resolution_note TEXT;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS source_stock_id INTEGER;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_type TEXT DEFAULT 'shop';`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_status TEXT DEFAULT 'pending';`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_released_by INTEGER;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_released_at TIMESTAMP WITH TIME ZONE;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_verified_by INTEGER;`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS leg_verified_at TIMESTAMP WITH TIME ZONE;`,
+    `CREATE TABLE IF NOT EXISTS product_watch_alerts (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
+      order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      order_number TEXT NOT NULL,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      product_name TEXT NOT NULL,
+      stock_id INTEGER REFERENCES stocks(id) ON DELETE SET NULL,
+      stock_name TEXT,
+      quantity_sold INTEGER NOT NULL,
+      sold_unit TEXT,
+      stock_remaining_after INTEGER NOT NULL,
+      customer_name TEXT,
+      seller_name TEXT,
+      first_verifier_name TEXT,
+      final_verifier_name TEXT,
+      is_audited INTEGER DEFAULT 0,
+      audited_by INTEGER REFERENCES users(id),
+      audited_at TIMESTAMP WITH TIME ZONE,
+      audit_note TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_shop_client_ref ON orders(shop_id, client_ref) WHERE client_ref IS NOT NULL;`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_shop_phone ON customers(shop_id, phone);`
@@ -704,7 +825,7 @@ async function initPostgresSchemaIfNeeded() {
     }
   }
   try {
-    await pool.query("UPDATE products SET selling_price = buying_price WHERE buying_price IS NOT NULL AND buying_price > 0;");
+    await pool.query("UPDATE products SET selling_price = buying_price WHERE (selling_price IS NULL OR selling_price = 0) AND buying_price IS NOT NULL AND buying_price > 0;");
   } catch {
   }
   try {
@@ -777,7 +898,9 @@ async function ensureAdminAccounts(dbToUse) {
       "can_view_audit_trail",
       "can_reset_passwords",
       "can_view_all_tenants",
-      "can_manage_subscriptions"
+      "can_manage_subscriptions",
+      "can_verify_orders",
+      "can_resolve_flagged_orders"
     ];
     const activePerms = permKeys.filter((k) => cols.size === 0 || cols.has(k));
     const existingPrimary = await queryOne("SELECT id, password FROM users WHERE LOWER(TRIM(email)) = ?", [primaryEmail]);
@@ -942,7 +1065,7 @@ import dotenv2 from "dotenv";
 // server/routes/apiRoutes.ts
 init_db();
 import { Router } from "express";
-import crypto4 from "crypto";
+import crypto5 from "crypto";
 import bcrypt2 from "bcryptjs";
 
 // server/database/backup.ts
@@ -1133,7 +1256,9 @@ var ALL_USER_PERMISSION_KEYS = [
   "can_reset_passwords",
   "can_view_all_tenants",
   "can_manage_subscriptions",
-  "can_edit_company_settings"
+  "can_edit_company_settings",
+  "can_verify_orders",
+  "can_resolve_flagged_orders"
 ];
 function hasUserPermission(user, permission) {
   if (!user) return false;
@@ -1387,7 +1512,9 @@ function requirePermission(permission) {
       can_reset_passwords: "Reset Employee Passwords",
       can_view_all_tenants: "View All Store Branches",
       can_manage_subscriptions: "Manage Store Billing & Subscriptions",
-      can_edit_company_settings: "Edit Store Profile & Tax Info"
+      can_edit_company_settings: "Edit Store Profile & Tax Info",
+      can_verify_orders: "Verify & Authorize Orders (Supervisor Step 1 & 2)",
+      can_resolve_flagged_orders: "Resolve Flagged Orders & Override Verifier Lock"
     };
     return handleAuthFailure(
       req,
@@ -1969,6 +2096,93 @@ I couldn't connect to the live conversational engine just now or your question f
 What part of **VectOS** can I walk you through?`;
 }
 
+// server/r2.ts
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import crypto4 from "crypto";
+var ALLOWED_IMAGE_MIME_TYPES = /* @__PURE__ */ new Set([
+  "image/webp",
+  "image/jpeg",
+  "image/jpg",
+  "image/png"
+]);
+var MIME_TO_EXT = {
+  "image/webp": "webp",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png"
+};
+function getR2Config() {
+  const accountId = (process.env.R2_ACCOUNT_ID || "").trim();
+  const accessKeyId = (process.env.R2_ACCESS_KEY_ID || "").trim();
+  const secretAccessKey = (process.env.R2_SECRET_ACCESS_KEY || "").trim();
+  const bucketName = (process.env.R2_BUCKET_NAME || "").trim();
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucketName) {
+    return null;
+  }
+  return { accountId, accessKeyId, secretAccessKey, bucketName };
+}
+function isR2Configured() {
+  return getR2Config() !== null;
+}
+function createR2Client(cfg) {
+  return new S3Client({
+    region: "auto",
+    endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: cfg.accessKeyId,
+      secretAccessKey: cfg.secretAccessKey
+    }
+  });
+}
+function isValidTenantPhotoKey(shopId, photoKey) {
+  if (!photoKey || typeof photoKey !== "string") return false;
+  if (photoKey.includes("..") || photoKey.startsWith("/")) return false;
+  const expectedPrefix = `shops/${Number(shopId)}/orders/`;
+  if (!photoKey.startsWith(expectedPrefix)) return false;
+  return /^shops\/\d+\/orders\/[a-zA-Z0-9._-]+$/.test(photoKey);
+}
+async function createOrderPhotoUploadUrl(params) {
+  const cfg = getR2Config();
+  if (!cfg) {
+    throw new Error("Cloudflare R2 storage is not configured on the server yet.");
+  }
+  const normalizedMime = (params.contentType || "image/webp").toLowerCase().trim();
+  if (!ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) {
+    throw new Error("Unsupported photo format. Please use WebP, JPEG, or PNG.");
+  }
+  const ext = MIME_TO_EXT[normalizedMime] || "webp";
+  const safeHint = (params.orderHint || "order").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "order";
+  const uniqueId = crypto4.randomBytes(8).toString("hex");
+  const photoKey = `shops/${Number(params.shopId)}/orders/${safeHint}-${Date.now()}-${uniqueId}.${ext}`;
+  const client = createR2Client(cfg);
+  const expiresInSeconds = 300;
+  const command = new PutObjectCommand({
+    Bucket: cfg.bucketName,
+    Key: photoKey,
+    ContentType: normalizedMime
+  });
+  const uploadUrl = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+  return { uploadUrl, photoKey, expiresInSeconds };
+}
+async function createOrderPhotoViewUrl(params) {
+  const cfg = getR2Config();
+  if (!cfg) {
+    throw new Error("Cloudflare R2 storage is not configured on the server yet.");
+  }
+  if (!isValidTenantPhotoKey(params.shopId, params.photoKey)) {
+    throw new Error("Invalid or unauthorized order photo reference.");
+  }
+  const client = createR2Client(cfg);
+  const expiresInSeconds = 900;
+  const command = new GetObjectCommand({
+    Bucket: cfg.bucketName,
+    Key: params.photoKey
+  });
+  const viewUrl = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+  return { viewUrl, expiresInSeconds };
+}
+
 // server/routes/apiRoutes.ts
 var router = Router();
 var autoApproveNewStores = process.env.AUTO_APPROVE_STORES === "true";
@@ -2045,7 +2259,7 @@ router.get("/auth/me", async (req, res) => {
   }
   let availableShops = [];
   if (user.role === "superadmin") {
-    availableShops = await queryAll("SELECT id, name, code, location, status, subscription_plan FROM shops ORDER BY name ASC");
+    availableShops = await queryAll("SELECT id, name, code, location, status, subscription_plan, workflow_mode, pricing_mode, require_order_photo FROM shops ORDER BY name ASC");
   }
   const token = req.session?.user ? createAuthToken(req.session.user) : void 0;
   res.json({
@@ -2333,7 +2547,7 @@ router.post("/auth/firebase-login", async (req, res) => {
     );
     if (!user) {
       const role = isBigBoss ? "superadmin" : "manager";
-      const defaultPass = await bcrypt2.hash(crypto4.randomBytes(16).toString("hex"), 10);
+      const defaultPass = await bcrypt2.hash(crypto5.randomBytes(16).toString("hex"), 10);
       const name = displayName || (isBigBoss ? "Rwemera Platform Administrator" : verifiedEmail.split("@")[0]);
       await execute(
         `INSERT INTO users (shop_id, name, email, password, role, is_active, activation_status,
@@ -2573,7 +2787,7 @@ router.get("/products", requireAuth, requireTenant, async (req, res) => {
       SELECT p.*,
         (SELECT s.name FROM stocks s WHERE s.id = p.stock_id) as stock_name,
         COALESCE((
-          SELECT SUM(oi.quantity)
+          SELECT SUM(oi.quantity * COALESCE(oi.pack_size, 1))
           FROM order_items oi
           JOIN orders o ON oi.order_id = o.id
           WHERE oi.product_id = p.id
@@ -2619,17 +2833,25 @@ router.get("/products", requireAuth, requireTenant, async (req, res) => {
     const orderBy = orderClauseMap[sort] || orderClauseMap.name_asc;
     sql += ` ORDER BY ${orderBy}`;
     const products = await queryAll(sql, params);
+    const canViewBuying = hasUserPermission(req.session?.user, "can_view_buying_prices");
     const normalizedProducts = products.map((p) => {
+      const unitsPerPack = Math.max(1, Math.round(Number(p.units_per_pack || 1)));
       const buyPrice = Number(p.buying_price || 0);
       const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : buyPrice;
+      const packBuyPrice = Number(p.pack_buying_price || 0) > 0 ? Number(p.pack_buying_price) : unitsPerPack > 1 ? Number((buyPrice * unitsPerPack).toFixed(2)) : 0;
+      const packSellPrice = Number(p.pack_selling_price || 0) > 0 ? Number(p.pack_selling_price) : unitsPerPack > 1 ? Number((sellPrice * unitsPerPack).toFixed(2)) : 0;
       return {
         ...p,
-        quantity: Number(p.quantity || 0),
-        low_stock_threshold: Number(p.low_stock_threshold || 0),
-        total_units_sold: Number(p.total_units_sold || 0),
+        units_per_pack: unitsPerPack,
+        pack_unit: unitsPerPack > 1 ? (p.pack_unit || "").trim() || "Carton" : p.pack_unit || null,
+        quantity: Math.max(0, Math.round(Number(p.quantity || 0))),
+        low_stock_threshold: Math.max(0, Math.round(Number(p.low_stock_threshold || 0))),
+        total_units_sold: Math.max(0, Math.round(Number(p.total_units_sold || 0))),
         last_stocked_at: p.last_stocked_at || p.created_at || null,
         selling_price: sellPrice,
-        buying_price: hasUserPermission(req.session?.user, "can_view_buying_prices") ? buyPrice : null
+        buying_price: canViewBuying ? buyPrice : null,
+        pack_selling_price: packSellPrice,
+        pack_buying_price: canViewBuying ? packBuyPrice : null
       };
     });
     const categories = await queryAll(
@@ -2653,13 +2875,24 @@ router.post("/products", requireAuth, requireTenant, requirePermission("can_mana
     barcode,
     category,
     unit,
+    units_per_pack,
+    pack_unit,
     buying_price,
+    pack_buying_price,
+    pack_selling_price,
     quantity,
     low_stock_threshold,
     description,
     stock_id
   } = req.body;
-  if (!name || Number(buying_price) < 0) {
+  const finalPackSize = Math.max(1, Math.round(Number(units_per_pack || 1)));
+  const rawPackBuy = pack_buying_price !== void 0 && pack_buying_price !== null && pack_buying_price !== "" ? Math.max(0, Number(pack_buying_price)) : 0;
+  let finalBuyingPrice = buying_price !== void 0 && buying_price !== null && buying_price !== "" ? Math.max(0, Number(buying_price)) : 0;
+  if (finalPackSize > 1 && finalBuyingPrice <= 0 && rawPackBuy > 0) {
+    finalBuyingPrice = Number((rawPackBuy / finalPackSize).toFixed(2));
+  }
+  const finalPackBuy = finalPackSize > 1 ? rawPackBuy > 0 ? rawPackBuy : Number((finalBuyingPrice * finalPackSize).toFixed(2)) : 0;
+  if (!name || isNaN(finalBuyingPrice) || finalBuyingPrice < 0) {
     return res.status(400).json({ error: "Product name and valid buying price are required" });
   }
   try {
@@ -2670,21 +2903,17 @@ router.post("/products", requireAuth, requireTenant, requirePermission("can_mana
       finalStockId = mainStock?.id || 1;
     }
     const finalSku = sku || `SKU-${Date.now().toString().slice(-6)}`;
-    const finalThreshold = low_stock_threshold !== void 0 ? Math.max(0, Number(low_stock_threshold)) : 10;
-    const finalQty = quantity !== void 0 ? Math.max(0, Number(quantity)) : 0;
+    const finalThreshold = low_stock_threshold !== void 0 ? Math.max(0, Math.round(Number(low_stock_threshold))) : 10;
+    const finalQty = quantity !== void 0 ? Math.max(0, Math.round(Number(quantity))) : 0;
     const rawSellingPrice = req.body.selling_price !== void 0 ? req.body.selling_price : req.body.price;
-    const finalSellingPrice = rawSellingPrice !== void 0 && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0 ? Number(rawSellingPrice) : Number(buying_price) > 0 ? Number(buying_price) : 0;
-    let hasSellingPrice = false;
-    try {
-      const pCol = await queryOne(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'selling_price'"
-      );
-      hasSellingPrice = Boolean(pCol?.column_name);
-    } catch {
-    }
-    const result = hasSellingPrice ? await execute(
-      `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    const finalSellingPrice = rawSellingPrice !== void 0 && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0 ? Number(rawSellingPrice) : finalBuyingPrice > 0 ? finalBuyingPrice : 0;
+    const finalPackUnit = finalPackSize > 1 ? pack_unit && String(pack_unit).trim() || "Carton" : null;
+    const rawPackSell = pack_selling_price !== void 0 && pack_selling_price !== null && pack_selling_price !== "" ? Math.max(0, Number(pack_selling_price)) : 0;
+    const finalPackSell = finalPackSize > 1 ? rawPackSell > 0 ? rawPackSell : Number((finalSellingPrice * finalPackSize).toFixed(2)) : 0;
+    const isWatchedVal = req.body.is_watched ? 1 : 0;
+    const result = await execute(
+      `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, is_watched, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         shopId,
         finalStockId,
@@ -2692,31 +2921,20 @@ router.post("/products", requireAuth, requireTenant, requirePermission("can_mana
         finalSku.trim(),
         barcode ? barcode.trim() : null,
         category ? category.trim() : "Hardware",
-        unit ? unit.trim() : "Pcs",
-        Number(buying_price),
+        unit ? unit.trim() : "pcs",
+        finalPackSize,
+        finalPackUnit,
+        finalBuyingPrice,
         finalSellingPrice,
+        finalPackBuy,
+        finalPackSell,
         finalQty,
         finalThreshold,
-        description ? description.trim() : null
-      ]
-    ) : await execute(
-      `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        shopId,
-        finalStockId,
-        name.trim(),
-        finalSku.trim(),
-        barcode ? barcode.trim() : null,
-        category ? category.trim() : "Hardware",
-        unit ? unit.trim() : "Pcs",
-        Number(buying_price),
-        finalQty,
-        finalThreshold,
+        isWatchedVal,
         description ? description.trim() : null
       ]
     );
-    await logApiAudit(req, "PRODUCT_CREATED", `Created product ${name} (SKU: ${finalSku}) with ${finalQty} initial units`);
+    await logApiAudit(req, "PRODUCT_CREATED", `Created product ${name} (SKU: ${finalSku}) with ${finalQty} initial units${finalPackSize > 1 ? ` (${finalPackSize} per ${finalPackUnit})` : ""}`);
     const created = await queryOne("SELECT * FROM products WHERE id = ? AND shop_id = ?", [result.lastInsertId, shopId]);
     res.json({ success: true, product: created });
   } catch (err) {
@@ -2763,15 +2981,24 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
         if (/^(n\/?a|none|-|null)$/i.test(category)) {
           category = "General Hardware";
         }
-        let unit = item.unit && String(item.unit).trim() || "Pcs";
+        let unit = item.unit && String(item.unit).trim() || "pcs";
         if (unit === "1" || /^(n\/?a|none|-|null)$/i.test(unit)) {
-          unit = "Pcs";
+          unit = "pcs";
         }
-        const buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        const units_per_pack = !isNaN(Number(item.units_per_pack)) && Number(item.units_per_pack) > 1 ? Math.round(Number(item.units_per_pack)) : 1;
+        const pack_unit = units_per_pack > 1 ? item.pack_unit && String(item.pack_unit).trim() || "Carton" : null;
+        const rawPackBuy = !isNaN(Number(item.pack_buying_price)) && Number(item.pack_buying_price) > 0 ? Number(item.pack_buying_price) : 0;
+        let buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        if (units_per_pack > 1 && buying_price <= 0 && rawPackBuy > 0) {
+          buying_price = Number((rawPackBuy / units_per_pack).toFixed(2));
+        }
+        const pack_buying_price = units_per_pack > 1 ? rawPackBuy > 0 ? rawPackBuy : Number((buying_price * units_per_pack).toFixed(2)) : 0;
         const rawSelling = item.selling_price !== void 0 ? item.selling_price : item.price;
         const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) > 0 ? Number(rawSelling) : buying_price > 0 ? buying_price : 0;
-        const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Number(item.quantity) : 0;
-        const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Number(item.low_stock_threshold)) : 10;
+        const rawPackSell = !isNaN(Number(item.pack_selling_price)) && Number(item.pack_selling_price) > 0 ? Number(item.pack_selling_price) : 0;
+        const pack_selling_price = units_per_pack > 1 ? rawPackSell > 0 ? rawPackSell : Number((selling_price * units_per_pack).toFixed(2)) : 0;
+        const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Math.round(Number(item.quantity)) : 0;
+        const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Math.round(Number(item.low_stock_threshold))) : 10;
         const description = item.description ? String(item.description).trim() : null;
         const existingByName = await queryOne(
           "SELECT id, name, sku, quantity, buying_price FROM products WHERE shop_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1",
@@ -2780,8 +3007,8 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
         if (existingByName) {
           if (hasSellingPrice) {
             await execute(
-              `UPDATE products SET category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
-              [category, unit, buying_price, selling_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
+              `UPDATE products SET category = ?, unit = ?, units_per_pack = ?, pack_unit = ?, buying_price = ?, selling_price = ?, pack_buying_price = ?, pack_selling_price = ?, quantity = quantity + ?, low_stock_threshold = ?, description = COALESCE(?, description) WHERE id = ? AND shop_id = ?`,
+              [category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description, existingByName.id, shopId]
             );
           } else {
             await execute(
@@ -2832,9 +3059,9 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
         }
         usedSkusInBatch.add(candidateSku.toLowerCase());
         const resInsert = hasSellingPrice ? await execute(
-          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [shopId, finalStockId, name, candidateSku, barcode, category, unit, buying_price, selling_price, quantity, low_stock_threshold, description]
+          `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [shopId, finalStockId, name, candidateSku, barcode, category, unit, units_per_pack, pack_unit, buying_price, selling_price, pack_buying_price, pack_selling_price, quantity, low_stock_threshold, description]
         ) : await execute(
           `INSERT INTO products (shop_id, stock_id, name, sku, barcode, category, unit, buying_price, quantity, low_stock_threshold, description)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -2974,7 +3201,11 @@ router.put("/products/:id", requireAuth, requireTenant, requirePermission("can_m
     barcode,
     category,
     unit,
+    units_per_pack,
+    pack_unit,
     buying_price,
+    pack_buying_price,
+    pack_selling_price,
     quantity,
     low_stock_threshold,
     description
@@ -2985,62 +3216,61 @@ router.put("/products/:id", requireAuth, requireTenant, requirePermission("can_m
       return res.status(404).json({ error: "Product not found in this store" });
     }
     const canViewBuying = hasUserPermission(req.session?.user, "can_view_buying_prices");
-    const requestedBuyPrice = canViewBuying && buying_price !== void 0 && buying_price !== null && buying_price !== "" ? Number(buying_price) : Number(existing.buying_price || 0);
+    const finalPackSize = units_per_pack !== void 0 ? Math.max(1, Math.round(Number(units_per_pack || 1))) : Math.max(1, Math.round(Number(existing.units_per_pack || 1)));
+    const finalPackUnit = finalPackSize > 1 ? (pack_unit !== void 0 ? String(pack_unit || "").trim() : String(existing.pack_unit || "").trim()) || "Carton" : null;
+    let requestedBuyPrice = canViewBuying && buying_price !== void 0 && buying_price !== null && buying_price !== "" ? Math.max(0, Number(buying_price)) : Number(existing.buying_price || 0);
+    let requestedPackBuyPrice = existing.pack_buying_price !== void 0 ? Number(existing.pack_buying_price || 0) : 0;
+    if (canViewBuying) {
+      if (finalPackSize > 1) {
+        if (pack_buying_price !== void 0 && pack_buying_price !== null && pack_buying_price !== "") {
+          requestedPackBuyPrice = Math.max(0, Number(pack_buying_price));
+          if ((buying_price === void 0 || buying_price === null || buying_price === "" || Number(buying_price) === 0) && requestedPackBuyPrice > 0) {
+            requestedBuyPrice = Number((requestedPackBuyPrice / finalPackSize).toFixed(2));
+          }
+        } else {
+          requestedPackBuyPrice = Number((requestedBuyPrice * finalPackSize).toFixed(2));
+        }
+      } else {
+        requestedPackBuyPrice = 0;
+      }
+    }
     const rawSellingPrice = req.body.selling_price !== void 0 ? req.body.selling_price : req.body.price;
     const finalSellingPrice = rawSellingPrice !== void 0 && !isNaN(Number(rawSellingPrice)) && Number(rawSellingPrice) > 0 ? Number(rawSellingPrice) : existing.selling_price !== void 0 && Number(existing.selling_price) > 0 ? Number(existing.selling_price) : requestedBuyPrice > 0 ? requestedBuyPrice : 0;
-    let hasSellingPrice = false;
-    try {
-      const pCol = await queryOne(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'selling_price'"
-      );
-      hasSellingPrice = Boolean(pCol?.column_name);
-    } catch {
-    }
-    if (hasSellingPrice) {
-      await execute(
-        `UPDATE products 
-         SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, buying_price = ?, selling_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
-         WHERE id = ? AND shop_id = ?`,
-        [
-          name || existing.name,
-          sku || existing.sku,
-          barcode !== void 0 ? barcode : existing.barcode,
-          category || existing.category,
-          unit || existing.unit,
-          requestedBuyPrice,
-          finalSellingPrice,
-          quantity !== void 0 ? Math.max(0, Number(quantity)) : existing.quantity,
-          low_stock_threshold !== void 0 ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
-          description !== void 0 ? description : existing.description,
-          productId,
-          shopId
-        ]
-      );
-    } else {
-      await execute(
-        `UPDATE products 
-         SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, buying_price = ?, quantity = ?, low_stock_threshold = ?, description = ?
-         WHERE id = ? AND shop_id = ?`,
-        [
-          name || existing.name,
-          sku || existing.sku,
-          barcode !== void 0 ? barcode : existing.barcode,
-          category || existing.category,
-          unit || existing.unit,
-          requestedBuyPrice,
-          quantity !== void 0 ? Math.max(0, Number(quantity)) : existing.quantity,
-          low_stock_threshold !== void 0 ? Math.max(0, Number(low_stock_threshold)) : existing.low_stock_threshold,
-          description !== void 0 ? description : existing.description,
-          productId,
-          shopId
-        ]
-      );
-    }
+    const finalPackSellPrice = finalPackSize > 1 ? pack_selling_price !== void 0 && pack_selling_price !== null && pack_selling_price !== "" && Number(pack_selling_price) > 0 ? Number(pack_selling_price) : existing.pack_selling_price && Number(existing.pack_selling_price) > 0 && units_per_pack === void 0 ? Number(existing.pack_selling_price) : Number((finalSellingPrice * finalPackSize).toFixed(2)) : 0;
+    const finalIsWatched = req.body.is_watched !== void 0 ? req.body.is_watched ? 1 : 0 : existing.is_watched ? 1 : 0;
+    await execute(
+      `UPDATE products 
+       SET name = ?, sku = ?, barcode = ?, category = ?, unit = ?, units_per_pack = ?, pack_unit = ?, buying_price = ?, selling_price = ?, pack_buying_price = ?, pack_selling_price = ?, quantity = ?, low_stock_threshold = ?, is_watched = ?, description = ?
+       WHERE id = ? AND shop_id = ?`,
+      [
+        name || existing.name,
+        sku || existing.sku,
+        barcode !== void 0 ? barcode : existing.barcode,
+        category || existing.category,
+        unit || existing.unit,
+        finalPackSize,
+        finalPackUnit,
+        requestedBuyPrice,
+        finalSellingPrice,
+        requestedPackBuyPrice,
+        finalPackSellPrice,
+        quantity !== void 0 ? Math.max(0, Math.round(Number(quantity))) : existing.quantity,
+        low_stock_threshold !== void 0 ? Math.max(0, Math.round(Number(low_stock_threshold))) : existing.low_stock_threshold,
+        finalIsWatched,
+        description !== void 0 ? description : existing.description,
+        productId,
+        shopId
+      ]
+    );
     await logApiAudit(req, "PRODUCT_UPDATED", `Updated product #${productId} (${name || existing.name})`);
     const updated = await queryOne("SELECT * FROM products WHERE id = ? AND shop_id = ?", [productId, shopId]);
     res.json({
       success: true,
-      product: updated ? { ...updated, buying_price: canViewBuying ? updated.buying_price : null } : updated
+      product: updated ? {
+        ...updated,
+        buying_price: canViewBuying ? updated.buying_price : null,
+        pack_buying_price: canViewBuying ? updated.pack_buying_price : null
+      } : updated
     });
   } catch (err) {
     console.error("Update product error:", err);
@@ -3214,6 +3444,71 @@ router.post("/stocks/transfer", requireAuth, requireTenant, requirePermission("c
     res.status(500).json({ error: err.message || "Failed to process warehouse stock transfer" });
   }
 });
+router.get("/storage/r2-status", requireAuth, (req, res) => {
+  res.json({ configured: isR2Configured() });
+});
+router.post("/orders/upload-photo-url", requireAuth, requireTenant, async (req, res) => {
+  const user = req.session?.user;
+  if (!hasUserPermission(user, "can_create_orders") && !hasUserPermission(user, "can_edit_company_settings") && !hasUserPermission(user, "can_resolve_flagged_orders")) {
+    return res.status(403).json({ error: "Permission required to upload order photos." });
+  }
+  if (!isR2Configured()) {
+    return res.status(503).json({
+      error: "Cloudflare R2 storage is not configured yet.",
+      code: "R2_NOT_CONFIGURED"
+    });
+  }
+  try {
+    const { contentType, orderHint } = req.body || {};
+    const result = await createOrderPhotoUploadUrl({
+      shopId: res.locals.shopId,
+      contentType: String(contentType || "image/webp"),
+      orderHint: orderHint ? String(orderHint) : "slip"
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error("Order R2 Presigned PUT error:", err);
+    res.status(400).json({ error: err.message || "Failed to generate upload URL." });
+  }
+});
+router.get("/orders/:id/photo-url", requireAuth, requireTenant, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const user = req.session?.user;
+  const canViewOrderPhoto = user?.role === "superadmin" || user?.role === "manager" || hasUserPermission(user, "can_create_orders") || hasUserPermission(user, "can_process_payments") || hasUserPermission(user, "can_release_stock") || hasUserPermission(user, "can_view_reports") || hasUserPermission(user, "can_void_orders") || hasUserPermission(user, "can_verify_orders") || hasUserPermission(user, "can_resolve_flagged_orders") || hasUserPermission(user, "can_view_audit_trail");
+  if (!canViewOrderPhoto) {
+    return res.status(403).json({ error: "Permission required to view order photos." });
+  }
+  try {
+    const order = await queryOne(
+      "SELECT id, handwritten_photo_key FROM orders WHERE id = ? AND shop_id = ?",
+      [orderId, shopId]
+    );
+    if (!order) {
+      return res.status(404).json({ error: "Order not found in this store." });
+    }
+    if (!order.handwritten_photo_key) {
+      return res.status(404).json({ error: "No order photo attached to this order." });
+    }
+    if (!isValidTenantPhotoKey(shopId, order.handwritten_photo_key)) {
+      return res.status(403).json({ error: "Invalid photo key for this store." });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        error: "Cloudflare R2 storage is not configured on the server.",
+        code: "R2_NOT_CONFIGURED"
+      });
+    }
+    const signed = await createOrderPhotoViewUrl({
+      shopId,
+      photoKey: order.handwritten_photo_key
+    });
+    res.json({ success: true, photoKey: order.handwritten_photo_key, ...signed });
+  } catch (err) {
+    console.error("Order R2 Presigned GET error:", err);
+    res.status(400).json({ error: err.message || "Failed to sign photo URL." });
+  }
+});
 router.get("/orders", requireAuth, requireTenant, async (req, res) => {
   const shopId = res.locals.shopId;
   const status = (req.query.status || "").trim();
@@ -3371,19 +3666,22 @@ router.put("/orders/:id", requireAuth, requireTenant, async (req, res) => {
         stockId = defaultStock ? defaultStock.id : 1;
       }
       const oldItems = await queryAll("SELECT * FROM order_items WHERE order_id = ?", [orderId]);
-      const oldItemPriceByProduct = /* @__PURE__ */ new Map();
+      const oldItemPriceByKey = /* @__PURE__ */ new Map();
       for (const oi of oldItems) {
-        oldItemPriceByProduct.set(Number(oi.product_id), Number(oi.selling_price || 0));
+        const mode = oi.sale_mode === "pack" ? "pack" : "retail";
+        oldItemPriceByKey.set(`${Number(oi.product_id)}_${mode}`, Number(oi.selling_price || 0));
       }
       for (const oi of oldItems) {
+        const oiPackSize = Math.max(1, Math.round(Number(oi.pack_size || 1)));
+        const baseRevertQty = Math.round(Number(oi.quantity || 0)) * oiPackSize;
         await execute(
           "UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?",
-          [oi.quantity, oi.product_id, shopId]
+          [baseRevertQty, oi.product_id, shopId]
         );
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
-          [shopId, stockId, oi.product_id, oi.quantity, `Reversal for Order #${existingOrder.order_number} Edit`, currentUserId]
+          [shopId, stockId, oi.product_id, baseRevertQty, `Reversal for Order #${existingOrder.order_number} Edit`, currentUserId]
         );
       }
       const oldDebt = Number(existingOrder.debt_amount || 0);
@@ -3427,32 +3725,47 @@ router.put("/orders/:id", requireAuth, requireTenant, async (req, res) => {
         if (!prod) {
           throw new Error(`Product #${it.product_id} not found in this store.`);
         }
-        const qty = Number(it.quantity);
+        const qty = Math.round(Number(it.quantity));
         if (isNaN(qty) || qty <= 0) {
           throw new Error(`Invalid quantity for product "${prod.name}"`);
         }
-        const catalogPrice = prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : Number(prod.buying_price || 0);
+        const prodPackSize = Math.max(1, Math.round(Number(prod.units_per_pack || 1)));
+        const isPack = it.sale_mode === "pack" && prodPackSize > 1;
+        const saleMode = isPack ? "pack" : "retail";
+        const packSize = isPack ? prodPackSize : 1;
+        const retailUnit = (prod.unit || "").trim() || "pcs";
+        const packUnit = (prod.pack_unit || "").trim() || "Carton";
+        const soldUnit = isPack ? packUnit : retailUnit;
+        const baseBuyPrice = Number(prod.buying_price || 0);
+        const unitBuyCost = isPack ? Number(prod.pack_buying_price || 0) > 0 ? Number(prod.pack_buying_price) : Number((baseBuyPrice * packSize).toFixed(2)) : baseBuyPrice;
+        const retailCatalogPrice = prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : baseBuyPrice;
+        const catalogPrice = isPack ? prod.pack_selling_price && Number(prod.pack_selling_price) > 0 ? Number(prod.pack_selling_price) : Number((retailCatalogPrice * packSize).toFixed(2)) : retailCatalogPrice;
         const sellingPrice = it.selling_price !== void 0 ? Number(it.selling_price) : catalogPrice;
         if (isNaN(sellingPrice) || sellingPrice < 0) {
           throw new Error(`Invalid unit price for product "${prod.name}"`);
         }
-        const existingItemPrice = oldItemPriceByProduct.get(Number(prod.id));
+        const existingItemPrice = oldItemPriceByKey.get(`${Number(prod.id)}_${saleMode}`);
         const minAllowedPrice = existingItemPrice !== void 0 ? Math.min(catalogPrice, existingItemPrice) : catalogPrice;
         if (!canGiveDiscounts && it.selling_price !== void 0 && sellingPrice < minAllowedPrice) {
           const err = new Error(
-            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" below RWF ${minAllowedPrice.toLocaleString()}.`
+            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" (${soldUnit}) below RWF ${minAllowedPrice.toLocaleString()}.`
           );
           err.statusCode = 403;
           throw err;
         }
         const subtotal = sellingPrice * qty;
-        const profit = (sellingPrice - Number(prod.buying_price || 0)) * qty;
+        const profit = (sellingPrice - unitBuyCost) * qty;
+        const baseUnits = qty * packSize;
         totalAmount += subtotal;
         parsedItems.push({
           product: prod,
           product_id: prod.id,
           quantity: qty,
-          buying_price: Number(prod.buying_price || 0),
+          sale_mode: saleMode,
+          sold_unit: soldUnit,
+          pack_size: packSize,
+          base_units: baseUnits,
+          buying_price: unitBuyCost,
           selling_price: sellingPrice,
           subtotal,
           profit,
@@ -3463,18 +3776,25 @@ router.put("/orders/:id", requireAuth, requireTenant, async (req, res) => {
       const mappedItemStatus = existingOrder.fulfillment_status === "approved" || existingOrder.fulfillment_status === "dispatched" || existingOrder.fulfillment_status === "completed" ? "approved" : existingOrder.fulfillment_status === "rejected" ? "rejected" : "pending_store";
       for (const ni of parsedItems) {
         await execute(
-          `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [orderId, ni.product_id, ni.quantity, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source, mappedItemStatus]
+          `INSERT INTO order_items (order_id, product_id, quantity, sale_mode, sold_unit, pack_size, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [orderId, ni.product_id, ni.quantity, ni.sale_mode, ni.sold_unit, ni.pack_size, ni.buying_price, ni.selling_price, ni.subtotal, ni.profit, ni.fulfillment_source, mappedItemStatus]
         );
-        await execute(
-          "UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ?",
-          [ni.quantity, ni.product_id, shopId]
+        const stockDeduction = await execute(
+          "UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ? AND quantity >= ?",
+          [ni.base_units, ni.product_id, shopId, ni.base_units]
         );
+        if (stockDeduction.changes === 0) {
+          const err = new Error(
+            `Insufficient stock for "${ni.product.name}". Requested ${ni.quantity} ${ni.sold_unit} (${ni.base_units} ${ni.product.unit || "pcs"}), which exceeds available inventory.`
+          );
+          err.statusCode = 400;
+          throw err;
+        }
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, ?, ?, ?, 'Sale', ?, ?)`,
-          [shopId, stockId, ni.product_id, -ni.quantity, `Sale for Order #${existingOrder.order_number} (Updated)`, currentUserId]
+          [shopId, stockId, ni.product_id, -ni.base_units, `Sale ${ni.quantity} ${ni.sold_unit} for Order #${existingOrder.order_number} (Updated)`, currentUserId]
         );
       }
       const effectivePaid = canProcessPayments && paid_amount !== void 0 ? Math.min(totalAmount, Math.max(0, Number(paid_amount))) : Math.min(totalAmount, Number(existingOrder.paid_amount || 0));
@@ -3544,10 +3864,19 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
     store_credit_amount,
     notes,
     payment_reference,
-    release_immediately
+    release_immediately,
+    handwritten_photo_key
   } = req.body;
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "At least one product item is required to place an order." });
+  }
+  const cleanPhotoKey = handwritten_photo_key ? String(handwritten_photo_key).trim() : null;
+  if (cleanPhotoKey && !isValidTenantPhotoKey(shopId, cleanPhotoKey)) {
+    return res.status(400).json({ error: "Invalid order photo key for this store." });
+  }
+  const shopSetting = await queryOne("SELECT require_order_photo FROM shops WHERE id = ?", [shopId]);
+  if (Number(shopSetting?.require_order_photo || 0) === 1 && !cleanPhotoKey) {
+    return res.status(400).json({ error: "Order photo is required by store settings before creating an order." });
   }
   try {
     const result = await withTransaction(async () => {
@@ -3587,30 +3916,45 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
         if (!prod) {
           throw new Error(`Product #${item.product_id} not found in this store.`);
         }
-        const qty = Number(item.quantity);
+        const qty = Math.round(Number(item.quantity));
         if (isNaN(qty) || qty <= 0) {
           throw new Error(`Invalid quantity for product ${prod.name}`);
         }
-        const catalogPrice = prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : Number(prod.buying_price || 0);
+        const prodPackSize = Math.max(1, Math.round(Number(prod.units_per_pack || 1)));
+        const isPack = item.sale_mode === "pack" && prodPackSize > 1;
+        const saleMode = isPack ? "pack" : "retail";
+        const packSize = isPack ? prodPackSize : 1;
+        const retailUnit = (prod.unit || "").trim() || "pcs";
+        const packUnit = (prod.pack_unit || "").trim() || "Carton";
+        const soldUnit = isPack ? packUnit : retailUnit;
+        const baseBuyPrice = Number(prod.buying_price || 0);
+        const unitBuyCost = isPack ? Number(prod.pack_buying_price || 0) > 0 ? Number(prod.pack_buying_price) : Number((baseBuyPrice * packSize).toFixed(2)) : baseBuyPrice;
+        const retailCatalogPrice = prod.selling_price && Number(prod.selling_price) > 0 ? Number(prod.selling_price) : baseBuyPrice;
+        const catalogPrice = isPack ? prod.pack_selling_price && Number(prod.pack_selling_price) > 0 ? Number(prod.pack_selling_price) : Number((retailCatalogPrice * packSize).toFixed(2)) : retailCatalogPrice;
         const sellingPrice = item.selling_price !== void 0 ? Number(item.selling_price) : catalogPrice;
         if (isNaN(sellingPrice) || sellingPrice < 0) {
           throw new Error(`Invalid unit price for product ${prod.name}`);
         }
         if (!canGiveDiscounts && item.selling_price !== void 0 && sellingPrice < catalogPrice) {
           const err = new Error(
-            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" below RWF ${catalogPrice.toLocaleString()}.`
+            `Permission Required: You do not have permission to give discounts or lower "${prod.name}" (${soldUnit}) below RWF ${catalogPrice.toLocaleString()}.`
           );
           err.statusCode = 403;
           throw err;
         }
         const subtotal = sellingPrice * qty;
-        const profit = (sellingPrice - Number(prod.buying_price || 0)) * qty;
+        const profit = (sellingPrice - unitBuyCost) * qty;
+        const baseUnits = qty * packSize;
         totalAmount += subtotal;
         parsedItems.push({
           product: prod,
           product_id: prod.id,
           quantity: qty,
-          buying_price: Number(prod.buying_price || 0),
+          sale_mode: saleMode,
+          sold_unit: soldUnit,
+          pack_size: packSize,
+          base_units: baseUnits,
+          buying_price: unitBuyCost,
           selling_price: sellingPrice,
           subtotal,
           profit,
@@ -3674,8 +4018,8 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
         `INSERT INTO orders (
           shop_id, stock_id, order_number, customer_id, salesperson_id,
           total_amount, paid_amount, debt_amount, payment_status, fulfillment_status,
-          notes, payment_approved_by, payment_approved_at, stock_released_by, stock_released_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          notes, handwritten_photo_key, payment_approved_by, payment_approved_at, stock_released_by, stock_released_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           shopId,
           1,
@@ -3688,6 +4032,7 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
           paymentStatus,
           fulfillmentStatus,
           notes || null,
+          cleanPhotoKey,
           paid > 0 ? currentUserId : null,
           paid > 0 ? nowIso : null,
           releaseNow ? currentUserId : null,
@@ -3697,23 +4042,23 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
       const orderId = orderRes.lastInsertId;
       for (const pi of parsedItems) {
         await execute(
-          `INSERT INTO order_items (order_id, product_id, quantity, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [orderId, pi.product_id, pi.quantity, pi.buying_price, pi.selling_price, pi.subtotal, pi.profit, pi.fulfillment_source, itemStatus]
+          `INSERT INTO order_items (order_id, product_id, quantity, sale_mode, sold_unit, pack_size, buying_price, selling_price, subtotal, profit, fulfillment_source, item_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [orderId, pi.product_id, pi.quantity, pi.sale_mode, pi.sold_unit, pi.pack_size, pi.buying_price, pi.selling_price, pi.subtotal, pi.profit, pi.fulfillment_source, itemStatus]
         );
         const stockDeduction = await execute(
           `UPDATE products SET quantity = quantity - ? WHERE id = ? AND shop_id = ? AND quantity >= ?`,
-          [pi.quantity, pi.product_id, shopId, pi.quantity]
+          [pi.base_units, pi.product_id, shopId, pi.base_units]
         );
         if (stockDeduction.changes === 0) {
           throw new Error(
-            `Insufficient stock for "${pi.product.name}". Requested ${pi.quantity} units, but insufficient available inventory.`
+            `Insufficient stock for "${pi.product.name}". Requested ${pi.quantity} ${pi.sold_unit} (${pi.base_units} ${pi.product.unit || "pcs"}), which exceeds available inventory.`
           );
         }
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, 1, ?, ?, 'Sale', ?, ?)`,
-          [shopId, pi.product_id, -pi.quantity, `Sale for Order ${orderNumber}`, currentUserId]
+          [shopId, pi.product_id, -pi.base_units, `Sale ${pi.quantity} ${pi.sold_unit} for Order ${orderNumber}`, currentUserId]
         );
       }
       if (cashPaid > 0) {
@@ -3946,6 +4291,7 @@ router.post("/orders/:id/release-items", requireAuth, requireTenant, requirePerm
       for (const item of existingItems) {
         const targetQty = releaseMap.has(item.id) ? releaseMap.get(item.id) : 0;
         const requestedQty = Number(item.quantity);
+        const packSize = Math.max(1, Math.round(Number(item.pack_size || 1)));
         const sellingPrice = Number(item.selling_price);
         const buyingPrice = Number(item.buying_price);
         if (targetQty > 0) {
@@ -3956,16 +4302,17 @@ router.post("/orders/:id/release-items", requireAuth, requireTenant, requirePerm
           newTotalAmount += subtotal;
           const diff = requestedQty - releasedQty;
           if (diff > 0) {
+            const diffBaseUnits = diff * packSize;
             await execute(
               "UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?",
-              [diff, item.product_id, shopId]
+              [diffBaseUnits, item.product_id, shopId]
             );
             await execute(
               `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
                VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
-              [shopId, stockId, item.product_id, diff, `Unreleased item return for Order #${order.order_number}`, currentUserId]
+              [shopId, stockId, item.product_id, diffBaseUnits, `Unreleased item return for Order #${order.order_number}`, currentUserId]
             );
-            totalUnreleasedReturned += diff;
+            totalUnreleasedReturned += diffBaseUnits;
           }
           if (update_receipt) {
             await execute(
@@ -3981,16 +4328,17 @@ router.post("/orders/:id/release-items", requireAuth, requireTenant, requirePerm
             );
           }
         } else {
+          const requestedBaseUnits = requestedQty * packSize;
           await execute(
             "UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?",
-            [requestedQty, item.product_id, shopId]
+            [requestedBaseUnits, item.product_id, shopId]
           );
           await execute(
             `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
              VALUES (?, ?, ?, ?, 'Adjustment', ?, ?)`,
-            [shopId, stockId, item.product_id, requestedQty, `Unreleased stock return for Order #${order.order_number} (Item removed)`, currentUserId]
+            [shopId, stockId, item.product_id, requestedBaseUnits, `Unreleased stock return for Order #${order.order_number} (Item removed)`, currentUserId]
           );
-          totalUnreleasedReturned += requestedQty;
+          totalUnreleasedReturned += requestedBaseUnits;
           if (update_receipt) {
             await execute("DELETE FROM order_items WHERE id = ?", [item.id]);
           } else {
@@ -4098,14 +4446,16 @@ router.post("/orders/:id/void", requireAuth, requireTenant, requirePermission("c
       }
       const items = await queryAll("SELECT * FROM order_items WHERE order_id = ?", [orderId]);
       for (const item of items) {
+        const packSize = Math.max(1, Math.round(Number(item.pack_size || 1)));
+        const restoreBaseQty = Math.round(Number(item.quantity || 0)) * packSize;
         await execute(
           "UPDATE products SET quantity = quantity + ? WHERE id = ? AND shop_id = ?",
-          [item.quantity, item.product_id, shopId]
+          [restoreBaseQty, item.product_id, shopId]
         );
         await execute(
           `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
            VALUES (?, ?, ?, ?, 'Return', ?, ?)`,
-          [shopId, stockId, item.product_id, item.quantity, `Order #${order.order_number} Cancelled/Voided`, currentUserId]
+          [shopId, stockId, item.product_id, restoreBaseQty, `Order #${order.order_number} Cancelled/Voided`, currentUserId]
         );
       }
       const debtToClear = Number(order.debt_amount || 0);
@@ -4295,7 +4645,7 @@ router.get("/customers/:id/statement", requireAuth, requireTenant, async (req, r
       const orderIds = orders.map((o) => Number(o.id));
       const placeholders = orderIds.map(() => "?").join(", ");
       const items = await queryAll(
-        `SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.selling_price, oi.subtotal,
+        `SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.sale_mode, oi.sold_unit, oi.pack_size, oi.selling_price, oi.subtotal,
                 p.name as product_name, p.unit as product_unit
          FROM order_items oi
          LEFT JOIN products p ON oi.product_id = p.id
@@ -4739,13 +5089,13 @@ router.get("/users", requireAuth, requireTenant, requireManager, async (req, res
                 u.can_partner_borrow, u.can_view_reports, u.can_view_buying_prices, u.can_give_discounts, u.can_manage_users,
                 u.can_print_full_receipt, u.can_print_delivery_note, u.can_manage_customers, u.can_manage_partners, u.can_void_orders,
                 u.can_edit_company_settings, u.can_view_audit_trail, u.can_reset_passwords, u.can_view_all_tenants, u.can_manage_subscriptions,
-                u.force_password_change, s.name as shop_name 
+                u.can_verify_orders, u.can_resolve_flagged_orders, u.force_password_change, s.name as shop_name 
          FROM users u LEFT JOIN shops s ON u.shop_id = s.id ORDER BY u.role DESC, u.name ASC` : `SELECT id, shop_id, stock_id, name, email, role, job_title, phone, is_active, activation_status,
                 can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
                 can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
                 can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
                 can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-                force_password_change
+                can_verify_orders, can_resolve_flagged_orders, force_password_change
          FROM users WHERE shop_id = ? ORDER BY role DESC, name ASC`;
     const params = isSuper ? [] : [shopId];
     const users = await queryAll(sql, params);
@@ -4770,6 +5120,7 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
     const hashedPassword = await bcrypt2.hash(password, 10);
     const p = { ...req.body, ...permissions || {} };
     const isOwnerOrManagerRole = assignedRole === "manager" || assignedRole === "superadmin";
+    const assignedStockId = req.body.stock_id ? Number(req.body.stock_id) : 1;
     const result = await execute(
       `INSERT INTO users (
         shop_id, stock_id, name, email, password, role, job_title, phone, is_active, activation_status,
@@ -4777,10 +5128,11 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
         can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
         can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
         can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-        force_password_change
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        can_verify_orders, can_resolve_flagged_orders, force_password_change
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         targetShopId,
+        assignedStockId,
         name.trim(),
         email.trim().toLowerCase(),
         hashedPassword,
@@ -4806,7 +5158,9 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
         p.can_view_audit_trail ? 1 : 0,
         p.can_reset_passwords ? 1 : 0,
         p.can_view_all_tenants !== void 0 ? p.can_view_all_tenants ? 1 : 0 : assignedRole === "platform_ops" ? 1 : 0,
-        p.can_manage_subscriptions ? 1 : 0
+        p.can_manage_subscriptions ? 1 : 0,
+        p.can_verify_orders ? 1 : 0,
+        isOwnerOrManagerRole || p.can_resolve_flagged_orders ? 1 : 0
       ]
     );
     await logApiAudit(req, "USER_CREATED", `Created staff user ${name} (${email}) with role ${assignedRole}`);
@@ -4864,6 +5218,10 @@ router.put("/users/:id", requireAuth, requireTenant, requireManager, async (req,
       updates.push("password = ?");
       params.push(hash);
     }
+    if (req.body.stock_id !== void 0) {
+      updates.push("stock_id = ?");
+      params.push(req.body.stock_id ? Number(req.body.stock_id) : null);
+    }
     const p = { ...req.body, ...permissions || {} };
     const permKeys = [
       "can_create_orders",
@@ -4885,7 +5243,9 @@ router.put("/users/:id", requireAuth, requireTenant, requireManager, async (req,
       "can_view_audit_trail",
       "can_reset_passwords",
       "can_view_all_tenants",
-      "can_manage_subscriptions"
+      "can_manage_subscriptions",
+      "can_verify_orders",
+      "can_resolve_flagged_orders"
     ];
     const effectiveRole = role && (currentUser.role === "superadmin" || role !== "superadmin") ? String(role).toLowerCase() : existing.role;
     const isOwnerOrManagerRole = effectiveRole === "manager" || effectiveRole === "superadmin";
@@ -4967,9 +5327,11 @@ router.post("/shops", requireAuth, requireSuperAdmin, async (req, res) => {
   }
   try {
     const finalCode = code || name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8);
+    const workflowMode = req.body.workflow_mode === "strict_chain" ? "strict_chain" : "standard";
+    const pricingMode = req.body.pricing_mode === "stock_only" ? "stock_only" : "standard";
     const result = await execute(
-      `INSERT INTO shops (name, code, owner_name, phone, email, location, tin_number, status, subscription_plan)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      `INSERT INTO shops (name, code, owner_name, phone, email, location, tin_number, status, subscription_plan, workflow_mode, pricing_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       [
         name.trim(),
         finalCode,
@@ -4978,7 +5340,9 @@ router.post("/shops", requireAuth, requireSuperAdmin, async (req, res) => {
         email.trim().toLowerCase(),
         location ? location.trim() : "Kigali, Rwanda",
         tin_number ? tin_number.trim() : null,
-        subscription_plan || "Standard Depot (RWF 45,000/mo)"
+        subscription_plan || "Standard Depot (RWF 45,000/mo)",
+        workflowMode,
+        pricingMode
       ]
     );
     const shopId = result.lastInsertId;
@@ -5038,9 +5402,12 @@ router.put("/shops/:id", requireAuth, requirePermission("can_edit_company_settin
     }
     const newStatus = user.role === "superadmin" && status ? status : existing.status;
     const newPlan = user.role === "superadmin" && subscription_plan ? subscription_plan : existing.subscription_plan;
+    const newWorkflowMode = user.role === "superadmin" && req.body.workflow_mode ? req.body.workflow_mode === "strict_chain" ? "strict_chain" : "standard" : existing.workflow_mode || "standard";
+    const newPricingMode = user.role === "superadmin" && req.body.pricing_mode ? req.body.pricing_mode === "stock_only" ? "stock_only" : "standard" : existing.pricing_mode || "standard";
+    const newRequireOrderPhoto = req.body.require_order_photo !== void 0 ? req.body.require_order_photo === true || req.body.require_order_photo === 1 || req.body.require_order_photo === "1" || req.body.require_order_photo === "true" ? 1 : 0 : Number(existing.require_order_photo || 0);
     await execute(
       `UPDATE shops 
-       SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?
+       SET name = ?, owner_name = ?, phone = ?, email = ?, location = ?, tin_number = ?, receipt_footer_text = ?, status = ?, subscription_plan = ?, workflow_mode = ?, pricing_mode = ?, require_order_photo = ?
        WHERE id = ?`,
       [
         cleanName,
@@ -5052,6 +5419,9 @@ router.put("/shops/:id", requireAuth, requirePermission("can_edit_company_settin
         cleanFooter,
         newStatus,
         newPlan,
+        newWorkflowMode,
+        newPricingMode,
+        newRequireOrderPhoto,
         shopId
       ]
     );
@@ -5219,7 +5589,7 @@ router.get("/reports/summary", requireAuth, requireTenant, requirePermission("ca
   }
   try {
     const categorySales = await queryAll(
-      `SELECT p.category, COALESCE(SUM(oi.subtotal), 0) as revenue, COALESCE(SUM(oi.profit), 0) as profit, SUM(oi.quantity) as units_sold
+      `SELECT p.category, COALESCE(SUM(oi.subtotal), 0) as revenue, COALESCE(SUM(oi.profit), 0) as profit, SUM(oi.quantity * COALESCE(oi.pack_size, 1)) as units_sold
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id
@@ -5228,7 +5598,7 @@ router.get("/reports/summary", requireAuth, requireTenant, requirePermission("ca
       [shopId, ...dateParams]
     );
     const topSellingProducts = await queryAll(
-      `SELECT p.name, p.sku, p.category, SUM(oi.quantity) as total_units_sold, SUM(oi.subtotal) as total_revenue, SUM(oi.profit) as total_profit
+      `SELECT p.name, p.sku, p.category, SUM(oi.quantity * COALESCE(oi.pack_size, 1)) as total_units_sold, SUM(oi.subtotal) as total_revenue, SUM(oi.profit) as total_profit
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id
@@ -7824,13 +8194,13 @@ import { Router as Router3 } from "express";
 
 // server/billing/paymentService.ts
 init_db();
-import crypto5 from "crypto";
+import crypto6 from "crypto";
 var MockPaymentProvider = class {
   constructor() {
     this.name = "mock";
   }
   async createPayment(params) {
-    const paymentRef = `mock_pay_${Date.now()}_${crypto5.randomBytes(4).toString("hex")}`;
+    const paymentRef = `mock_pay_${Date.now()}_${crypto6.randomBytes(4).toString("hex")}`;
     return {
       paymentRef,
       status: "completed",
@@ -8140,6 +8510,1037 @@ router3.post("/admin/webhooks/:eventId/retry", requireAuth, requireSuperAdmin, a
 });
 var billingRoutes_default = router3;
 
+// server/routes/strictChainRoutes.ts
+init_db();
+import { Router as Router4 } from "express";
+var router4 = Router4();
+async function requireStrictChainShop(req, res, next) {
+  const shopId = getTenantShopId(req);
+  if (!shopId) {
+    return res.status(403).json({
+      error: "Tenant Store Association Required: Your session is not linked to an active store."
+    });
+  }
+  try {
+    const shop = await queryOne("SELECT * FROM shops WHERE id = ?", [shopId]);
+    if (!shop) {
+      return res.status(404).json({ error: "Store tenant not found." });
+    }
+    if (shop.workflow_mode !== "strict_chain") {
+      return res.status(403).json({
+        error: "Strict Verification Chain is not enabled for this store tenant."
+      });
+    }
+    res.locals.shopId = shopId;
+    res.locals.shop = shop;
+    next();
+  } catch (err) {
+    console.error("StrictChain middleware error:", err);
+    return res.status(500).json({ error: "Failed to verify store workflow configuration." });
+  }
+}
+async function logChainAudit(req, action, details, shopId) {
+  try {
+    const userId = req.session?.user?.id || null;
+    const ip = req.ip || req.socket.remoteAddress || "127.0.0.1";
+    await execute(
+      "INSERT INTO audit_logs (shop_id, user_id, action, details, ip_address) VALUES (?, ?, ?, ?, ?)",
+      [shopId, userId, action, details, ip]
+    );
+  } catch (err) {
+    console.error("StrictChain audit log error:", err);
+  }
+}
+async function getReservedBaseUnitsMap(shopId, excludeOrderId) {
+  const params = [shopId];
+  let extraWhere = "";
+  if (excludeOrderId) {
+    extraWhere = " AND o.id != ?";
+    params.push(excludeOrderId);
+  }
+  const rows = await queryAll(
+    `SELECT oi.product_id,
+            COALESCE(SUM(oi.quantity * COALESCE(oi.pack_size, 1)), 0) as reserved_units
+     FROM order_items oi
+     INNER JOIN orders o ON oi.order_id = o.id
+     WHERE o.shop_id = ?
+       AND o.chain_status IN ('pending_supervisor_1', 'in_release', 'flagged_for_manager')
+       ${extraWhere}
+     GROUP BY oi.product_id`,
+    params
+  );
+  const map = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    map.set(Number(r.product_id), Number(r.reserved_units || 0));
+  }
+  return map;
+}
+async function commitCompletedChainOrderTx(params) {
+  const {
+    shopId,
+    orderId,
+    orderNumber,
+    customerName,
+    sellerName,
+    firstVerifierName,
+    finalVerifierId,
+    finalVerifierName
+  } = params;
+  const items = await queryAll(
+    `SELECT oi.*, p.name as product_name, p.unit as product_unit, p.is_watched, p.stock_id as prod_stock_id,
+            st.name as source_stock_name
+     FROM order_items oi
+     INNER JOIN products p ON oi.product_id = p.id
+     LEFT JOIN stocks st ON COALESCE(oi.source_stock_id, p.stock_id) = st.id
+     WHERE oi.order_id = ?`,
+    [orderId]
+  );
+  for (const item of items) {
+    const baseUnits = Math.round(Number(item.quantity || 0)) * Math.max(1, Math.round(Number(item.pack_size || 1)));
+    const targetStockId = Number(item.source_stock_id || item.prod_stock_id || 1);
+    const stockUpdate = await execute(
+      `UPDATE products
+       SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND shop_id = ? AND quantity >= ?`,
+      [baseUnits, item.product_id, shopId, baseUnits]
+    );
+    if (stockUpdate.changes === 0) {
+      throw new Error(
+        `Insufficient physical stock for "${item.product_name}". Cannot complete release without available stock.`
+      );
+    }
+    await execute(
+      `INSERT INTO inventory_movements (shop_id, stock_id, product_id, quantity, movement_type, reference, performed_by)
+       VALUES (?, ?, ?, ?, 'Sale', ?, ?)`,
+      [
+        shopId,
+        targetStockId,
+        item.product_id,
+        -baseUnits,
+        `Verified Release ${item.quantity} ${item.sold_unit || item.product_unit || "pcs"} (${orderNumber})`,
+        finalVerifierId
+      ]
+    );
+    await execute(
+      `UPDATE order_items SET item_status = 'approved' WHERE id = ?`,
+      [item.id]
+    );
+    if (Number(item.is_watched) === 1) {
+      const updatedProd = await queryOne(
+        "SELECT quantity FROM products WHERE id = ? AND shop_id = ?",
+        [item.product_id, shopId]
+      );
+      const remainingAfter = Number(updatedProd?.quantity ?? 0);
+      await execute(
+        `INSERT INTO product_watch_alerts (
+           shop_id, order_id, order_number, product_id, product_name,
+           stock_id, stock_name, quantity_sold, sold_unit, stock_remaining_after,
+           customer_name, seller_name, first_verifier_name, final_verifier_name, is_audited
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [
+          shopId,
+          orderId,
+          orderNumber,
+          item.product_id,
+          item.product_name,
+          targetStockId,
+          item.source_stock_name || (item.leg_type === "warehouse" ? "Warehouse" : "Main Shop"),
+          Number(item.quantity || 0),
+          item.sold_unit || item.product_unit || "pcs",
+          remainingAfter,
+          customerName,
+          sellerName,
+          firstVerifierName,
+          finalVerifierName
+        ]
+      );
+    }
+  }
+  await execute(
+    `UPDATE orders
+     SET chain_status = 'completed',
+         fulfillment_status = 'completed',
+         stock_released_by = ?,
+         stock_released_at = CURRENT_TIMESTAMP,
+         final_verified_by = ?,
+         final_verified_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND shop_id = ?`,
+    [finalVerifierId, finalVerifierId, orderId, shopId]
+  );
+}
+router4.get("/r2-status", requireAuth, requireStrictChainShop, (req, res) => {
+  res.json({ configured: isR2Configured() });
+});
+router4.post("/upload-url", requireAuth, requireStrictChainShop, async (req, res) => {
+  const user = req.session.user;
+  if (!hasUserPermission(user, "can_create_orders") && !hasUserPermission(user, "can_resolve_flagged_orders")) {
+    return res.status(403).json({ error: "Permission required to upload order photos." });
+  }
+  if (!isR2Configured()) {
+    return res.status(503).json({
+      error: "Cloudflare R2 storage is not configured yet. Add R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET_NAME.",
+      code: "R2_NOT_CONFIGURED"
+    });
+  }
+  try {
+    const { contentType, orderHint } = req.body || {};
+    const result = await createOrderPhotoUploadUrl({
+      shopId: res.locals.shopId,
+      contentType: String(contentType || "image/webp"),
+      orderHint: orderHint ? String(orderHint) : "slip"
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error("R2 Presigned PUT error:", err);
+    res.status(400).json({ error: err.message || "Failed to generate upload URL." });
+  }
+});
+router4.get("/orders/:id/photo-url", requireAuth, requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  try {
+    const order = await queryOne(
+      "SELECT id, handwritten_photo_key FROM orders WHERE id = ? AND shop_id = ?",
+      [orderId, shopId]
+    );
+    if (!order) {
+      return res.status(404).json({ error: "Order not found in this store." });
+    }
+    if (!order.handwritten_photo_key) {
+      return res.status(404).json({ error: "No handwritten order photo attached to this order." });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        error: "Cloudflare R2 storage is not configured on the server.",
+        code: "R2_NOT_CONFIGURED"
+      });
+    }
+    const signed = await createOrderPhotoViewUrl({
+      shopId,
+      photoKey: order.handwritten_photo_key
+    });
+    res.json({ success: true, photoKey: order.handwritten_photo_key, ...signed });
+  } catch (err) {
+    console.error("R2 Presigned GET error:", err);
+    res.status(400).json({ error: err.message || "Failed to sign photo URL." });
+  }
+});
+router4.get("/products-availability", requireAuth, requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const shop = res.locals.shop;
+  const isStockOnly = shop.pricing_mode === "stock_only";
+  try {
+    const products = await queryAll(
+      `SELECT p.*, st.name as stock_name, st.is_main as stock_is_main
+       FROM products p
+       LEFT JOIN stocks st ON p.stock_id = st.id
+       WHERE p.shop_id = ?
+       ORDER BY p.name ASC`,
+      [shopId]
+    );
+    const reservedMap = await getReservedBaseUnitsMap(shopId);
+    const enriched = products.map((p) => {
+      const physical = Number(p.quantity || 0);
+      const reserved = reservedMap.get(Number(p.id)) || 0;
+      const available = Math.max(0, physical - reserved);
+      return {
+        ...p,
+        buying_price: isStockOnly ? null : p.buying_price,
+        selling_price: isStockOnly ? 0 : p.selling_price,
+        pack_buying_price: isStockOnly ? null : p.pack_buying_price,
+        pack_selling_price: isStockOnly ? 0 : p.pack_selling_price,
+        reserved_quantity: reserved,
+        available_quantity: available,
+        leg_type: Number(p.stock_is_main) === 1 ? "shop" : "warehouse"
+      };
+    });
+    res.json({ products: enriched, pricing_mode: shop.pricing_mode });
+  } catch (err) {
+    console.error("StrictChain products availability error:", err);
+    res.status(500).json({ error: "Failed to load stock availability." });
+  }
+});
+router4.get("/orders", requireAuth, requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const shop = res.locals.shop;
+  const isStockOnly = shop.pricing_mode === "stock_only";
+  const queue = String(req.query.queue || "all").trim();
+  try {
+    let whereExtra = "";
+    const params = [shopId];
+    if (queue === "supervisor_1") {
+      whereExtra = ` AND o.chain_status = 'pending_supervisor_1'`;
+    } else if (queue === "returned_to_seller") {
+      whereExtra = ` AND o.chain_status = 'returned_to_seller'`;
+    } else if (queue === "in_release" || queue === "shop_release" || queue === "supervisor_2") {
+      whereExtra = ` AND o.chain_status = 'in_release'`;
+    } else if (queue === "warehouse_release") {
+      whereExtra = ` AND o.chain_status = 'in_release' AND EXISTS (SELECT 1 FROM order_items woi WHERE woi.order_id = o.id AND woi.leg_type = 'warehouse')`;
+    } else if (queue === "flagged") {
+      whereExtra = ` AND o.chain_status = 'flagged_for_manager'`;
+    } else if (queue === "completed") {
+      whereExtra = ` AND o.chain_status = 'completed'`;
+    }
+    const orders = await queryAll(
+      `SELECT o.*,
+              c.name as customer_name, c.phone as customer_phone,
+              u.name as salesperson_name,
+              v1.name as first_verified_by_name,
+              v2.name as final_verified_by_name,
+              fl.name as flagged_by_name,
+              rs.name as resolved_by_name
+       FROM orders o
+       LEFT JOIN customers c ON o.customer_id = c.id
+       LEFT JOIN users u ON o.salesperson_id = u.id
+       LEFT JOIN users v1 ON o.first_verified_by = v1.id
+       LEFT JOIN users v2 ON o.final_verified_by = v2.id
+       LEFT JOIN users fl ON o.flagged_by = fl.id
+       LEFT JOIN users rs ON o.resolved_by = rs.id
+       WHERE o.shop_id = ? ${whereExtra}
+       ORDER BY o.id DESC`,
+      params
+    );
+    const orderIds = orders.map((o) => o.id);
+    const itemsByOrder = /* @__PURE__ */ new Map();
+    if (orderIds.length > 0) {
+      const placeholders = orderIds.map(() => "?").join(", ");
+      const allItems = await queryAll(
+        `SELECT oi.*,
+                p.name as product_name, p.sku as product_sku, p.unit as product_unit, p.is_watched,
+                st.name as source_stock_name,
+                lr.name as leg_released_by_name,
+                lv.name as leg_verified_by_name
+         FROM order_items oi
+         INNER JOIN products p ON oi.product_id = p.id
+         LEFT JOIN stocks st ON COALESCE(oi.source_stock_id, p.stock_id) = st.id
+         LEFT JOIN users lr ON oi.leg_released_by = lr.id
+         LEFT JOIN users lv ON oi.leg_verified_by = lv.id
+         WHERE oi.order_id IN (${placeholders})
+         ORDER BY oi.id ASC`,
+        orderIds
+      );
+      for (const it of allItems) {
+        if (queue === "warehouse_release" && it.leg_type !== "warehouse") {
+          continue;
+        }
+        const cleaned = isStockOnly ? { ...it, buying_price: null, selling_price: 0, subtotal: 0, profit: null } : it;
+        const arr = itemsByOrder.get(Number(it.order_id)) || [];
+        arr.push(cleaned);
+        itemsByOrder.set(Number(it.order_id), arr);
+      }
+    }
+    const result = orders.map((o) => {
+      const items = itemsByOrder.get(Number(o.id)) || [];
+      return {
+        ...o,
+        total_amount: isStockOnly ? 0 : o.total_amount,
+        paid_amount: isStockOnly ? 0 : o.paid_amount,
+        debt_amount: isStockOnly ? 0 : o.debt_amount,
+        items
+      };
+    });
+    res.json({ orders: result, pricing_mode: shop.pricing_mode });
+  } catch (err) {
+    console.error("StrictChain orders list error:", err);
+    res.status(500).json({ error: "Failed to load verification chain orders." });
+  }
+});
+router4.post("/orders", requireAuth, requirePermission("can_create_orders"), requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const shop = res.locals.shop;
+  const currentUserId = Number(req.session.user.id);
+  const isStockOnly = shop.pricing_mode === "stock_only";
+  const { customer_id, customer_name, customer_phone, handwritten_photo_key, notes, items } = req.body || {};
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "At least one product item is required." });
+  }
+  if (Number(shop.require_order_photo || 0) === 1 && !handwritten_photo_key) {
+    return res.status(400).json({ error: "Order photo is required by store settings before creating an order." });
+  }
+  if (handwritten_photo_key && !isValidTenantPhotoKey(shopId, handwritten_photo_key)) {
+    return res.status(400).json({ error: "Invalid handwritten order photo key for this store." });
+  }
+  try {
+    const result = await withTransaction(async () => {
+      let finalCustomerId = customer_id ? Number(customer_id) : null;
+      if (finalCustomerId) {
+        const custCheck = await queryOne("SELECT id FROM customers WHERE id = ? AND shop_id = ?", [finalCustomerId, shopId]);
+        if (!custCheck) {
+          throw new Error("Specified customer does not belong to this store.");
+        }
+      } else if (customer_name && String(customer_name).trim()) {
+        const cleanName = String(customer_name).trim();
+        const cleanPhone = customer_phone ? String(customer_phone).trim() : "";
+        const existing = await queryOne(
+          `SELECT id FROM customers WHERE shop_id = ? AND (LOWER(TRIM(name)) = LOWER(?) OR (? != '' AND phone = ?)) LIMIT 1`,
+          [shopId, cleanName, cleanPhone, cleanPhone]
+        );
+        if (existing) {
+          finalCustomerId = existing.id;
+        } else {
+          const safePhone = cleanPhone || `UNLISTED-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 90 + 10)}`;
+          const newCust = await execute(
+            `INSERT INTO customers (shop_id, name, phone, credit_balance) VALUES (?, ?, ?, 0.0)`,
+            [shopId, cleanName, safePhone]
+          );
+          finalCustomerId = newCust.lastInsertId;
+        }
+      } else {
+        let walkIn = await queryOne(
+          `SELECT id FROM customers WHERE shop_id = ? AND (name = 'Walk-in Client' OR name = 'Walk-in Customer') LIMIT 1`,
+          [shopId]
+        );
+        if (!walkIn) {
+          const newCust = await execute(
+            `INSERT INTO customers (shop_id, name, phone, credit_balance) VALUES (?, 'Walk-in Client', 'WALK-IN', 0.0)`,
+            [shopId]
+          );
+          finalCustomerId = newCust.lastInsertId;
+        } else {
+          finalCustomerId = walkIn.id;
+        }
+      }
+      const reservedMap = await getReservedBaseUnitsMap(shopId);
+      const requestedMap = /* @__PURE__ */ new Map();
+      const parsedItems = [];
+      let totalAmount = 0;
+      for (const item of items) {
+        const prod = await queryOne(
+          `SELECT p.*, st.is_main as stock_is_main, st.name as stock_name
+           FROM products p
+           LEFT JOIN stocks st ON p.stock_id = st.id
+           WHERE p.id = ? AND p.shop_id = ?`,
+          [Number(item.product_id), shopId]
+        );
+        if (!prod) {
+          throw new Error(`Product #${item.product_id} not found in this store.`);
+        }
+        const qty = Math.round(Number(item.quantity));
+        if (isNaN(qty) || qty <= 0) {
+          throw new Error(`Invalid quantity for product "${prod.name}".`);
+        }
+        const prodPackSize = Math.max(1, Math.round(Number(prod.units_per_pack || 1)));
+        const isPack = item.sale_mode === "pack" && prodPackSize > 1;
+        const saleMode = isPack ? "pack" : "retail";
+        const packSize = isPack ? prodPackSize : 1;
+        const baseUnits = qty * packSize;
+        const alreadyRequested = requestedMap.get(prod.id) || 0;
+        const alreadyReserved = reservedMap.get(prod.id) || 0;
+        const availableUnits = Number(prod.quantity || 0) - alreadyReserved - alreadyRequested;
+        if (baseUnits > availableUnits) {
+          throw new Error(
+            `Insufficient unreserved stock for "${prod.name}". Physical: ${prod.quantity}, In Pending Orders: ${alreadyReserved}, Available: ${Math.max(0, availableUnits)}.`
+          );
+        }
+        requestedMap.set(prod.id, alreadyRequested + baseUnits);
+        const retailUnit = (prod.unit || "").trim() || "pcs";
+        const packUnit = (prod.pack_unit || "").trim() || "Carton";
+        const soldUnit = isPack ? packUnit : retailUnit;
+        const unitSell = isStockOnly ? 0 : isPack ? Number(prod.pack_selling_price || 0) > 0 ? Number(prod.pack_selling_price) : Number(prod.selling_price || 0) * packSize : Number(prod.selling_price || 0);
+        const unitBuy = isStockOnly ? 0 : isPack ? Number(prod.pack_buying_price || 0) > 0 ? Number(prod.pack_buying_price) : Number(prod.buying_price || 0) * packSize : Number(prod.buying_price || 0);
+        const subtotal = Number((qty * unitSell).toFixed(2));
+        const profit = Number((qty * (unitSell - unitBuy)).toFixed(2));
+        totalAmount += subtotal;
+        const sourceStockId = Number(prod.stock_id || 1);
+        const legType = Number(prod.stock_is_main) === 1 ? "shop" : "warehouse";
+        parsedItems.push({
+          product_id: prod.id,
+          source_stock_id: sourceStockId,
+          leg_type: legType,
+          quantity: qty,
+          sale_mode: saleMode,
+          sold_unit: soldUnit,
+          pack_size: packSize,
+          buying_price: unitBuy,
+          selling_price: unitSell,
+          subtotal,
+          profit,
+          fulfillment_source: legType === "warehouse" ? "Warehouse" : "Store"
+        });
+      }
+      const orderNumber = `ORD-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 90 + 10)}`;
+      const orderRes = await execute(
+        `INSERT INTO orders (
+           shop_id, stock_id, order_number, customer_id, salesperson_id,
+           total_amount, paid_amount, debt_amount, payment_status, fulfillment_status,
+           notes, handwritten_photo_key, chain_status
+         ) VALUES (?, 1, ?, ?, ?, ?, ?, 0, ?, 'pending_store', ?, ?, 'pending_supervisor_1')`,
+        [
+          shopId,
+          orderNumber,
+          finalCustomerId,
+          currentUserId,
+          isStockOnly ? 0 : totalAmount,
+          isStockOnly ? 0 : totalAmount,
+          isStockOnly ? "paid" : "pending",
+          notes ? String(notes).trim() : null,
+          handwritten_photo_key || null
+        ]
+      );
+      const orderId = orderRes.lastInsertId;
+      for (const pi of parsedItems) {
+        await execute(
+          `INSERT INTO order_items (
+             order_id, product_id, source_stock_id, quantity, sale_mode, sold_unit, pack_size,
+             buying_price, selling_price, subtotal, profit, fulfillment_source, item_status,
+             leg_type, leg_status
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_store', ?, 'pending')`,
+          [
+            orderId,
+            pi.product_id,
+            pi.source_stock_id,
+            pi.quantity,
+            pi.sale_mode,
+            pi.sold_unit,
+            pi.pack_size,
+            pi.buying_price,
+            pi.selling_price,
+            pi.subtotal,
+            pi.profit,
+            pi.fulfillment_source,
+            pi.leg_type
+          ]
+        );
+      }
+      return { orderId, orderNumber, itemCount: parsedItems.length };
+    });
+    await logChainAudit(
+      req,
+      "CHAIN_ORDER_CREATED",
+      `Seller submitted Order ${result.orderNumber} (${result.itemCount} items) for Supervisor #1 verification.`,
+      shopId
+    );
+    const created = await queryOne("SELECT * FROM orders WHERE id = ?", [result.orderId]);
+    res.json({ success: true, order: created });
+  } catch (err) {
+    console.error("StrictChain create order error:", err);
+    res.status(400).json({ error: err.message || "Failed to submit order." });
+  }
+});
+router4.post("/orders/:id/verify-1", requireAuth, requirePermission("can_verify_orders"), requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const currentUser = req.session.user;
+  const { decision, reason } = req.body || {};
+  if (decision !== "approve" && decision !== "return") {
+    return res.status(400).json({ error: 'Decision must be "approve" or "return".' });
+  }
+  try {
+    const order = await queryOne("SELECT * FROM orders WHERE id = ? AND shop_id = ?", [orderId, shopId]);
+    if (!order) {
+      return res.status(404).json({ error: "Order not found in this store." });
+    }
+    if (order.chain_status !== "pending_supervisor_1") {
+      return res.status(400).json({ error: `Order is currently in "${order.chain_status}", not pending Supervisor Verification #1.` });
+    }
+    if (decision === "return") {
+      const returnNote = String(reason || "Order returned to seller for correction").trim();
+      await execute(
+        `UPDATE orders
+         SET chain_status = 'returned_to_seller',
+             resolution_note = ?
+         WHERE id = ? AND shop_id = ?`,
+        [returnNote, orderId, shopId]
+      );
+      await logChainAudit(req, "CHAIN_RETURNED_TO_SELLER", `Supervisor ${currentUser.name} returned Order ${order.order_number} to Seller: ${returnNote}`, shopId);
+      return res.json({ success: true, chain_status: "returned_to_seller" });
+    }
+    await execute(
+      `UPDATE orders
+       SET chain_status = 'in_release',
+           first_verified_by = ?,
+           first_verified_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND shop_id = ?`,
+      [currentUser.id, orderId, shopId]
+    );
+    await execute(
+      `UPDATE order_items SET leg_status = 'pending' WHERE order_id = ?`,
+      [orderId]
+    );
+    await logChainAudit(
+      req,
+      "CHAIN_SUPERVISOR_1_APPROVED",
+      `Supervisor ${currentUser.name} authorized Order ${order.order_number} for physical release (locked to ${currentUser.name} for Step 2 verification).`,
+      shopId
+    );
+    res.json({ success: true, chain_status: "in_release", first_verified_by: currentUser.id });
+  } catch (err) {
+    console.error("StrictChain verify-1 error:", err);
+    res.status(500).json({ error: "Failed to process first supervisor verification." });
+  }
+});
+router4.put("/orders/:id/seller-edit", requireAuth, requirePermission("can_create_orders"), requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const shop = res.locals.shop;
+  const isStockOnly = shop.pricing_mode === "stock_only";
+  const orderId = Number(req.params.id);
+  const { items, notes, handwritten_photo_key } = req.body || {};
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "At least one item is required." });
+  }
+  if (handwritten_photo_key && !isValidTenantPhotoKey(shopId, handwritten_photo_key)) {
+    return res.status(400).json({ error: "Invalid handwritten order photo key." });
+  }
+  try {
+    const existing = await queryOne("SELECT * FROM orders WHERE id = ? AND shop_id = ?", [orderId, shopId]);
+    if (!existing) {
+      return res.status(404).json({ error: "Order not found in this store." });
+    }
+    if (existing.chain_status !== "returned_to_seller") {
+      return res.status(403).json({
+        error: "Seller can only edit orders that were explicitly returned by a Supervisor during Verification #1."
+      });
+    }
+    await withTransaction(async () => {
+      const reservedMap = await getReservedBaseUnitsMap(shopId, orderId);
+      const requestedMap = /* @__PURE__ */ new Map();
+      let totalAmount = 0;
+      await execute("DELETE FROM order_items WHERE order_id = ?", [orderId]);
+      for (const item of items) {
+        const prod = await queryOne(
+          `SELECT p.*, st.is_main as stock_is_main
+           FROM products p LEFT JOIN stocks st ON p.stock_id = st.id
+           WHERE p.id = ? AND p.shop_id = ?`,
+          [Number(item.product_id), shopId]
+        );
+        if (!prod) throw new Error(`Product #${item.product_id} not found.`);
+        const qty = Math.round(Number(item.quantity));
+        if (isNaN(qty) || qty <= 0) throw new Error(`Invalid quantity for ${prod.name}`);
+        const prodPackSize = Math.max(1, Math.round(Number(prod.units_per_pack || 1)));
+        const isPack = item.sale_mode === "pack" && prodPackSize > 1;
+        const saleMode = isPack ? "pack" : "retail";
+        const packSize = isPack ? prodPackSize : 1;
+        const baseUnits = qty * packSize;
+        const alreadyReq = requestedMap.get(prod.id) || 0;
+        const reserved = reservedMap.get(prod.id) || 0;
+        const available = Number(prod.quantity || 0) - reserved - alreadyReq;
+        if (baseUnits > available) {
+          throw new Error(`Insufficient unreserved stock for "${prod.name}".`);
+        }
+        requestedMap.set(prod.id, alreadyReq + baseUnits);
+        const retailUnit = (prod.unit || "").trim() || "pcs";
+        const packUnit = (prod.pack_unit || "").trim() || "Carton";
+        const soldUnit = isPack ? packUnit : retailUnit;
+        const unitSell = isStockOnly ? 0 : isPack ? Number(prod.pack_selling_price || 0) || Number(prod.selling_price || 0) * packSize : Number(prod.selling_price || 0);
+        const unitBuy = isStockOnly ? 0 : isPack ? Number(prod.pack_buying_price || 0) || Number(prod.buying_price || 0) * packSize : Number(prod.buying_price || 0);
+        const subtotal = Number((qty * unitSell).toFixed(2));
+        const profit = Number((qty * (unitSell - unitBuy)).toFixed(2));
+        totalAmount += subtotal;
+        const sourceStockId = Number(prod.stock_id || 1);
+        const legType = Number(prod.stock_is_main) === 1 ? "shop" : "warehouse";
+        await execute(
+          `INSERT INTO order_items (
+             order_id, product_id, source_stock_id, quantity, sale_mode, sold_unit, pack_size,
+             buying_price, selling_price, subtotal, profit, fulfillment_source, item_status, leg_type, leg_status
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_store', ?, 'pending')`,
+          [orderId, prod.id, sourceStockId, qty, saleMode, soldUnit, packSize, unitBuy, unitSell, subtotal, profit, legType === "warehouse" ? "Warehouse" : "Store", legType]
+        );
+      }
+      await execute(
+        `UPDATE orders
+         SET chain_status = 'pending_supervisor_1',
+             total_amount = ?,
+             paid_amount = ?,
+             notes = ?,
+             handwritten_photo_key = COALESCE(?, handwritten_photo_key),
+             resolution_note = NULL
+         WHERE id = ? AND shop_id = ?`,
+        [
+          isStockOnly ? 0 : totalAmount,
+          isStockOnly ? 0 : totalAmount,
+          notes !== void 0 ? notes ? String(notes).trim() : null : existing.notes,
+          handwritten_photo_key || null,
+          orderId,
+          shopId
+        ]
+      );
+    });
+    await logChainAudit(req, "CHAIN_SELLER_RESUBMITTED", `Seller edited & resubmitted Order ${existing.order_number} for Supervisor #1 review.`, shopId);
+    res.json({ success: true, chain_status: "pending_supervisor_1" });
+  } catch (err) {
+    console.error("StrictChain seller edit error:", err);
+    res.status(400).json({ error: err.message || "Failed to update returned order." });
+  }
+});
+router4.post("/orders/:id/release-leg", requireAuth, requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const currentUser = req.session.user;
+  const leg = String(req.body?.leg || "").trim();
+  if (leg !== "shop" && leg !== "warehouse") {
+    return res.status(400).json({ error: 'Leg must be "shop" or "warehouse".' });
+  }
+  if (leg === "shop" && !hasUserPermission(currentUser, "can_create_orders") && !hasUserPermission(currentUser, "can_release_stock")) {
+    return res.status(403).json({ error: "Permission required to mark Main Shop items as released." });
+  }
+  if (leg === "warehouse" && !hasUserPermission(currentUser, "can_release_stock")) {
+    return res.status(403).json({ error: "Storekeeper / Warehouse permission required to release warehouse items." });
+  }
+  try {
+    const order = await queryOne("SELECT * FROM orders WHERE id = ? AND shop_id = ?", [orderId, shopId]);
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    if (order.chain_status !== "in_release") {
+      return res.status(400).json({ error: `Cannot release items while order status is "${order.chain_status}".` });
+    }
+    const nextLegStatus = leg === "shop" ? "seller_released" : "warehouse_released";
+    const upd = await execute(
+      `UPDATE order_items
+       SET leg_status = ?,
+           leg_released_by = ?,
+           leg_released_at = CURRENT_TIMESTAMP
+       WHERE order_id = ? AND leg_type = ? AND leg_status = 'pending'`,
+      [nextLegStatus, currentUser.id, orderId, leg]
+    );
+    if (upd.changes === 0) {
+      return res.status(400).json({ error: `No pending ${leg} items found to release on this order.` });
+    }
+    await logChainAudit(
+      req,
+      leg === "warehouse" ? "CHAIN_WAREHOUSE_RELEASED" : "CHAIN_SHOP_RELEASED",
+      `${currentUser.name} marked ${leg} items as physically released for Order ${order.order_number}; awaiting Supervisor #2 confirmation.`,
+      shopId
+    );
+    res.json({ success: true, leg, leg_status: nextLegStatus });
+  } catch (err) {
+    console.error("StrictChain release-leg error:", err);
+    res.status(500).json({ error: "Failed to record physical release." });
+  }
+});
+router4.post("/orders/:id/flag", requireAuth, requirePermission("can_release_stock"), requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const currentUser = req.session.user;
+  const reason = String(req.body?.reason || "").trim();
+  if (!reason) {
+    return res.status(400).json({ error: "Please explain the discrepancy reason when flagging an order." });
+  }
+  try {
+    const order = await queryOne("SELECT * FROM orders WHERE id = ? AND shop_id = ?", [orderId, shopId]);
+    if (!order) return res.status(404).json({ error: "Order not found." });
+    if (order.chain_status !== "in_release") {
+      return res.status(400).json({ error: `Only authorized orders in release stage can be flagged (current: "${order.chain_status}").` });
+    }
+    await execute(
+      `UPDATE orders
+       SET chain_status = 'flagged_for_manager',
+           flagged_by = ?,
+           flagged_at = CURRENT_TIMESTAMP,
+           flag_reason = ?
+       WHERE id = ? AND shop_id = ?`,
+      [currentUser.id, reason, orderId, shopId]
+    );
+    await execute(
+      `UPDATE order_items SET leg_status = 'flagged' WHERE order_id = ? AND leg_status != 'supervisor_confirmed'`,
+      [orderId]
+    );
+    await logChainAudit(
+      req,
+      "CHAIN_WAREHOUSE_FLAGGED",
+      `Warehouse staff ${currentUser.name} flagged Order ${order.order_number} for Manager resolution: ${reason}`,
+      shopId
+    );
+    res.json({ success: true, chain_status: "flagged_for_manager" });
+  } catch (err) {
+    console.error("StrictChain flag error:", err);
+    res.status(500).json({ error: "Failed to flag order for manager review." });
+  }
+});
+router4.post("/orders/:id/verify-2", requireAuth, requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const orderId = Number(req.params.id);
+  const currentUser = req.session.user;
+  const leg = req.body?.leg ? String(req.body.leg).trim() : null;
+  const overrideReason = req.body?.override_reason ? String(req.body.override_reason).trim() : "";
+  const canVerify = hasUserPermission(currentUser, "can_verify_orders");
+  const canOverride = hasUserPermission(currentUser, "can_resolve_flagged_orders");
+  if (!canVerify && !canOverride) {
+    return res.status(403).json({ error: "Supervisor verification permission is required." });
+  }
+  try {
+    const txOutcome = await withTransaction(async () => {
+      const order = await queryOne(
+        `SELECT o.*, c.name as customer_name, u.name as seller_name, v1.name as first_verifier_name
+         FROM orders o
+         LEFT JOIN customers c ON o.customer_id = c.id
+         LEFT JOIN users u ON o.salesperson_id = u.id
+         LEFT JOIN users v1 ON o.first_verified_by = v1.id
+         WHERE o.id = ? AND o.shop_id = ?`,
+        [orderId, shopId]
+      );
+      if (!order) throw new Error("Order not found in this store.");
+      if (order.chain_status !== "in_release") {
+        throw new Error(`Order is currently "${order.chain_status}", not ready for Verification #2.`);
+      }
+      const isSameSupervisor = Number(order.first_verified_by) === Number(currentUser.id);
+      if (!isSameSupervisor) {
+        if (!canOverride) {
+          throw new Error(
+            `Same-Supervisor Rule: Only ${order.first_verified_by_name || order.first_verifier_name || "the 1st authorizing supervisor"} can complete Verification #2 unless a Manager delegates override access.`
+          );
+        }
+        if (!overrideReason) {
+          throw new Error("Manager override requires an override_reason when confirming for another supervisor.");
+        }
+      }
+      const targetLegFilter = leg === "shop" || leg === "warehouse" ? ` AND leg_type = ?` : "";
+      const targetParams = [currentUser.id, orderId];
+      if (leg === "shop" || leg === "warehouse") targetParams.push(leg);
+      const confirmedUpd = await execute(
+        `UPDATE order_items
+         SET leg_status = 'supervisor_confirmed',
+             leg_verified_by = ?,
+             leg_verified_at = CURRENT_TIMESTAMP
+         WHERE order_id = ? AND leg_status IN ('seller_released', 'warehouse_released')${targetLegFilter}`,
+        targetParams
+      );
+      if (confirmedUpd.changes === 0) {
+        throw new Error("No physically released items are waiting for Supervisor #2 confirmation.");
+      }
+      const remaining = await queryOne(
+        `SELECT COUNT(*) as count FROM order_items WHERE order_id = ? AND leg_status != 'supervisor_confirmed'`,
+        [orderId]
+      );
+      const allConfirmed = Number(remaining?.count || 0) === 0;
+      if (allConfirmed) {
+        await commitCompletedChainOrderTx({
+          shopId,
+          orderId,
+          orderNumber: order.order_number,
+          customerName: order.customer_name || "Walk-in Client",
+          sellerName: order.seller_name || "Seller",
+          firstVerifierName: order.first_verifier_name || currentUser.name,
+          finalVerifierId: Number(currentUser.id),
+          finalVerifierName: currentUser.name
+        });
+      }
+      return {
+        orderNumber: order.order_number,
+        allConfirmed,
+        overrideUsed: !isSameSupervisor
+      };
+    });
+    await logChainAudit(
+      req,
+      txOutcome.allConfirmed ? "CHAIN_COMPLETED_AND_STOCK_DEDUCTED" : "CHAIN_LEG_VERIFIED",
+      `Verification #2 confirmed by ${currentUser.name} for Order ${txOutcome.orderNumber}${txOutcome.overrideUsed ? ` (Manager Override: ${overrideReason})` : ""}.${txOutcome.allConfirmed ? " All legs verified \u2014 stock updated." : ""}`,
+      shopId
+    );
+    res.json({
+      success: true,
+      completed: txOutcome.allConfirmed,
+      chain_status: txOutcome.allConfirmed ? "completed" : "in_release"
+    });
+  } catch (err) {
+    console.error("StrictChain verify-2 error:", err);
+    res.status(400).json({ error: err.message || "Failed to complete Verification #2." });
+  }
+});
+router4.post("/orders/:id/manager-resolve", requireAuth, requirePermission("can_resolve_flagged_orders"), requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const shop = res.locals.shop;
+  const isStockOnly = shop.pricing_mode === "stock_only";
+  const orderId = Number(req.params.id);
+  const currentUser = req.session.user;
+  const { action, resolution_note, reassign_supervisor_id, items } = req.body || {};
+  if (!["edit_and_release", "approve_as_is", "reassign_supervisor", "cancel"].includes(action)) {
+    return res.status(400).json({ error: "Invalid manager resolution action." });
+  }
+  try {
+    const outcome = await withTransaction(async () => {
+      const order = await queryOne(
+        `SELECT o.*, c.name as customer_name, u.name as seller_name, v1.name as first_verifier_name
+         FROM orders o
+         LEFT JOIN customers c ON o.customer_id = c.id
+         LEFT JOIN users u ON o.salesperson_id = u.id
+         LEFT JOIN users v1 ON o.first_verified_by = v1.id
+         WHERE o.id = ? AND o.shop_id = ?`,
+        [orderId, shopId]
+      );
+      if (!order) throw new Error("Order not found.");
+      if (order.chain_status === "completed" || order.chain_status === "cancelled") {
+        throw new Error(`Order is already ${order.chain_status}.`);
+      }
+      if (action === "cancel") {
+        await execute(
+          `UPDATE orders
+           SET chain_status = 'cancelled',
+               fulfillment_status = 'cancelled',
+               resolved_by = ?,
+               resolved_at = CURRENT_TIMESTAMP,
+               resolution_note = ?
+           WHERE id = ? AND shop_id = ?`,
+          [currentUser.id, resolution_note || "Cancelled by Manager", orderId, shopId]
+        );
+        await execute(`UPDATE order_items SET item_status = 'rejected' WHERE order_id = ?`, [orderId]);
+        return { orderNumber: order.order_number, status: "cancelled" };
+      }
+      if (action === "reassign_supervisor") {
+        const nextSupId = Number(reassign_supervisor_id);
+        if (!nextSupId) throw new Error("Target supervisor ID is required to reassign.");
+        const targetSup = await queryOne(
+          `SELECT id, name FROM users WHERE id = ? AND shop_id = ? AND is_active = 1`,
+          [nextSupId, shopId]
+        );
+        if (!targetSup) throw new Error("Target supervisor not found or inactive in this store.");
+        const nextChainStatus = order.chain_status === "flagged_for_manager" ? "in_release" : order.chain_status;
+        await execute(
+          `UPDATE orders
+           SET first_verified_by = ?,
+               chain_status = ?,
+               resolved_by = ?,
+               resolved_at = CURRENT_TIMESTAMP,
+               resolution_note = ?
+           WHERE id = ? AND shop_id = ?`,
+          [nextSupId, nextChainStatus, currentUser.id, resolution_note || `Reassigned to ${targetSup.name}`, orderId, shopId]
+        );
+        await execute(
+          `UPDATE order_items SET leg_status = 'pending' WHERE order_id = ? AND leg_status = 'flagged'`,
+          [orderId]
+        );
+        return { orderNumber: order.order_number, status: nextChainStatus };
+      }
+      if (action === "edit_and_release" && Array.isArray(items) && items.length > 0) {
+        const reservedMap = await getReservedBaseUnitsMap(shopId, orderId);
+        let totalAmount = 0;
+        await execute("DELETE FROM order_items WHERE order_id = ?", [orderId]);
+        for (const item of items) {
+          const prod = await queryOne(
+            `SELECT p.*, st.is_main as stock_is_main FROM products p LEFT JOIN stocks st ON p.stock_id = st.id WHERE p.id = ? AND p.shop_id = ?`,
+            [Number(item.product_id), shopId]
+          );
+          if (!prod) throw new Error(`Product #${item.product_id} not found.`);
+          const qty = Math.round(Number(item.quantity));
+          if (isNaN(qty) || qty <= 0) throw new Error(`Invalid quantity for ${prod.name}`);
+          const prodPackSize = Math.max(1, Math.round(Number(prod.units_per_pack || 1)));
+          const isPack = item.sale_mode === "pack" && prodPackSize > 1;
+          const packSize = isPack ? prodPackSize : 1;
+          const baseUnits = qty * packSize;
+          const available = Number(prod.quantity || 0) - (reservedMap.get(prod.id) || 0);
+          if (baseUnits > available) throw new Error(`Insufficient unreserved stock for "${prod.name}".`);
+          const soldUnit = isPack ? prod.pack_unit || "Carton" : prod.unit || "pcs";
+          const unitSell = isStockOnly ? 0 : isPack ? Number(prod.pack_selling_price || 0) || Number(prod.selling_price || 0) * packSize : Number(prod.selling_price || 0);
+          const unitBuy = isStockOnly ? 0 : isPack ? Number(prod.pack_buying_price || 0) || Number(prod.buying_price || 0) * packSize : Number(prod.buying_price || 0);
+          const subtotal = Number((qty * unitSell).toFixed(2));
+          const profit = Number((qty * (unitSell - unitBuy)).toFixed(2));
+          totalAmount += subtotal;
+          const legType = Number(prod.stock_is_main) === 1 ? "shop" : "warehouse";
+          await execute(
+            `INSERT INTO order_items (
+               order_id, product_id, source_stock_id, quantity, sale_mode, sold_unit, pack_size,
+               buying_price, selling_price, subtotal, profit, fulfillment_source, item_status,
+               leg_type, leg_status, leg_verified_by, leg_verified_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, 'supervisor_confirmed', ?, CURRENT_TIMESTAMP)`,
+            [orderId, prod.id, Number(prod.stock_id || 1), qty, isPack ? "pack" : "retail", soldUnit, packSize, unitBuy, unitSell, subtotal, profit, legType === "warehouse" ? "Warehouse" : "Store", legType, currentUser.id]
+          );
+        }
+        await execute(
+          `UPDATE orders SET total_amount = ?, paid_amount = ? WHERE id = ?`,
+          [isStockOnly ? 0 : totalAmount, isStockOnly ? 0 : totalAmount, orderId]
+        );
+      } else {
+        await execute(
+          `UPDATE order_items
+           SET leg_status = 'supervisor_confirmed',
+               leg_verified_by = ?,
+               leg_verified_at = CURRENT_TIMESTAMP
+           WHERE order_id = ?`,
+          [currentUser.id, orderId]
+        );
+      }
+      await execute(
+        `UPDATE orders
+         SET resolved_by = ?,
+             resolved_at = CURRENT_TIMESTAMP,
+             resolution_note = ?
+         WHERE id = ? AND shop_id = ?`,
+        [currentUser.id, resolution_note || "Resolved and approved by Manager", orderId, shopId]
+      );
+      await commitCompletedChainOrderTx({
+        shopId,
+        orderId,
+        orderNumber: order.order_number,
+        customerName: order.customer_name || "Walk-in Client",
+        sellerName: order.seller_name || "Seller",
+        firstVerifierName: order.first_verifier_name || currentUser.name,
+        finalVerifierId: Number(currentUser.id),
+        finalVerifierName: currentUser.name
+      });
+      return { orderNumber: order.order_number, status: "completed" };
+    });
+    await logChainAudit(
+      req,
+      "CHAIN_MANAGER_RESOLVED",
+      `Manager/Delegate ${currentUser.name} resolved Order ${outcome.orderNumber} (${action}): ${resolution_note || "Approved"}`,
+      shopId
+    );
+    res.json({ success: true, chain_status: outcome.status });
+  } catch (err) {
+    console.error("StrictChain manager-resolve error:", err);
+    res.status(400).json({ error: err.message || "Failed to resolve order." });
+  }
+});
+router4.get("/watch-alerts", requireAuth, requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const currentUser = req.session.user;
+  const filter = String(req.query.filter || "all");
+  if (!hasUserPermission(currentUser, "can_view_reports") && !hasUserPermission(currentUser, "can_resolve_flagged_orders")) {
+    return res.status(403).json({ error: "Manager or report audit permission is required." });
+  }
+  try {
+    const filterClause = filter === "unaudited" ? " AND a.is_audited = 0" : "";
+    const alerts = await queryAll(
+      `SELECT a.*, au.name as audited_by_name, p.quantity as current_live_stock
+       FROM product_watch_alerts a
+       LEFT JOIN users au ON a.audited_by = au.id
+       LEFT JOIN products p ON a.product_id = p.id
+       WHERE a.shop_id = ?${filterClause}
+       ORDER BY a.is_audited ASC, a.created_at DESC, a.id DESC
+       LIMIT 200`,
+      [shopId]
+    );
+    const unreadCountRow = await queryOne(
+      `SELECT COUNT(*) as count FROM product_watch_alerts WHERE shop_id = ? AND is_audited = 0`,
+      [shopId]
+    );
+    res.json({
+      alerts,
+      unauditedCount: Number(unreadCountRow?.count || 0)
+    });
+  } catch (err) {
+    console.error("StrictChain watch-alerts error:", err);
+    res.status(500).json({ error: "Failed to load special watched-product audit feed." });
+  }
+});
+router4.post("/watch-alerts/:id/audit", requireAuth, requireStrictChainShop, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const alertId = Number(req.params.id);
+  const currentUser = req.session.user;
+  const auditNote = req.body?.audit_note ? String(req.body.audit_note).trim() : null;
+  if (!hasUserPermission(currentUser, "can_view_reports") && !hasUserPermission(currentUser, "can_resolve_flagged_orders")) {
+    return res.status(403).json({ error: "Manager or audit permission required." });
+  }
+  try {
+    const upd = await execute(
+      `UPDATE product_watch_alerts
+       SET is_audited = 1,
+           audited_by = ?,
+           audited_at = CURRENT_TIMESTAMP,
+           audit_note = COALESCE(?, audit_note)
+       WHERE id = ? AND shop_id = ?`,
+      [currentUser.id, auditNote, alertId, shopId]
+    );
+    if (upd.changes === 0) {
+      return res.status(404).json({ error: "Audit alert not found in this store." });
+    }
+    await logChainAudit(req, "WATCH_ALERT_AUDITED", `Manager ${currentUser.name} marked Special Product Audit #${alertId} as checked.`, shopId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Watch alert mark audited error:", err);
+    res.status(500).json({ error: "Failed to mark alert as audited." });
+  }
+});
+var strictChainRoutes_default = router4;
+
 // server/app.ts
 init_db();
 import fs2 from "fs";
@@ -8234,6 +9635,7 @@ app.set("views", path4.join(process.cwd(), "views"));
 app.use(express.static(path4.join(process.cwd(), "public")));
 app.use("/public", express.static(path4.join(process.cwd(), "public")));
 app.use("/api", apiRoutes_default);
+app.use("/api/chain", strictChainRoutes_default);
 app.use("/api", billingRoutes_default);
 app.use("/legacy", iomsRoutes_default);
 app.use(iomsRoutes_default);

@@ -222,6 +222,36 @@ export const api = {
     return request<{ orders: Order[] }>(`/api/orders?${q.toString()}`);
   },
   getOrderDetail: (id: number) => request<{ order: Order; items: any[]; payments: any[] }>(`/api/orders/${id}`),
+  getOrderR2Status: () => request<{ configured: boolean }>('/api/storage/r2-status'),
+  uploadCompressedOrderPhoto: async (file: File | Blob, orderHint?: string) => {
+    const compressed = await compressOrderPhoto(file);
+    const { uploadUrl, photoKey } = await request<{
+      success: boolean;
+      uploadUrl: string;
+      photoKey: string;
+    }>('/api/orders/upload-photo-url', {
+      method: 'POST',
+      body: JSON.stringify({ contentType: compressed.contentType, orderHint })
+    });
+
+    const putRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': compressed.contentType },
+      body: compressed.blob
+    });
+    if (!putRes.ok) {
+      throw new Error(`Direct storage upload failed (HTTP ${putRes.status}). Check R2 bucket CORS configuration.`);
+    }
+    return {
+      photoKey,
+      originalBytes: compressed.originalBytes,
+      compressedBytes: compressed.compressedBytes,
+      width: compressed.width,
+      height: compressed.height
+    };
+  },
+  getOrderPhotoViewUrl: (orderId: number) =>
+    request<{ success: boolean; viewUrl: string; photoKey: string; expiresInSeconds: number }>(`/api/orders/${orderId}/photo-url`),
   createOrder: (orderData: {
     customer_id?: number | null;
     customer_name?: string;
@@ -234,6 +264,7 @@ export const api = {
     notes?: string;
     payment_reference?: string;
     release_immediately?: boolean;
+    handwritten_photo_key?: string | null;
   }) => request<{ success: boolean; order: Order; store_credit_applied?: number }>('/api/orders', {
     method: 'POST',
     body: JSON.stringify(orderData)
