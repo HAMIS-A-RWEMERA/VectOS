@@ -16,6 +16,7 @@ import { throttleCheck, throttleFail, throttleClear } from '../security';
 import { generateSecret, generateURI, verify as verifyOtp } from 'otplib';
 import QRCode from 'qrcode';
 import { isPostgres } from '../database/db';
+import { buildBulkStockExcelTemplate } from '../utils/stockTemplate';
 
 const router = Router();
 
@@ -731,60 +732,20 @@ router.get('/products', requireAuth, async (req: Request, res: Response) => {
   }
 });
 
-// Download Sample Spreadsheet Template
+// Download Sample Spreadsheet Template (tailored to tenant pricing_mode)
 router.get('/products/sample-template', requireAuth, async (req: Request, res: Response) => {
-  const sampleData = [
-    {
-      'Product Name': 'CIMERWA Cement 32.5R (50kg)',
-      'SKU / Code': 'CEM-325R',
-      'Category': 'Cement',
-      'Unit': 'Bag',
-      'Buying Price': 10500,
-      'Initial Quantity': 250,
-      'Low Stock Alert': 50,
-      'Description': 'Standard construction cement'
-    },
-    {
-      'Product Name': 'Deformed Iron Bars 12mm x 12m',
-      'SKU / Code': 'IB-12MM',
-      'Category': 'Steel & Rebar',
-      'Unit': 'Bar',
-      'Buying Price': 11000,
-      'Initial Quantity': 300,
-      'Low Stock Alert': 40,
-      'Description': 'Fe500 grade rebar'
-    },
-    {
-      'Product Name': 'Roofing Sheets Gauge 28 Blue (3m)',
-      'SKU / Code': 'RS-G28-BL',
-      'Category': 'Roofing',
-      'Unit': 'Sheet',
-      'Buying Price': 14500,
-      'Initial Quantity': 100,
-      'Low Stock Alert': 20,
-      'Description': 'Color-coated corrugated iron sheets'
-    },
-    {
-      'Product Name': 'PVC Pressure Pipe 110mm PN10 (6m)',
-      'SKU / Code': 'PVC-110MM',
-      'Category': 'Plumbing',
-      'Unit': 'Pipe',
-      'Buying Price': 16000,
-      'Initial Quantity': 45,
-      'Low Stock Alert': 10,
-      'Description': 'Heavy duty drainage pipe'
-    }
-  ];
-
-  const XLSX = await import('xlsx');
-  const ws = XLSX.utils.json_to_sheet(sampleData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Products');
-
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.setHeader('Content-Disposition', 'attachment; filename="Quincaille_Stock_Import_Template.xlsx"');
+  const shopId = getActiveShopId(req);
+  const shop = await queryOne<{ code: string; pricing_mode: string | null }>(
+    'SELECT code, pricing_mode FROM shops WHERE id = ?',
+    [shopId]
+  );
+  const { buffer, filename } = await buildBulkStockExcelTemplate({
+    pricingMode: shop?.pricing_mode || 'standard',
+    shopCode: shop?.code || `shop-${shopId}`,
+  });
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.send(buf);
+  res.send(buffer);
 });
 
 // Bulk Excel/CSV Product Import

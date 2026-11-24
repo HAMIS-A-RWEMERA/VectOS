@@ -373,6 +373,12 @@ export const App: React.FC = () => {
               currentUser={user}
               activeShop={shop}
               onSwitchShop={handleSwitchShop}
+              onTenantDeleted={(deletedShopId, switchedToShopId) => {
+                setAvailableShops((prev) => prev.filter((s) => s.id !== deletedShopId));
+                if (switchedToShopId) {
+                  handleSwitchShop(switchedToShopId);
+                }
+              }}
             />
           )}
 

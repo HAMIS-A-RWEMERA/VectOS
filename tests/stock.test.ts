@@ -263,4 +263,199 @@ describe('Inventory (stock)', () => {
     expect(afterB.body.products.length).toBe(1);
     expect(afterB.body.products[0].quantity).toBe(18);
   });
+
+  it('serves tailored bulk Excel templates based on tenant pricing_mode and enforces 0 prices on stock_only bulk import', async () => {
+    const XLSX = await import('xlsx');
+    const { execute } = await import('../server/database/db');
+
+    const parseBinary = (res: any, cb: any) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => cb(null, Buffer.concat(chunks)));
+    };
+
+    const stdShop = await createTestShop('StdTemplateCo');
+    const stockOnlyShop = await createTestShop('StockOnlyTemplateCo');
+    await execute("UPDATE shops SET pricing_mode = 'stock_only', workflow_mode = 'strict_chain' WHERE id = ?", [
+      stockOnlyShop.shopId,
+    ]);
+
+    const stdSess = await login(stdShop.managerEmail, stdShop.managerPassword);
+    const stockOnlySess = await login(stockOnlyShop.managerEmail, stockOnlyShop.managerPassword);
+    const superSess = await login('admin@vectos.co.rw', 'password123');
+
+    // 1. Standard tenant receives Excel template WITH Buying Price & Selling Price columns
+    const stdRes = await (stdSess.agent as any)
+      .get('/api/products/bulk-template')
+      .buffer(true)
+      .parse(parseBinary);
+    expect(stdRes.status).toBe(200);
+    expect(stdRes.headers['content-disposition']).toContain('Stock_With_Prices_Template.xlsx');
+    const stdWb = XLSX.read(stdRes.body, { type: 'buffer' });
+    expect(stdWb.SheetNames).toContain('Products');
+    const stdRows = XLSX.utils.sheet_to_json<Record<string, any>>(stdWb.Sheets['Products']);
+    expect(stdRows.length).toBeGreaterThan(0);
+    expect(Object.keys(stdRows[0])).toContain('Buying Price (RWF)');
+    expect(Object.keys(stdRows[0])).toContain('Selling Price (RWF)');
+
+    // 2. Stock-Only tenant receives Excel template WITHOUT any price columns
+    const soRes = await (stockOnlySess.agent as any)
+      .get('/api/products/bulk-template')
+      .buffer(true)
+      .parse(parseBinary);
+    expect(soRes.status).toBe(200);
+    expect(soRes.headers['content-disposition']).toContain('Stock_Only_Template.xlsx');
+    const soWb = XLSX.read(soRes.body, { type: 'buffer' });
+    const soRows = XLSX.utils.sheet_to_json<Record<string, any>>(soWb.Sheets['Products']);
+    expect(soRows.length).toBeGreaterThan(0);
+    const soHeaders = Object.keys(soRows[0]);
+    expect(soHeaders).toContain('Product Name');
+    expect(soHeaders).toContain('Initial Quantity');
+    expect(soHeaders.some((h) => /price/i.test(h))).toBe(false);
+
+    // 3. SuperAdmin admin template endpoint also reflects target shop's pricing_mode
+    const adminSoRes = await (superSess.agent as any)
+      .get(`/api/admin/shops/${stockOnlyShop.shopId}/bulk-template`)
+      .buffer(true)
+      .parse(parseBinary);
+    expect(adminSoRes.status).toBe(200);
+    expect(adminSoRes.headers['content-disposition']).toContain('Stock_Only_Template.xlsx');
+
+    // 4. Bulk-import on stock_only tenant strictly keeps all prices at 0
+    const impRes = await (stockOnlySess.agent as any).post('/api/products/bulk-import').send({
+      products: [
+        {
+          name: 'Strict Chain Rebar 10mm',
+          sku: `SC-${Date.now()}`,
+          category: 'Steel',
+          unit: 'Bar',
+          buying_price: 9999,
+          selling_price: 12000,
+          quantity: 60,
+          low_stock_threshold: 10,
+        },
+      ],
+    });
+    expect(impRes.status).toBe(200);
+    expect(impRes.body.insertedCount).toBe(1);
+
+    const { queryOne } = await import('../server/database/db');
+    const savedProd = await queryOne<any>(
+      'SELECT buying_price, selling_price, quantity FROM products WHERE shop_id = ? AND name = ?',
+      [stockOnlyShop.shopId, 'Strict Chain Rebar 10mm']
+    );
+    expect(savedProd).toBeTruthy();
+    expect(Number(savedProd.quantity)).toBe(60);
+    expect(Number(savedProd.buying_price)).toBe(0);
+    expect(Number(savedProd.selling_price)).toBe(0);
+  });
+
+  it('allows SuperAdmin to completely delete a tenant shop, all warehouses, and all staff accounts while blocking managers and shop #1', async () => {
+    const { execute, queryAll, queryOne } = await import('../server/database/db');
+
+    const doomedTenant = await createTestShop('DoomedTenantCo');
+    const bystanderTenant = await createTestShop('KeepMeTenantCo');
+
+    const doomedShopRow = await queryOne<{ id: number; code: string }>(
+      'SELECT id, code FROM shops WHERE id = ?',
+      [doomedTenant.shopId]
+    );
+    expect(doomedShopRow).toBeTruthy();
+
+    const doomedSess = await login(doomedTenant.managerEmail, doomedTenant.managerPassword);
+    const doomedAgent = doomedSess.agent as any;
+
+    // Add an extra warehouse + staff account + product + customer + order on the doomed tenant
+    await execute(
+      "INSERT INTO stocks (shop_id, name, location, is_main) VALUES (?, 'Annex Warehouse', 'Gisozi', 0)",
+      [doomedTenant.shopId]
+    );
+    await execute(
+      "INSERT INTO users (shop_id, name, email, password, role, is_active, activation_status) VALUES (?, 'Doomed Cashier', ?, 'hashed', 'cashier', 1, 'active')",
+      [doomedTenant.shopId, `cashier-${Date.now()}@doomed.test`]
+    );
+
+    const pRes = await doomedAgent.post('/api/products').send({
+      name: 'Doomed Galvanized Pipe',
+      sku: `DM-${Date.now()}`,
+      category: 'Plumbing',
+      unit: 'pcs',
+      buying_price: 5000,
+      selling_price: 7000,
+      quantity: 30,
+    });
+    expect(pRes.status).toBe(200);
+
+    const cRes = await doomedAgent.post('/api/customers').send({
+      name: 'Doomed Buyer',
+      phone: '0788777666',
+    });
+    expect(cRes.status).toBe(200);
+
+    const oRes = await doomedAgent.post('/api/orders').send({
+      customer_id: cRes.body.customer.id,
+      items: [{ product_id: pRes.body.product.id, quantity: 2, selling_price: 7000 }],
+      payment_method: 'cash',
+      paid_amount: 14000,
+      immediate_release: true,
+    });
+    expect(oRes.status).toBe(200);
+
+    // 1. Tenant Manager cannot delete their own shop (403)
+    const mgrBlocked = await doomedAgent.post(`/api/admin/shops/${doomedTenant.shopId}/delete`).send({
+      confirm_code: doomedShopRow!.code,
+    });
+    expect(mgrBlocked.status).toBe(403);
+
+    // 2. SuperAdmin logs in and verifies safeguards
+    const superSess = await login('admin@vectos.co.rw', 'password123');
+    const superAgent = superSess.agent as any;
+
+    // Primary platform store #1 cannot be deleted
+    const primaryRow = await queryOne<{ code: string }>('SELECT code FROM shops WHERE id = 1');
+    const protectPrimary = await superAgent.post('/api/admin/shops/1/delete').send({
+      confirm_code: primaryRow?.code || 'MAIN',
+    });
+    expect(protectPrimary.status).toBe(400);
+
+    // Wrong confirm code rejected
+    const wrongCodeRes = await superAgent.post(`/api/admin/shops/${doomedTenant.shopId}/delete`).send({
+      confirm_code: 'INVALID-CODE',
+    });
+    expect(wrongCodeRes.status).toBe(400);
+
+    // Switch SuperAdmin context into doomed shop to verify session bounces back cleanly to #1 upon deletion
+    const switchRes = await superAgent.post('/api/shops/switch').send({ shop_id: doomedTenant.shopId });
+    expect(switchRes.status).toBe(200);
+
+    // 3. Valid complete tenant deletion succeeds and cleans up every dependent table
+    const delRes = await superAgent.post(`/api/admin/shops/${doomedTenant.shopId}/delete`).send({
+      confirm_code: doomedShopRow!.code,
+      reason: 'Tenant account permanently closed',
+    });
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.deletedShopId).toBe(doomedTenant.shopId);
+    expect(delRes.body.deletedStocks).toBeGreaterThanOrEqual(2);
+    expect(delRes.body.deletedUsers).toBeGreaterThanOrEqual(2);
+    expect(delRes.body.deletedProducts).toBe(1);
+    expect(delRes.body.deletedOrders).toBe(1);
+    expect(delRes.body.switchedToShopId).toBe(1);
+
+    // Verify all tenant records are gone
+    expect(await queryOne('SELECT id FROM shops WHERE id = ?', [doomedTenant.shopId])).toBeNull();
+    expect((await queryAll('SELECT id FROM stocks WHERE shop_id = ?', [doomedTenant.shopId])).length).toBe(0);
+    expect((await queryAll('SELECT id FROM users WHERE shop_id = ?', [doomedTenant.shopId])).length).toBe(0);
+    expect((await queryAll('SELECT id FROM products WHERE shop_id = ?', [doomedTenant.shopId])).length).toBe(0);
+    expect((await queryAll('SELECT id FROM orders WHERE shop_id = ?', [doomedTenant.shopId])).length).toBe(0);
+    expect((await queryAll('SELECT id FROM customers WHERE shop_id = ?', [doomedTenant.shopId])).length).toBe(0);
+
+    // Verify SuperAdmin session bounced safely back to shop #1
+    const meAfter = await superAgent.get('/api/auth/me');
+    expect(meAfter.status).toBe(200);
+    expect(Number(meAfter.body.user.shop_id)).toBe(1);
+
+    // Verify bystander tenant remains 100% untouched
+    const bystanderShop = await queryOne('SELECT id FROM shops WHERE id = ?', [bystanderTenant.shopId]);
+    expect(bystanderShop).toBeTruthy();
+  });
 });

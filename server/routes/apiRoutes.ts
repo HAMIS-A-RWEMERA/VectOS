@@ -23,6 +23,7 @@ import {
   createOrderPhotoUploadUrl,
   createOrderPhotoViewUrl
 } from '../r2';
+import { buildBulkStockExcelTemplate } from '../utils/stockTemplate';
 
 const router = Router();
 
@@ -979,6 +980,32 @@ router.post('/products', requireAuth, requireTenant, requirePermission('can_mana
   }
 });
 
+// Download Tenant-Tailored Bulk Stock Import Excel Template (.xlsx)
+router.get('/products/bulk-template', requireAuth, requireTenant, requirePermission('can_import_export_stock'), async (req: Request, res: Response) => {
+  const shopId = res.locals.shopId;
+  try {
+    const shop = await queryOne<{ code: string; pricing_mode: string | null }>(
+      'SELECT code, pricing_mode FROM shops WHERE id = ?',
+      [shopId]
+    );
+    const requestedMode = req.query.mode === 'stock_only' || req.query.mode === 'standard'
+      ? String(req.query.mode)
+      : (shop?.pricing_mode || 'standard');
+
+    const { buffer, filename } = await buildBulkStockExcelTemplate({
+      pricingMode: requestedMode,
+      shopCode: shop?.code || `shop-${shopId}`,
+    });
+
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (err: any) {
+    console.error('Bulk template download error:', err);
+    res.status(500).json({ error: 'Failed to generate bulk stock Excel template.' });
+  }
+});
+
 // Bulk Import Products (Excel/CSV upload & bulk staging)
 router.post('/products/bulk-import', requireAuth, requireTenant, requirePermission('can_import_export_stock'), async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
@@ -989,6 +1016,9 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
   }
 
   try {
+    const shopInfo = await queryOne<{ pricing_mode: string | null }>('SELECT pricing_mode FROM shops WHERE id = ?', [shopId]);
+    const isStockOnly = shopInfo?.pricing_mode === 'stock_only';
+
     let finalStockId = stock_id ? Number(stock_id) : 1;
     const stockExists = await queryOne('SELECT id FROM stocks WHERE id = ? AND shop_id = ?', [finalStockId, shopId]);
     if (!stockExists) {
@@ -1037,25 +1067,27 @@ router.post('/products/bulk-import', requireAuth, requireTenant, requirePermissi
         const pack_unit = units_per_pack > 1
           ? ((item.pack_unit && String(item.pack_unit).trim()) || 'Carton')
           : null;
-        const rawPackBuy = !isNaN(Number(item.pack_buying_price)) && Number(item.pack_buying_price) > 0
+        const rawPackBuy = !isStockOnly && !isNaN(Number(item.pack_buying_price)) && Number(item.pack_buying_price) > 0
           ? Number(item.pack_buying_price)
           : 0;
-        let buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
-        if (units_per_pack > 1 && buying_price <= 0 && rawPackBuy > 0) {
+        let buying_price = !isStockOnly && !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        if (!isStockOnly && units_per_pack > 1 && buying_price <= 0 && rawPackBuy > 0) {
           buying_price = Number((rawPackBuy / units_per_pack).toFixed(2));
         }
-        const pack_buying_price = units_per_pack > 1
+        const pack_buying_price = !isStockOnly && units_per_pack > 1
           ? (rawPackBuy > 0 ? rawPackBuy : Number((buying_price * units_per_pack).toFixed(2)))
           : 0;
 
         const rawSelling = item.selling_price !== undefined ? item.selling_price : item.price;
-        const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) > 0
+        const selling_price = isStockOnly
+          ? 0
+          : !isNaN(Number(rawSelling)) && Number(rawSelling) > 0
           ? Number(rawSelling)
           : (buying_price > 0 ? buying_price : 0);
-        const rawPackSell = !isNaN(Number(item.pack_selling_price)) && Number(item.pack_selling_price) > 0
+        const rawPackSell = !isStockOnly && !isNaN(Number(item.pack_selling_price)) && Number(item.pack_selling_price) > 0
           ? Number(item.pack_selling_price)
           : 0;
-        const pack_selling_price = units_per_pack > 1
+        const pack_selling_price = !isStockOnly && units_per_pack > 1
           ? (rawPackSell > 0 ? rawPackSell : Number((selling_price * units_per_pack).toFixed(2)))
           : 0;
 
@@ -4473,6 +4505,139 @@ router.post('/admin/shops/:id/wipe-stock', requireAuth, requireSuperAdmin, async
   } catch (err: any) {
     console.error('Admin wipe tenant stock error:', err);
     res.status(500).json({ error: 'Failed to wipe tenant stock: ' + (err?.message || 'Database error') });
+  }
+});
+
+// Admin Action: Download Tenant-Tailored Bulk Stock Excel Template (SuperAdmin Only)
+router.get('/admin/shops/:id/bulk-template', requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const shopId = Number(req.params.id);
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: 'Invalid shop ID' });
+  }
+  try {
+    const shop = await queryOne<{ id: number; code: string; pricing_mode: string | null }>(
+      'SELECT id, code, pricing_mode FROM shops WHERE id = ?',
+      [shopId]
+    );
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop tenant not found' });
+    }
+    const { buffer, filename } = await buildBulkStockExcelTemplate({
+      pricingMode: shop.pricing_mode || 'standard',
+      shopCode: shop.code,
+    });
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (err: any) {
+    console.error('Admin shop bulk template error:', err);
+    res.status(500).json({ error: 'Failed to generate tenant bulk Excel template.' });
+  }
+});
+
+// Admin Action: Completely Delete a Tenant Shop & All Warehouses, Staff Accounts, and Records (SuperAdmin Only)
+router.post('/admin/shops/:id/delete', requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const shopId = Number(req.params.id);
+  const { confirm_code, reason } = req.body || {};
+
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: 'Invalid shop ID' });
+  }
+  if (shopId === 1) {
+    return res.status(400).json({
+      error: 'Cannot delete the primary platform store (#1). You may suspend other tenant stores or delete test tenants instead.',
+    });
+  }
+
+  try {
+    const existing = await queryOne<{ id: number; name: string; code: string; owner_name: string }>(
+      'SELECT id, name, code, owner_name FROM shops WHERE id = ?',
+      [shopId]
+    );
+    if (!existing) {
+      return res.status(404).json({ error: 'Shop tenant not found' });
+    }
+
+    const superUserInside = await queryOne(
+      "SELECT id FROM users WHERE shop_id = ? AND role = 'superadmin' LIMIT 1",
+      [shopId]
+    );
+    if (superUserInside) {
+      return res.status(400).json({
+        error: 'Cannot delete a store that currently hosts a Platform SuperAdmin account.',
+      });
+    }
+
+    const expectedCode = String(existing.code || '').trim().toLowerCase();
+    const providedCode = String(confirm_code || '').trim().toLowerCase();
+    if (!providedCode || providedCode !== expectedCode) {
+      return res.status(400).json({
+        error: `Confirmation failed: Please enter the exact store code "${existing.code}" to permanently delete this tenant.`,
+      });
+    }
+
+    const cleanReason = reason ? String(reason).trim().slice(0, 300) : '';
+    let deletedUsers = 0;
+    let deletedStocks = 0;
+    let deletedProducts = 0;
+    let deletedOrders = 0;
+
+    await withTransaction(async () => {
+      await execute('DELETE FROM product_watch_alerts WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM stock_transfers WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM inventory_movements WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM customer_credit_ledger WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM payments WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE shop_id = ?)', [shopId]);
+      const ordRes = await execute('DELETE FROM orders WHERE shop_id = ?', [shopId]);
+      deletedOrders = Number(ordRes.changes || 0);
+
+      const prodRes = await execute('DELETE FROM products WHERE shop_id = ?', [shopId]);
+      deletedProducts = Number(prodRes.changes || 0);
+
+      await execute('DELETE FROM customers WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM partner_shops WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM audit_logs WHERE shop_id = ?', [shopId]);
+      await execute('DELETE FROM payments_ledger WHERE shop_id = ?', [shopId]);
+
+      const usrRes = await execute("DELETE FROM users WHERE shop_id = ? AND role != 'superadmin'", [shopId]);
+      deletedUsers = Number(usrRes.changes || 0);
+
+      const stkRes = await execute('DELETE FROM stocks WHERE shop_id = ?', [shopId]);
+      deletedStocks = Number(stkRes.changes || 0);
+
+      await execute('DELETE FROM shops WHERE id = ?', [shopId]);
+    });
+
+    // If the SuperAdmin session was currently switched into the deleted tenant, bounce safely back to main store (#1)
+    let updatedToken: string | undefined;
+    if (req.session?.user && Number(req.session.user.shop_id) === shopId) {
+      req.session.user.shop_id = 1;
+      await saveSession(req);
+      updatedToken = createAuthToken(req.session.user);
+    }
+
+    await logApiAudit(
+      req,
+      'TENANT_COMPLETELY_DELETED',
+      `SuperAdmin permanently deleted tenant #${shopId} (${existing.name} [${existing.code}]): deletedStocks=${deletedStocks}, deletedUsers=${deletedUsers}, deletedProducts=${deletedProducts}, deletedOrders=${deletedOrders}${cleanReason ? ` | Reason: ${cleanReason}` : ''}`,
+      1
+    );
+
+    res.json({
+      success: true,
+      deletedShopId: shopId,
+      deletedStocks,
+      deletedUsers,
+      deletedProducts,
+      deletedOrders,
+      switchedToShopId: updatedToken ? 1 : undefined,
+      token: updatedToken,
+      message: `Permanently deleted "${existing.name}" (${deletedStocks} warehouse(s), ${deletedUsers} staff account(s), ${deletedProducts} product(s), ${deletedOrders} order(s)).`,
+    });
+  } catch (err: any) {
+    console.error('Admin delete tenant error:', err);
+    res.status(500).json({ error: 'Failed to permanently delete tenant: ' + (err?.message || 'Database error') });
   }
 });
 

@@ -1646,6 +1646,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       {isBulkImportOpen && (
         <BulkImportModal
           stocks={stocks}
+          isStockOnly={isStockOnly}
           onClose={() => setIsBulkImportOpen(false)}
           onSuccess={() => {
             setIsBulkImportOpen(false);

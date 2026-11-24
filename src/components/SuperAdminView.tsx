@@ -26,7 +26,9 @@ import {
   Search,
   Filter,
   Trash2,
-  Loader2
+  Loader2,
+  FileSpreadsheet,
+  Building2
 } from 'lucide-react';
 import { matchesSearch } from '../utils/searchMatch';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -35,12 +37,14 @@ interface SuperAdminViewProps {
   currentUser: User | null;
   activeShop: Shop | null;
   onSwitchShop: (shopId: number) => void;
+  onTenantDeleted?: (deletedShopId: number, switchedToShopId?: number) => void;
 }
 
 export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
   currentUser,
   activeShop,
-  onSwitchShop
+  onSwitchShop,
+  onTenantDeleted
 }) => {
   const { tf } = useLanguage();
   const [shops, setShops] = useState<Shop[]>([]);
@@ -96,6 +100,22 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
   const [wipeReason, setWipeReason] = useState('');
   const [wipeError, setWipeError] = useState('');
   const [isWipingStock, setIsWipingStock] = useState(false);
+
+  // SuperAdmin-only Complete Tenant Deletion Modal State
+  const [deleteTargetShop, setDeleteTargetShop] = useState<Shop | null>(null);
+  const [deleteSummary, setDeleteSummary] = useState<{
+    productCount: number;
+    totalUnits: number;
+    stockCount: number;
+    orderCount: number;
+    staffCount: number;
+  } | null>(null);
+  const [deleteLoadingSummary, setDeleteLoadingSummary] = useState(false);
+  const [deleteConfirmCode, setDeleteConfirmCode] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeletingTenant, setIsDeletingTenant] = useState(false);
+  const [downloadingTemplateShopId, setDownloadingTemplateShopId] = useState<number | null>(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -333,6 +353,86 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
       setWipeError(err.message || tf('Failed to delete tenant stock.', 'Gusiba stock y’iduka byanze.'));
     } finally {
       setIsWipingStock(false);
+    }
+  };
+
+  const handleDownloadShopTemplate = async (shop: Shop) => {
+    try {
+      setDownloadingTemplateShopId(shop.id);
+      await api.downloadAdminShopBulkTemplate(shop.id, shop.code, shop.pricing_mode);
+      showFeedback(
+        'success',
+        shop.pricing_mode === 'stock_only'
+          ? tf(`Downloaded Stock-Only Excel template (no prices) for "${shop.name}".`, `Urupapuro rwa Excel rwa Stock Gusa (nta biciro) rw’iduka "${shop.name}" rwamanutse.`)
+          : tf(`Downloaded Standard Excel template (with prices) for "${shop.name}".`, `Urupapuro rwa Excel ruriho ibiciro rw’iduka "${shop.name}" rwamanutse.`)
+      );
+    } catch (err: any) {
+      showFeedback('error', err.message || tf('Failed to download Excel template', 'Kumanura urupapuro rwa Excel byanze'));
+    } finally {
+      setDownloadingTemplateShopId(null);
+    }
+  };
+
+  const openDeleteTenantModal = async (shop: Shop) => {
+    setDeleteTargetShop(shop);
+    setDeleteSummary(null);
+    setDeleteConfirmCode('');
+    setDeleteReason('');
+    setDeleteError('');
+    try {
+      setDeleteLoadingSummary(true);
+      const res = await api.getAdminShopStockSummary(shop.id);
+      const staffCount = users.filter((u) => Number(u.shop_id) === Number(shop.id) && u.role !== 'superadmin').length;
+      setDeleteSummary({
+        productCount: res.summary.productCount,
+        totalUnits: res.summary.totalUnits,
+        stockCount: res.summary.stockCount,
+        orderCount: res.summary.orderCount,
+        staffCount: Math.max(staffCount, Number(shop.user_count || 0)),
+      });
+    } catch (err: any) {
+      setDeleteError(err.message || tf('Failed to load tenant summary before deletion.', 'Kureba amakuru y’iri duka byanze.'));
+    } finally {
+      setDeleteLoadingSummary(false);
+    }
+  };
+
+  const handleConfirmDeleteTenant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deleteTargetShop) return;
+
+    const expected = (deleteTargetShop.code || '').trim().toLowerCase();
+    const typed = deleteConfirmCode.trim().toLowerCase();
+    if (!typed || typed !== expected) {
+      setDeleteError(
+        tf(
+          `Please type the exact store code "${deleteTargetShop.code}" to permanently delete this tenant.`,
+          `Nyamuneka andika neza kode y’iduka "${deleteTargetShop.code}" kugira ngo usibe iri duka burundu.`
+        )
+      );
+      return;
+    }
+
+    const deletedId = deleteTargetShop.id;
+    try {
+      setIsDeletingTenant(true);
+      setDeleteError('');
+      const res = await api.deleteTenant(deletedId, {
+        confirm_code: deleteConfirmCode.trim(),
+        reason: deleteReason.trim() || undefined,
+      });
+      setDeleteTargetShop(null);
+      showFeedback('success', res.message || tf('Tenant shop, warehouses, and staff accounts permanently deleted.', 'Iduka, ububiko bwaryo na konti z’abakozi byasibwe burundu.'));
+      if (onTenantDeleted) {
+        onTenantDeleted(deletedId, res.switchedToShopId);
+      } else if (res.switchedToShopId) {
+        onSwitchShop(res.switchedToShopId);
+      }
+      await loadAllData();
+    } catch (err: any) {
+      setDeleteError(err.message || tf('Failed to permanently delete tenant shop.', 'Gusiba iduka burundu byanze.'));
+    } finally {
+      setIsDeletingTenant(false);
     }
   };
 
@@ -819,19 +919,54 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <span className="text-[10px] text-slate-500">
-                        {tf('SuperAdmin Stock Reset Tool', 'Gusiba Stock (SuperAdmin gusa)')}
-                      </span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <button
                         type="button"
-                        onClick={() => openWipeStockModal(shop)}
-                        disabled={actionLoading}
-                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/25 text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
+                        onClick={() => handleDownloadShopTemplate(shop)}
+                        disabled={downloadingTemplateShopId === shop.id}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/25 text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title={
+                          shop.pricing_mode === 'stock_only'
+                            ? tf('Download Stock-Only Excel Template (No Prices)', 'Manura Excel ya Stock Gusa (Nta Biciro)')
+                            : tf('Download Standard Excel Template (With Prices)', 'Manura Excel Iriho Ibiciro')
+                        }
                       >
-                        <Trash2 className="w-3 h-3" />
-                        <span>{tf('Delete Whole Stock...', 'Siba Stock Yose...')}</span>
+                        {downloadingTemplateShopId === shop.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <FileSpreadsheet className="w-3 h-3" />
+                        )}
+                        <span>
+                          {shop.pricing_mode === 'stock_only'
+                            ? tf('Excel Template (No Prices)', 'Excel (Nta Biciro)')
+                            : tf('Excel Template (Prices)', 'Excel (Ibiciro)')}
+                        </span>
                       </button>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openWipeStockModal(shop)}
+                          disabled={actionLoading}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-500/25 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>{tf('Delete Stock...', 'Siba Stock...')}</span>
+                        </button>
+
+                        {shop.id !== 1 && (
+                          <button
+                            type="button"
+                            onClick={() => openDeleteTenantModal(shop)}
+                            disabled={actionLoading}
+                            className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/25 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+                            title={tf('Permanently delete this shop, all warehouses, and all staff accounts', 'Siba burundu iri duka, ububiko bwose n’abakozi bose')}
+                          >
+                            <Building2 className="w-3 h-3" />
+                            <span>{tf('Delete Tenant...', 'Siba Iduka...')}</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1441,6 +1576,162 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                           ? tf('Reset Quantities to 0', 'Shyira Ingano kuri 0')
                           : tf('Confirm Delete Whole Stock', 'Emeza Gusiba Stock Yose')}
                       </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SuperAdmin-Only Complete Tenant Deletion Modal (Shop + All Warehouses + All Staff Accounts) */}
+      {deleteTargetShop && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-2xl bg-[#141923] border border-rose-500/50 shadow-2xl animate-in fade-in zoom-in-95 overflow-hidden">
+            {/* Fixed Header */}
+            <div className="shrink-0 flex items-start justify-between border-b border-slate-800 px-5 py-4 bg-rose-950/20">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-400">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">
+                    {tf('Permanently Delete Tenant Shop', 'Siba Iduka Burundu')}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {deleteTargetShop.name} • <span className="font-mono text-amber-400">{deleteTargetShop.code}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isDeletingTenant && setDeleteTargetShop(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmDeleteTenant} className="flex flex-col flex-1 min-h-0">
+              {/* Scrollable Body */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3.5">
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/35 flex items-start gap-2.5 text-xs text-rose-200">
+                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold text-rose-200">
+                      {tf(
+                        'Permanent & Irreversible Action',
+                        'Iki gikorwa ntigisubirwaho'
+                      )}
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-rose-200/90">
+                      {tf(
+                        'This will completely erase the shop, ALL associated warehouses/depots, ALL staff and manager accounts belonging to this shop, and all its products, customers, and order history.',
+                        'Ibi birasiba burundu iri duka, ububiko bwose rishamikiyeho, konti zose z’abakozi n’abayobozi baryo, ibicuruzwa, abakiriya n’amateka ya komande zose.'
+                      )}
+                    </p>
+                    <p className="text-[11px] text-amber-300 font-semibold">
+                      {tf(
+                        'Need a temporary pause instead? Cancel and use "Suspend Store" or pause individual staff accounts.',
+                        'Niba ushaka guhagarika by’agateganyo gusa, subira inyuma ukoreshe "Hagarika Iduka" cyangwa uhagarike konti z’abakozi.'
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {deleteLoadingSummary ? (
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-center gap-2 text-xs text-slate-300">
+                    <Loader2 className="w-4 h-4 animate-spin text-rose-400" />
+                    <span>{tf('Inspecting warehouses, staff accounts, and records...', 'Kurimo kugenzura ububiko, abakozi n’amakuru y’iri duka...')}</span>
+                  </div>
+                ) : deleteSummary && (
+                  <div className="grid grid-cols-4 gap-2 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-center">
+                    <div>
+                      <p className="text-[10px] text-slate-400">{tf('Warehouses', 'Ububiko')}</p>
+                      <p className="text-sm font-black text-amber-400 mt-0.5">{deleteSummary.stockCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400">{tf('Staff Accounts', 'Abakozi')}</p>
+                      <p className="text-sm font-black text-rose-300 mt-0.5">{deleteSummary.staffCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400">{tf('Products', 'Ibicuruzwa')}</p>
+                      <p className="text-sm font-black text-white mt-0.5">{deleteSummary.productCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400">{tf('Orders', 'Komande')}</p>
+                      <p className="text-sm font-black text-indigo-300 mt-0.5">{deleteSummary.orderCount}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">
+                    {tf('Reason for Permanent Deletion (Optional)', 'Impamvu yo Gusiba Burundu (Si itegeko)')}
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={tf('e.g. Demo shop closed / Owner left platform', 'urugero: Iduka ry’igerageza rirangiye / Nyiraryo yahagaritse')}
+                    value={deleteReason}
+                    onChange={(e) => setDeleteReason(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-rose-300">
+                    {tf(
+                      `Type store code "${deleteTargetShop.code}" to confirm permanent deletion *`,
+                      `Andika kode y’iduka "${deleteTargetShop.code}" kugira ngo wemeze gusiba burundu *`
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    autoComplete="off"
+                    placeholder={deleteTargetShop.code}
+                    value={deleteConfirmCode}
+                    onChange={(e) => setDeleteConfirmCode(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-rose-500/40 text-xs text-white font-mono focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                {deleteError && (
+                  <p className="text-xs text-rose-400 font-semibold bg-rose-500/10 border border-rose-500/30 px-3 py-2 rounded-xl">
+                    {deleteError}
+                  </p>
+                )}
+              </div>
+
+              {/* Sticky Footer Always Visible */}
+              <div className="shrink-0 flex justify-end gap-3 px-5 py-3.5 border-t border-slate-800 bg-[#141923]">
+                <button
+                  type="button"
+                  disabled={isDeletingTenant}
+                  onClick={() => setDeleteTargetShop(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700 cursor-pointer"
+                >
+                  {tf('Cancel', 'Hagarika')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isDeletingTenant ||
+                    deleteLoadingSummary ||
+                    deleteConfirmCode.trim().toLowerCase() !== (deleteTargetShop.code || '').trim().toLowerCase()
+                  }
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md shadow-rose-600/20 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isDeletingTenant ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{tf('Deleting Tenant...', 'Irimo Gusiba Iduka...')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{tf('Permanently Delete Tenant', 'Siba Iduka Burundu')}</span>
                     </>
                   )}
                 </button>

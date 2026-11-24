@@ -30,6 +30,45 @@ function clearToken() {
   } catch (_) {}
 }
 
+async function downloadFileWithAuth(url: string, fallbackFilename: string): Promise<void> {
+  let authToken: string | null = null;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      authToken = window.localStorage.getItem('vectos_auth_token');
+    }
+  } catch (_) {}
+
+  const response = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers: authToken
+      ? {
+          'Authorization': `Bearer ${authToken}`,
+          'x-auth-token': authToken,
+        }
+      : {},
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || `Download failed (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  const filename = match?.[1] || fallbackFilename;
+
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
   let authToken: string | null = null;
   try {
@@ -178,6 +217,11 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(productData)
   }),
+  downloadBulkTemplate: (mode?: 'standard' | 'stock_only') => {
+    const q = mode ? `?mode=${encodeURIComponent(mode)}` : '';
+    const fallback = mode === 'stock_only' ? 'VectOS_Stock_Only_Template.xlsx' : 'VectOS_Stock_With_Prices_Template.xlsx';
+    return downloadFileWithAuth(`/api/products/bulk-template${q}`, fallback);
+  },
   bulkImportProducts: (products: any[], stock_id?: number) => request<{ success: boolean; message: string; insertedCount: number; updatedCount: number; errors?: string[] }>('/api/products/bulk-import', {
     method: 'POST',
     body: JSON.stringify({ products, stock_id })
@@ -468,6 +512,33 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  downloadAdminShopBulkTemplate: (shopId: number, shopCode?: string, pricingMode?: string) => {
+    const fallback = pricingMode === 'stock_only'
+      ? `VectOS_${shopCode || 'shop'}_Stock_Only_Template.xlsx`
+      : `VectOS_${shopCode || 'shop'}_Stock_With_Prices_Template.xlsx`;
+    return downloadFileWithAuth(`/api/admin/shops/${shopId}/bulk-template`, fallback);
+  },
+  deleteTenant: async (
+    shopId: number,
+    payload: { confirm_code: string; reason?: string }
+  ) => {
+    const res = await request<{
+      success: boolean;
+      deletedShopId: number;
+      deletedStocks: number;
+      deletedUsers: number;
+      deletedProducts: number;
+      deletedOrders: number;
+      switchedToShopId?: number;
+      token?: string;
+      message: string;
+    }>(`/api/admin/shops/${shopId}/delete`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (res?.token) persistToken(res.token);
+    return res;
+  },
 
   // Reports & Audits
   getReports: (params?: { period?: string; startDate?: string; endDate?: string }) => {

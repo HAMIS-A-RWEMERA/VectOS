@@ -1,11 +1,5 @@
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
@@ -236,6 +230,7 @@ async function initSqlJsSchema() {
       can_manage_subscriptions INTEGER DEFAULT 0,
       can_verify_orders INTEGER DEFAULT 0,
       can_resolve_flagged_orders INTEGER DEFAULT 0,
+      can_upload_photos INTEGER DEFAULT 1,
       force_password_change INTEGER DEFAULT 0,
       twofa_secret TEXT,
       twofa_enabled INTEGER DEFAULT 0,
@@ -354,6 +349,7 @@ async function initSqlJsSchema() {
       amount REAL NOT NULL,
       payment_method TEXT NOT NULL,
       reference_no TEXT,
+      proof_photo_key TEXT,
       recorded_by INTEGER NOT NULL REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -443,6 +439,7 @@ async function initSqlJsSchema() {
       entry_type TEXT NOT NULL,
       payment_method TEXT,
       reference_no TEXT,
+      proof_photo_key TEXT,
       notes TEXT,
       recorded_by INTEGER REFERENCES users(id),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -482,6 +479,23 @@ async function initSqlJsSchema() {
     if (!existingShopCols.has("require_order_photo")) {
       sqlJsDbInstance.run(`ALTER TABLE shops ADD COLUMN require_order_photo INTEGER DEFAULT 0`);
     }
+  } catch {
+  }
+  try {
+    const checkAndAddSqliteCol = (table, col, ddlDef) => {
+      const stmt = sqlJsDbInstance.prepare(`PRAGMA table_info(${table})`);
+      const cols = /* @__PURE__ */ new Set();
+      while (stmt.step()) {
+        cols.add(String(stmt.getAsObject().name || "").toLowerCase());
+      }
+      stmt.free();
+      if (!cols.has(col.toLowerCase())) {
+        sqlJsDbInstance.run(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddlDef}`);
+      }
+    };
+    checkAndAddSqliteCol("users", "can_upload_photos", "INTEGER DEFAULT 1");
+    checkAndAddSqliteCol("payments", "proof_photo_key", "TEXT");
+    checkAndAddSqliteCol("customer_credit_ledger", "proof_photo_key", "TEXT");
   } catch {
   }
   const shopCountRes = sqlJsDbInstance.exec("SELECT COUNT(*) FROM shops");
@@ -772,6 +786,9 @@ async function initPostgresSchemaIfNeeded() {
     `ALTER TABLE shops ADD COLUMN IF NOT EXISTS require_order_photo INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_verify_orders INTEGER DEFAULT 0;`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_resolve_flagged_orders INTEGER DEFAULT 0;`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS can_upload_photos INTEGER DEFAULT 1;`,
+    `ALTER TABLE payments ADD COLUMN IF NOT EXISTS proof_photo_key TEXT;`,
+    `ALTER TABLE customer_credit_ledger ADD COLUMN IF NOT EXISTS proof_photo_key TEXT;`,
     `ALTER TABLE products ADD COLUMN IF NOT EXISTS is_watched INTEGER DEFAULT 0;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS handwritten_photo_key TEXT;`,
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS chain_status TEXT DEFAULT 'completed';`,
@@ -900,7 +917,8 @@ async function ensureAdminAccounts(dbToUse) {
       "can_view_all_tenants",
       "can_manage_subscriptions",
       "can_verify_orders",
-      "can_resolve_flagged_orders"
+      "can_resolve_flagged_orders",
+      "can_upload_photos"
     ];
     const activePerms = permKeys.filter((k) => cols.size === 0 || cols.has(k));
     const existingPrimary = await queryOne("SELECT id, password FROM users WHERE LOWER(TRIM(email)) = ?", [primaryEmail]);
@@ -1059,13 +1077,14 @@ import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import cookieParser from "cookie-parser";
-import path4 from "path";
+import path5 from "path";
 import dotenv2 from "dotenv";
 
 // server/routes/apiRoutes.ts
 init_db();
 import { Router } from "express";
 import crypto5 from "crypto";
+import path3 from "path";
 import bcrypt2 from "bcryptjs";
 
 // server/database/backup.ts
@@ -1258,7 +1277,8 @@ var ALL_USER_PERMISSION_KEYS = [
   "can_manage_subscriptions",
   "can_edit_company_settings",
   "can_verify_orders",
-  "can_resolve_flagged_orders"
+  "can_resolve_flagged_orders",
+  "can_upload_photos"
 ];
 function hasUserPermission(user, permission) {
   if (!user) return false;
@@ -1514,7 +1534,8 @@ function requirePermission(permission) {
       can_manage_subscriptions: "Manage Store Billing & Subscriptions",
       can_edit_company_settings: "Edit Store Profile & Tax Info",
       can_verify_orders: "Verify & Authorize Orders (Supervisor Step 1 & 2)",
-      can_resolve_flagged_orders: "Resolve Flagged Orders & Override Verifier Lock"
+      can_resolve_flagged_orders: "Resolve Flagged Orders & Override Verifier Lock",
+      can_upload_photos: "Upload Order Slips & Payment Proof Photos"
     };
     return handleAuthFailure(
       req,
@@ -1731,11 +1752,11 @@ var upload = multer({
   // 50MB max file size
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|webp|gif|mp4|webm|quicktime|xlsx|xls|csv|pdf/;
-    const extname = allowedTypes.test(__require("path").extname(file.originalname).toLowerCase());
+    const extname = allowedTypes.test(path2.extname(file.originalname).toLowerCase());
     if (extname) {
       return cb(null, true);
     } else {
-      cb(new Error("File format not supported. Allowed formats: images, videos, XLSX, XLS, CSV."));
+      cb(new Error("File format not supported. Allowed formats: images, PDF, videos, XLSX, XLS, CSV."));
     }
   }
 });
@@ -2138,9 +2159,11 @@ function createR2Client(cfg) {
 function isValidTenantPhotoKey(shopId, photoKey) {
   if (!photoKey || typeof photoKey !== "string") return false;
   if (photoKey.includes("..") || photoKey.startsWith("/")) return false;
-  const expectedPrefix = `shops/${Number(shopId)}/orders/`;
-  if (!photoKey.startsWith(expectedPrefix)) return false;
-  return /^shops\/\d+\/orders\/[a-zA-Z0-9._-]+$/.test(photoKey);
+  const sid = Number(shopId);
+  const validOrders = photoKey.startsWith(`shops/${sid}/orders/`);
+  const validPayments = photoKey.startsWith(`shops/${sid}/payments/`);
+  if (!validOrders && !validPayments) return false;
+  return /^shops\/\d+\/(orders|payments)\/[a-zA-Z0-9._-]+$/.test(photoKey);
 }
 async function createOrderPhotoUploadUrl(params) {
   const cfg = getR2Config();
@@ -2151,10 +2174,11 @@ async function createOrderPhotoUploadUrl(params) {
   if (!ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) {
     throw new Error("Unsupported photo format. Please use WebP, JPEG, or PNG.");
   }
+  const folder = params.folder === "payments" ? "payments" : "orders";
   const ext = MIME_TO_EXT[normalizedMime] || "webp";
-  const safeHint = (params.orderHint || "order").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "order";
+  const safeHint = (params.orderHint || (folder === "payments" ? "payment" : "order")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || (folder === "payments" ? "payment" : "order");
   const uniqueId = crypto4.randomBytes(8).toString("hex");
-  const photoKey = `shops/${Number(params.shopId)}/orders/${safeHint}-${Date.now()}-${uniqueId}.${ext}`;
+  const photoKey = `shops/${Number(params.shopId)}/${folder}/${safeHint}-${Date.now()}-${uniqueId}.${ext}`;
   const client = createR2Client(cfg);
   const expiresInSeconds = 300;
   const command = new PutObjectCommand({
@@ -2181,6 +2205,180 @@ async function createOrderPhotoViewUrl(params) {
   });
   const viewUrl = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
   return { viewUrl, expiresInSeconds };
+}
+
+// server/utils/stockTemplate.ts
+async function buildBulkStockExcelTemplate(params) {
+  const isStockOnly = params.pricingMode === "stock_only";
+  const mode = isStockOnly ? "stock_only" : "standard";
+  const safeCode = (params.shopCode || "shop").replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^_+|_+$/g, "") || "shop";
+  const XLSX = await import("xlsx");
+  const productRows = isStockOnly ? [
+    {
+      "Product Name": "CIMERWA Cement 32.5R (50kg)",
+      "SKU": "SKU-CIM-001",
+      "Category": "Cement & Mortar",
+      "Unit": "Bag",
+      "Initial Quantity": 250,
+      "Low Stock Alert": 40,
+      "Units Per Pack (Optional)": 1,
+      "Pack Unit (Optional)": "",
+      "Description": "Standard 50kg construction cement"
+    },
+    {
+      "Product Name": "Deformed Iron Bars 12mm x 12m",
+      "SKU": "SKU-REB-012",
+      "Category": "Steel & Rebar",
+      "Unit": "Bar",
+      "Initial Quantity": 300,
+      "Low Stock Alert": 35,
+      "Units Per Pack (Optional)": 1,
+      "Pack Unit (Optional)": "",
+      "Description": "High yield reinforcement steel bar"
+    },
+    {
+      "Product Name": "Amabati Rugabano 28G Blue (3m)",
+      "SKU": "SKU-IRN-028",
+      "Category": "Roofing & Metal",
+      "Unit": "Sheet",
+      "Initial Quantity": 150,
+      "Low Stock Alert": 20,
+      "Units Per Pack (Optional)": 1,
+      "Pack Unit (Optional)": "",
+      "Description": "Corrugated galvanized roofing sheet"
+    },
+    {
+      "Product Name": "Imisumari 3 Inch Nails (1kg Pack)",
+      "SKU": "SKU-NAL-003",
+      "Category": "Fasteners",
+      "Unit": "Kg",
+      "Initial Quantity": 100,
+      "Low Stock Alert": 15,
+      "Units Per Pack (Optional)": 25,
+      "Pack Unit (Optional)": "Carton",
+      "Description": "1 carton contains 25 kg packs"
+    }
+  ] : [
+    {
+      "Product Name": "CIMERWA Cement 32.5R (50kg)",
+      "SKU": "SKU-CIM-001",
+      "Category": "Cement & Mortar",
+      "Unit": "Bag",
+      "Buying Price (RWF)": 9800,
+      "Selling Price (RWF)": 11500,
+      "Initial Quantity": 250,
+      "Low Stock Alert": 40,
+      "Units Per Pack (Optional)": 1,
+      "Pack Unit (Optional)": "",
+      "Pack Buying Price (Optional)": "",
+      "Pack Selling Price (Optional)": "",
+      "Description": "Standard 50kg construction cement"
+    },
+    {
+      "Product Name": "Deformed Iron Bars 12mm x 12m",
+      "SKU": "SKU-REB-012",
+      "Category": "Steel & Rebar",
+      "Unit": "Bar",
+      "Buying Price (RWF)": 11e3,
+      "Selling Price (RWF)": 13e3,
+      "Initial Quantity": 300,
+      "Low Stock Alert": 35,
+      "Units Per Pack (Optional)": 1,
+      "Pack Unit (Optional)": "",
+      "Pack Buying Price (Optional)": "",
+      "Pack Selling Price (Optional)": "",
+      "Description": "High yield reinforcement steel bar"
+    },
+    {
+      "Product Name": "Amabati Rugabano 28G Blue (3m)",
+      "SKU": "SKU-IRN-028",
+      "Category": "Roofing & Metal",
+      "Unit": "Sheet",
+      "Buying Price (RWF)": 11500,
+      "Selling Price (RWF)": 14e3,
+      "Initial Quantity": 150,
+      "Low Stock Alert": 20,
+      "Units Per Pack (Optional)": 1,
+      "Pack Unit (Optional)": "",
+      "Pack Buying Price (Optional)": "",
+      "Pack Selling Price (Optional)": "",
+      "Description": "Corrugated galvanized roofing sheet"
+    },
+    {
+      "Product Name": "Imisumari 3 Inch Nails (1kg Pack)",
+      "SKU": "SKU-NAL-003",
+      "Category": "Fasteners",
+      "Unit": "Kg",
+      "Buying Price (RWF)": 1800,
+      "Selling Price (RWF)": 2500,
+      "Initial Quantity": 100,
+      "Low Stock Alert": 15,
+      "Units Per Pack (Optional)": 25,
+      "Pack Unit (Optional)": "Carton",
+      "Pack Buying Price (Optional)": 43e3,
+      "Pack Selling Price (Optional)": 55e3,
+      "Description": "1 carton contains 25 kg packs"
+    }
+  ];
+  const instructionRows = isStockOnly ? [
+    { Column: "Product Name", Required: "Yes", Notes: "Clear product name including brand/size (if same name exists in store, stock quantity is added to it)." },
+    { Column: "SKU", Required: "Recommended", Notes: "Unique item code; leave blank to auto-generate." },
+    { Column: "Category", Required: "Yes", Notes: "e.g. Cement & Mortar, Steel & Rebar, Plumbing, Paints, Electrical, Tools." },
+    { Column: "Unit", Required: "Yes", Notes: "Base counting unit: Pcs, Bag, Bar, Sheet, Kg, Meter, Box, Liter." },
+    { Column: "Initial Quantity", Required: "Yes", Notes: "Whole number of base units currently entering the selected warehouse." },
+    { Column: "Low Stock Alert", Required: "Optional", Notes: "Minimum quantity warning threshold (defaults to 10)." },
+    { Column: "Units Per Pack (Optional)", Required: "Optional", Notes: "Leave as 1 for single items, or set pack size (e.g. 25 kg per carton)." },
+    { Column: "Pack Unit (Optional)", Required: "Optional", Notes: "Bulk unit name such as Carton, Box, Roll, Bundle when Units Per Pack > 1." },
+    { Column: "Description", Required: "Optional", Notes: "Extra notes or specifications. Price columns are intentionally omitted for your Stock-Only store." }
+  ] : [
+    { Column: "Product Name", Required: "Yes", Notes: "Clear product name including brand/size (if same name exists in store, stock quantity is added to it)." },
+    { Column: "SKU", Required: "Recommended", Notes: "Unique item code; leave blank to auto-generate." },
+    { Column: "Category", Required: "Yes", Notes: "e.g. Cement & Mortar, Steel & Rebar, Plumbing, Paints, Electrical, Tools." },
+    { Column: "Unit", Required: "Yes", Notes: "Base selling unit: Pcs, Bag, Bar, Sheet, Kg, Meter, Box, Liter." },
+    { Column: "Buying Price (RWF)", Required: "Yes", Notes: "Unit purchase/cost price in RWF (whole number, no commas/currency symbol needed)." },
+    { Column: "Selling Price (RWF)", Required: "Recommended", Notes: "Unit retail selling price in RWF (if left blank/0, defaults to Buying Price)." },
+    { Column: "Initial Quantity", Required: "Yes", Notes: "Whole number of base units currently entering the selected warehouse." },
+    { Column: "Low Stock Alert", Required: "Optional", Notes: "Minimum quantity warning threshold (defaults to 10)." },
+    { Column: "Units Per Pack (Optional)", Required: "Optional", Notes: "Leave as 1 for single items, or set pack size (e.g. 25 units per carton)." },
+    { Column: "Pack Unit (Optional)", Required: "Optional", Notes: "Wholesale pack unit (Carton, Box, Roll) when Units Per Pack > 1." },
+    { Column: "Pack Buying / Selling Price", Required: "Optional", Notes: "Optional wholesale carton cost and selling price in RWF." },
+    { Column: "Description", Required: "Optional", Notes: "Extra notes or specifications." }
+  ];
+  const wsProducts = XLSX.utils.json_to_sheet(productRows);
+  wsProducts["!cols"] = isStockOnly ? [
+    { wch: 34 },
+    { wch: 15 },
+    { wch: 20 },
+    { wch: 10 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 24 },
+    { wch: 20 },
+    { wch: 36 }
+  ] : [
+    { wch: 34 },
+    { wch: 15 },
+    { wch: 20 },
+    { wch: 10 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 16 },
+    { wch: 24 },
+    { wch: 20 },
+    { wch: 24 },
+    { wch: 24 },
+    { wch: 36 }
+  ];
+  const wsGuide = XLSX.utils.json_to_sheet(instructionRows);
+  wsGuide["!cols"] = [{ wch: 28 }, { wch: 15 }, { wch: 78 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsProducts, "Products");
+  XLSX.utils.book_append_sheet(wb, wsGuide, "Instructions");
+  const rawBuf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const buffer = Buffer.isBuffer(rawBuf) ? rawBuf : Buffer.from(rawBuf);
+  const filename = isStockOnly ? `VectOS_${safeCode}_Stock_Only_Template.xlsx` : `VectOS_${safeCode}_Stock_With_Prices_Template.xlsx`;
+  return { buffer, filename, mode };
 }
 
 // server/routes/apiRoutes.ts
@@ -2942,6 +3140,26 @@ router.post("/products", requireAuth, requireTenant, requirePermission("can_mana
     res.status(500).json({ error: "Failed to create product. Ensure SKU is unique within this store." });
   }
 });
+router.get("/products/bulk-template", requireAuth, requireTenant, requirePermission("can_import_export_stock"), async (req, res) => {
+  const shopId = res.locals.shopId;
+  try {
+    const shop = await queryOne(
+      "SELECT code, pricing_mode FROM shops WHERE id = ?",
+      [shopId]
+    );
+    const requestedMode = req.query.mode === "stock_only" || req.query.mode === "standard" ? String(req.query.mode) : shop?.pricing_mode || "standard";
+    const { buffer, filename } = await buildBulkStockExcelTemplate({
+      pricingMode: requestedMode,
+      shopCode: shop?.code || `shop-${shopId}`
+    });
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buffer);
+  } catch (err) {
+    console.error("Bulk template download error:", err);
+    res.status(500).json({ error: "Failed to generate bulk stock Excel template." });
+  }
+});
 router.post("/products/bulk-import", requireAuth, requireTenant, requirePermission("can_import_export_stock"), async (req, res) => {
   const shopId = res.locals.shopId;
   const { products: rawProducts, stock_id } = req.body;
@@ -2949,6 +3167,8 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
     return res.status(400).json({ error: "No products provided for bulk import." });
   }
   try {
+    const shopInfo = await queryOne("SELECT pricing_mode FROM shops WHERE id = ?", [shopId]);
+    const isStockOnly = shopInfo?.pricing_mode === "stock_only";
     let finalStockId = stock_id ? Number(stock_id) : 1;
     const stockExists = await queryOne("SELECT id FROM stocks WHERE id = ? AND shop_id = ?", [finalStockId, shopId]);
     if (!stockExists) {
@@ -2987,16 +3207,16 @@ router.post("/products/bulk-import", requireAuth, requireTenant, requirePermissi
         }
         const units_per_pack = !isNaN(Number(item.units_per_pack)) && Number(item.units_per_pack) > 1 ? Math.round(Number(item.units_per_pack)) : 1;
         const pack_unit = units_per_pack > 1 ? item.pack_unit && String(item.pack_unit).trim() || "Carton" : null;
-        const rawPackBuy = !isNaN(Number(item.pack_buying_price)) && Number(item.pack_buying_price) > 0 ? Number(item.pack_buying_price) : 0;
-        let buying_price = !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
-        if (units_per_pack > 1 && buying_price <= 0 && rawPackBuy > 0) {
+        const rawPackBuy = !isStockOnly && !isNaN(Number(item.pack_buying_price)) && Number(item.pack_buying_price) > 0 ? Number(item.pack_buying_price) : 0;
+        let buying_price = !isStockOnly && !isNaN(Number(item.buying_price)) && Number(item.buying_price) >= 0 ? Number(item.buying_price) : 0;
+        if (!isStockOnly && units_per_pack > 1 && buying_price <= 0 && rawPackBuy > 0) {
           buying_price = Number((rawPackBuy / units_per_pack).toFixed(2));
         }
-        const pack_buying_price = units_per_pack > 1 ? rawPackBuy > 0 ? rawPackBuy : Number((buying_price * units_per_pack).toFixed(2)) : 0;
+        const pack_buying_price = !isStockOnly && units_per_pack > 1 ? rawPackBuy > 0 ? rawPackBuy : Number((buying_price * units_per_pack).toFixed(2)) : 0;
         const rawSelling = item.selling_price !== void 0 ? item.selling_price : item.price;
-        const selling_price = !isNaN(Number(rawSelling)) && Number(rawSelling) > 0 ? Number(rawSelling) : buying_price > 0 ? buying_price : 0;
-        const rawPackSell = !isNaN(Number(item.pack_selling_price)) && Number(item.pack_selling_price) > 0 ? Number(item.pack_selling_price) : 0;
-        const pack_selling_price = units_per_pack > 1 ? rawPackSell > 0 ? rawPackSell : Number((selling_price * units_per_pack).toFixed(2)) : 0;
+        const selling_price = isStockOnly ? 0 : !isNaN(Number(rawSelling)) && Number(rawSelling) > 0 ? Number(rawSelling) : buying_price > 0 ? buying_price : 0;
+        const rawPackSell = !isStockOnly && !isNaN(Number(item.pack_selling_price)) && Number(item.pack_selling_price) > 0 ? Number(item.pack_selling_price) : 0;
+        const pack_selling_price = !isStockOnly && units_per_pack > 1 ? rawPackSell > 0 ? rawPackSell : Number((selling_price * units_per_pack).toFixed(2)) : 0;
         const quantity = !isNaN(Number(item.quantity)) && Number(item.quantity) >= 0 ? Math.round(Number(item.quantity)) : 0;
         const low_stock_threshold = !isNaN(Number(item.low_stock_threshold)) ? Math.max(0, Math.round(Number(item.low_stock_threshold))) : 10;
         const description = item.description ? String(item.description).trim() : null;
@@ -3097,8 +3317,14 @@ router.post("/products/ai-extract-invoice", requireAuth, requireTenant, requireP
     return res.status(400).json({ error: "Please upload an invoice photo/document or provide text to scan." });
   }
   try {
+    const geminiApiKey = (process.env.GEMINI_API_KEY || process.env.API_KEY || "").trim();
+    if (!geminiApiKey) {
+      return res.status(503).json({
+        error: "Gemini AI key is not configured on this server (GEMINI_API_KEY missing)."
+      });
+    }
     const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
+      apiKey: geminiApiKey,
       httpOptions: {
         headers: {
           "User-Agent": "aistudio-build"
@@ -3106,17 +3332,43 @@ router.post("/products/ai-extract-invoice", requireAuth, requireTenant, requireP
       }
     });
     const parts = [];
+    let extractedSpreadsheetText = "";
     if (file) {
-      const mime = file.mimetype || "image/jpeg";
-      parts.push({
-        inlineData: {
-          mimeType: mime,
-          data: file.buffer.toString("base64")
-        }
-      });
+      const ext = path3.extname(file.originalname || "").toLowerCase();
+      if (ext === ".xlsx" || ext === ".xls") {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.read(file.buffer, { type: "buffer" });
+        const sheetChunks = workbook.SheetNames.map((sheetName) => {
+          const sheet = workbook.Sheets[sheetName];
+          const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
+          return `--- Sheet: ${sheetName} ---
+${csv}`;
+        });
+        extractedSpreadsheetText = sheetChunks.join("\n\n").slice(0, 6e4);
+      } else if (ext === ".csv" || file.mimetype === "text/csv") {
+        extractedSpreadsheetText = file.buffer.toString("utf8").slice(0, 6e4);
+      } else {
+        const extMimeMap = {
+          ".pdf": "application/pdf",
+          ".png": "image/png",
+          ".webp": "image/webp",
+          ".gif": "image/gif",
+          ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg"
+        };
+        const rawMime = (file.mimetype || "").toLowerCase().trim();
+        const mime = rawMime && rawMime !== "application/octet-stream" ? rawMime : extMimeMap[ext] || "image/jpeg";
+        parts.push({
+          inlineData: {
+            mimeType: mime,
+            data: file.buffer.toString("base64")
+          }
+        });
+      }
     }
+    const combinedTextContext = [extractedSpreadsheetText, rawText].filter(Boolean).join("\n\n");
     const promptText = `You are an expert Kigali / Rwandan hardware store (quincaillerie) and construction materials inventory assistant.
-Analyze this supplier invoice, delivery note, paper receipt photo, bill of materials, or pasted inventory text.
+Analyze this supplier invoice, delivery note, paper receipt photo, PDF pricing list, spreadsheet, or pasted inventory text.
 Extract all distinct inventory products, construction materials, plumbing, electrical, steel, paints, or tools into a clean JSON array.
 
 CRITICAL EXTRACTION RULES:
@@ -3131,7 +3383,8 @@ CRITICAL EXTRACTION RULES:
 5. Packaging Units: Standardize to:
    "pcs", "bags", "bars", "sheets", "meters", "cartons", "rolls", "liters", "boxes", "kg".
 6. SKU: Short practical SKU (e.g., "CIM-TWI-325", "STL-IRN-12M").
-${rawText ? `Additional pasted invoice text/context: ${rawText}` : ""}`;
+${combinedTextContext ? `Document / pasted invoice content:
+${combinedTextContext}` : ""}`;
     parts.push({ text: promptText });
     const response = await ai.models.generateContent({
       model: "gemini-4-hydrogen",
@@ -3449,8 +3702,13 @@ router.get("/storage/r2-status", requireAuth, (req, res) => {
 });
 router.post("/orders/upload-photo-url", requireAuth, requireTenant, async (req, res) => {
   const user = req.session?.user;
-  if (!hasUserPermission(user, "can_create_orders") && !hasUserPermission(user, "can_edit_company_settings") && !hasUserPermission(user, "can_resolve_flagged_orders")) {
-    return res.status(403).json({ error: "Permission required to upload order photos." });
+  if (!hasUserPermission(user, "can_upload_photos")) {
+    return res.status(403).json({
+      error: "Permission required to upload photos. Ask your store manager to enable Upload Photos."
+    });
+  }
+  if (!hasUserPermission(user, "can_create_orders") && !hasUserPermission(user, "can_process_payments") && !hasUserPermission(user, "can_edit_company_settings") && !hasUserPermission(user, "can_resolve_flagged_orders")) {
+    return res.status(403).json({ error: "Permission required to upload order or payment photos." });
   }
   if (!isR2Configured()) {
     return res.status(503).json({
@@ -3459,11 +3717,13 @@ router.post("/orders/upload-photo-url", requireAuth, requireTenant, async (req, 
     });
   }
   try {
-    const { contentType, orderHint } = req.body || {};
+    const { contentType, orderHint, purpose } = req.body || {};
+    const folder = purpose === "payment" ? "payments" : "orders";
     const result = await createOrderPhotoUploadUrl({
       shopId: res.locals.shopId,
       contentType: String(contentType || "image/webp"),
-      orderHint: orderHint ? String(orderHint) : "slip"
+      orderHint: orderHint ? String(orderHint) : folder === "payments" ? "payment" : "slip",
+      folder
     });
     res.json({ success: true, ...result });
   } catch (err) {
@@ -3507,6 +3767,82 @@ router.get("/orders/:id/photo-url", requireAuth, requireTenant, async (req, res)
   } catch (err) {
     console.error("Order R2 Presigned GET error:", err);
     res.status(400).json({ error: err.message || "Failed to sign photo URL." });
+  }
+});
+router.get("/payments/:id/photo-url", requireAuth, requireTenant, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const paymentId = Number(req.params.id);
+  const user = req.session?.user;
+  const canViewPaymentProof = user?.role === "superadmin" || user?.role === "manager" || hasUserPermission(user, "can_create_orders") || hasUserPermission(user, "can_process_payments") || hasUserPermission(user, "can_release_stock") || hasUserPermission(user, "can_view_reports") || hasUserPermission(user, "can_void_orders") || hasUserPermission(user, "can_verify_orders") || hasUserPermission(user, "can_resolve_flagged_orders") || hasUserPermission(user, "can_view_audit_trail");
+  if (!canViewPaymentProof) {
+    return res.status(403).json({ error: "Permission required to view payment proof photos." });
+  }
+  try {
+    const payment = await queryOne(
+      "SELECT id, proof_photo_key FROM payments WHERE id = ? AND shop_id = ?",
+      [paymentId, shopId]
+    );
+    if (!payment) {
+      return res.status(404).json({ error: "Payment record not found in this store." });
+    }
+    if (!payment.proof_photo_key) {
+      return res.status(404).json({ error: "No proof of payment photo attached to this payment." });
+    }
+    if (!isValidTenantPhotoKey(shopId, payment.proof_photo_key)) {
+      return res.status(403).json({ error: "Invalid photo key for this store." });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        error: "Cloudflare R2 storage is not configured on the server.",
+        code: "R2_NOT_CONFIGURED"
+      });
+    }
+    const signed = await createOrderPhotoViewUrl({
+      shopId,
+      photoKey: payment.proof_photo_key
+    });
+    res.json({ success: true, photoKey: payment.proof_photo_key, ...signed });
+  } catch (err) {
+    console.error("Payment Proof R2 Presigned GET error:", err);
+    res.status(400).json({ error: err.message || "Failed to sign payment proof URL." });
+  }
+});
+router.get("/credit-ledger/:id/photo-url", requireAuth, requireTenant, async (req, res) => {
+  const shopId = res.locals.shopId;
+  const entryId = Number(req.params.id);
+  const user = req.session?.user;
+  const canViewProof = user?.role === "superadmin" || user?.role === "manager" || hasUserPermission(user, "can_create_orders") || hasUserPermission(user, "can_process_payments") || hasUserPermission(user, "can_manage_customers") || hasUserPermission(user, "can_view_reports") || hasUserPermission(user, "can_view_audit_trail");
+  if (!canViewProof) {
+    return res.status(403).json({ error: "Permission required to view payment proof photos." });
+  }
+  try {
+    const entry = await queryOne(
+      "SELECT id, proof_photo_key FROM customer_credit_ledger WHERE id = ? AND shop_id = ?",
+      [entryId, shopId]
+    );
+    if (!entry) {
+      return res.status(404).json({ error: "Credit ledger entry not found in this store." });
+    }
+    if (!entry.proof_photo_key) {
+      return res.status(404).json({ error: "No proof of payment photo attached to this entry." });
+    }
+    if (!isValidTenantPhotoKey(shopId, entry.proof_photo_key)) {
+      return res.status(403).json({ error: "Invalid photo key for this store." });
+    }
+    if (!isR2Configured()) {
+      return res.status(503).json({
+        error: "Cloudflare R2 storage is not configured on the server.",
+        code: "R2_NOT_CONFIGURED"
+      });
+    }
+    const signed = await createOrderPhotoViewUrl({
+      shopId,
+      photoKey: entry.proof_photo_key
+    });
+    res.json({ success: true, photoKey: entry.proof_photo_key, ...signed });
+  } catch (err) {
+    console.error("Ledger Proof R2 Presigned GET error:", err);
+    res.status(400).json({ error: err.message || "Failed to sign payment proof URL." });
   }
 });
 router.get("/orders", requireAuth, requireTenant, async (req, res) => {
@@ -3865,7 +4201,8 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
     notes,
     payment_reference,
     release_immediately,
-    handwritten_photo_key
+    handwritten_photo_key,
+    payment_proof_photo_key
   } = req.body;
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "At least one product item is required to place an order." });
@@ -3873,6 +4210,15 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
   const cleanPhotoKey = handwritten_photo_key ? String(handwritten_photo_key).trim() : null;
   if (cleanPhotoKey && !isValidTenantPhotoKey(shopId, cleanPhotoKey)) {
     return res.status(400).json({ error: "Invalid order photo key for this store." });
+  }
+  const cleanPaymentProofKey = payment_proof_photo_key ? String(payment_proof_photo_key).trim() : null;
+  if (cleanPaymentProofKey && !isValidTenantPhotoKey(shopId, cleanPaymentProofKey)) {
+    return res.status(400).json({ error: "Invalid payment proof photo key for this store." });
+  }
+  if ((cleanPhotoKey || cleanPaymentProofKey) && !hasUserPermission(currentUser, "can_upload_photos")) {
+    return res.status(403).json({
+      error: "Permission required to upload photos. Ask your store manager to enable Upload Photos."
+    });
   }
   const shopSetting = await queryOne("SELECT require_order_photo FROM shops WHERE id = ?", [shopId]);
   if (Number(shopSetting?.require_order_photo || 0) === 1 && !cleanPhotoKey) {
@@ -4063,14 +4409,15 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
       }
       if (cashPaid > 0) {
         await execute(
-          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, proof_photo_key, recorded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             shopId,
             orderId,
             cashPaid,
             payment_method || "cash",
             payment_reference || null,
+            cleanPaymentProofKey,
             currentUserId
           ]
         );
@@ -4148,12 +4495,21 @@ router.post("/orders", requireAuth, requireTenant, requirePermission("can_create
 router.post("/orders/:id/payments", requireAuth, requireTenant, requirePermission("can_process_payments"), async (req, res) => {
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
-  const { amount, payment_method, reference_no } = req.body;
+  const { amount, payment_method, reference_no, proof_photo_key } = req.body;
   const currentUserId = req.session?.user?.id || 1;
   const currentUserName = req.session?.user?.name || "Cashier";
   const payAmt = Number(amount);
   if (isNaN(payAmt) || payAmt <= 0) {
     return res.status(400).json({ error: "Valid payment amount greater than 0 is required" });
+  }
+  const cleanProofKey = proof_photo_key ? String(proof_photo_key).trim() : null;
+  if (cleanProofKey && !isValidTenantPhotoKey(shopId, cleanProofKey)) {
+    return res.status(400).json({ error: "Invalid payment proof photo key for this store." });
+  }
+  if (cleanProofKey && !hasUserPermission(req.session?.user, "can_upload_photos")) {
+    return res.status(403).json({
+      error: "Permission required to upload photos. Ask your store manager to enable Upload Photos."
+    });
   }
   try {
     const order = await queryOne("SELECT * FROM orders WHERE id = ? AND shop_id = ?", [orderId, shopId]);
@@ -4165,14 +4521,15 @@ router.post("/orders/:id/payments", requireAuth, requireTenant, requirePermissio
     }
     await withTransaction(async () => {
       await execute(
-        `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, proof_photo_key, recorded_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           shopId,
           orderId,
           payAmt,
           payment_method || "cash",
           reference_no || null,
+          cleanProofKey,
           currentUserId
         ]
       );
@@ -4748,7 +5105,7 @@ router.get("/customers/:id/statement", requireAuth, requireTenant, async (req, r
 router.post("/customers/:id/settle-debt", requireAuth, requireTenant, requirePermission("can_process_payments"), async (req, res) => {
   const shopId = res.locals.shopId;
   const customerId = Number(req.params.id);
-  const { amount, payment_method, reference_no, notes, excess_to_store_credit } = req.body || {};
+  const { amount, payment_method, reference_no, notes, excess_to_store_credit, proof_photo_key } = req.body || {};
   const currentUserId = req.session?.user?.id || 1;
   const currentUserName = req.session?.user?.name || "Cashier";
   const payTotal = Number(amount);
@@ -4757,6 +5114,15 @@ router.post("/customers/:id/settle-debt", requireAuth, requireTenant, requirePer
   }
   if (isNaN(payTotal) || payTotal <= 0) {
     return res.status(400).json({ error: "Valid payment amount greater than 0 is required." });
+  }
+  const cleanProofKey = proof_photo_key ? String(proof_photo_key).trim() : null;
+  if (cleanProofKey && !isValidTenantPhotoKey(shopId, cleanProofKey)) {
+    return res.status(400).json({ error: "Invalid payment proof photo key for this store." });
+  }
+  if (cleanProofKey && !hasUserPermission(req.session?.user, "can_upload_photos")) {
+    return res.status(403).json({
+      error: "Permission required to upload photos. Ask your store manager to enable Upload Photos."
+    });
   }
   const allowedMethods = /* @__PURE__ */ new Set(["cash", "momo", "bank_transfer"]);
   const safeMethod = allowedMethods.has(String(payment_method || "").toLowerCase()) ? String(payment_method).toLowerCase() : "cash";
@@ -4795,9 +5161,9 @@ router.post("/customers/:id/settle-debt", requireAuth, requireTenant, requirePer
         const newDebt = Math.max(0, Number(order.total_amount || 0) - newPaid);
         const newPaymentStatus = newDebt === 0 ? "paid" : "partial";
         await execute(
-          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, recorded_by)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [shopId, order.id, payForOrder, safeMethod, refText, currentUserId]
+          `INSERT INTO payments (shop_id, order_id, amount, payment_method, reference_no, proof_photo_key, recorded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [shopId, order.id, payForOrder, safeMethod, refText, cleanProofKey, currentUserId]
         );
         await execute(
           `UPDATE orders
@@ -4835,14 +5201,15 @@ router.post("/customers/:id/settle-debt", requireAuth, requireTenant, requirePer
           [addedToStoreCredit, customerId, shopId]
         );
         await execute(
-          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
-           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?)`,
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, proof_photo_key, notes, recorded_by)
+           VALUES (?, ?, ?, 'credit_added', ?, ?, ?, ?, ?)`,
           [
             shopId,
             customerId,
             addedToStoreCredit,
             safeMethod,
             reference_no || null,
+            cleanProofKey,
             notes ? `${String(notes).trim()} (Excess payment moved to store credit)` : "Excess from bulk debt settlement added as store credit owed to client",
             currentUserId
           ]
@@ -4851,14 +5218,15 @@ router.post("/customers/:id/settle-debt", requireAuth, requireTenant, requirePer
       if (appliedToDebt > 0) {
         const orderRefs = settledOrders.map((s) => s.order_number).join(", ");
         await execute(
-          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, notes, recorded_by)
-           VALUES (?, ?, ?, 'bulk_payment', ?, ?, ?, ?)`,
+          `INSERT INTO customer_credit_ledger (shop_id, customer_id, amount, entry_type, payment_method, reference_no, proof_photo_key, notes, recorded_by)
+           VALUES (?, ?, ?, 'bulk_payment', ?, ?, ?, ?, ?)`,
           [
             shopId,
             customerId,
             appliedToDebt,
             safeMethod,
             reference_no || null,
+            cleanProofKey,
             notes ? `${String(notes).trim()} | Settled across: ${orderRefs}` : `Bulk payment applied across ${settledOrders.length} receipt(s): ${orderRefs}`,
             currentUserId
           ]
@@ -5089,13 +5457,13 @@ router.get("/users", requireAuth, requireTenant, requireManager, async (req, res
                 u.can_partner_borrow, u.can_view_reports, u.can_view_buying_prices, u.can_give_discounts, u.can_manage_users,
                 u.can_print_full_receipt, u.can_print_delivery_note, u.can_manage_customers, u.can_manage_partners, u.can_void_orders,
                 u.can_edit_company_settings, u.can_view_audit_trail, u.can_reset_passwords, u.can_view_all_tenants, u.can_manage_subscriptions,
-                u.can_verify_orders, u.can_resolve_flagged_orders, u.force_password_change, s.name as shop_name 
+                u.can_verify_orders, u.can_resolve_flagged_orders, u.can_upload_photos, u.force_password_change, s.name as shop_name 
          FROM users u LEFT JOIN shops s ON u.shop_id = s.id ORDER BY u.role DESC, u.name ASC` : `SELECT id, shop_id, stock_id, name, email, role, job_title, phone, is_active, activation_status,
                 can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
                 can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
                 can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
                 can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-                can_verify_orders, can_resolve_flagged_orders, force_password_change
+                can_verify_orders, can_resolve_flagged_orders, can_upload_photos, force_password_change
          FROM users WHERE shop_id = ? ORDER BY role DESC, name ASC`;
     const params = isSuper ? [] : [shopId];
     const users = await queryAll(sql, params);
@@ -5120,6 +5488,7 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
     const hashedPassword = await bcrypt2.hash(password, 10);
     const p = { ...req.body, ...permissions || {} };
     const isOwnerOrManagerRole = assignedRole === "manager" || assignedRole === "superadmin";
+    const defaultUploadPhotos = isOwnerOrManagerRole || Boolean(p.can_create_orders) || Boolean(p.can_process_payments) || ["salesperson", "accountant", "cashier"].includes(assignedRole) ? 1 : 0;
     const assignedStockId = req.body.stock_id ? Number(req.body.stock_id) : 1;
     const result = await execute(
       `INSERT INTO users (
@@ -5128,8 +5497,8 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
         can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
         can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
         can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-        can_verify_orders, can_resolve_flagged_orders, force_password_change
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        can_verify_orders, can_resolve_flagged_orders, can_upload_photos, force_password_change
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         targetShopId,
         assignedStockId,
@@ -5160,7 +5529,8 @@ router.post("/users", requireAuth, requireTenant, requireManager, async (req, re
         p.can_view_all_tenants !== void 0 ? p.can_view_all_tenants ? 1 : 0 : assignedRole === "platform_ops" ? 1 : 0,
         p.can_manage_subscriptions ? 1 : 0,
         p.can_verify_orders ? 1 : 0,
-        isOwnerOrManagerRole || p.can_resolve_flagged_orders ? 1 : 0
+        isOwnerOrManagerRole || p.can_resolve_flagged_orders ? 1 : 0,
+        p.can_upload_photos !== void 0 ? p.can_upload_photos ? 1 : 0 : defaultUploadPhotos
       ]
     );
     await logApiAudit(req, "USER_CREATED", `Created staff user ${name} (${email}) with role ${assignedRole}`);
@@ -5245,7 +5615,8 @@ router.put("/users/:id", requireAuth, requireTenant, requireManager, async (req,
       "can_view_all_tenants",
       "can_manage_subscriptions",
       "can_verify_orders",
-      "can_resolve_flagged_orders"
+      "can_resolve_flagged_orders",
+      "can_upload_photos"
     ];
     const effectiveRole = role && (currentUser.role === "superadmin" || role !== "superadmin") ? String(role).toLowerCase() : existing.role;
     const isOwnerOrManagerRole = effectiveRole === "manager" || effectiveRole === "superadmin";
@@ -5555,6 +5926,254 @@ router.post("/admin/approve-all", requireAuth, requireSuperAdmin, async (req, re
   } catch (err) {
     console.error("Admin approve-all error:", err);
     res.status(500).json({ error: "Failed to approve pending stores and accounts" });
+  }
+});
+router.get("/admin/shops/:id/stock-summary", requireAuth, requireSuperAdmin, async (req, res) => {
+  const shopId = Number(req.params.id);
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: "Invalid shop ID" });
+  }
+  try {
+    const shop = await queryOne("SELECT id, name, code, owner_name, status FROM shops WHERE id = ?", [shopId]);
+    if (!shop) {
+      return res.status(404).json({ error: "Shop tenant not found" });
+    }
+    const [prodStats, stockStats, orderStats, orderedProdStats, deletableProdStats, movStats, transStats] = await Promise.all([
+      queryOne("SELECT COUNT(*) as cnt, COALESCE(SUM(quantity), 0) as units FROM products WHERE shop_id = ?", [shopId]),
+      queryOne("SELECT COUNT(*) as cnt FROM stocks WHERE shop_id = ?", [shopId]),
+      queryOne("SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?", [shopId]),
+      queryOne(
+        "SELECT COUNT(DISTINCT oi.product_id) as cnt FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ?",
+        [shopId]
+      ),
+      queryOne(
+        `SELECT COUNT(*) as cnt FROM products
+         WHERE shop_id = ?
+           AND id NOT IN (SELECT DISTINCT oi.product_id FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ?)`,
+        [shopId, shopId]
+      ),
+      queryOne("SELECT COUNT(*) as cnt FROM inventory_movements WHERE shop_id = ?", [shopId]),
+      queryOne("SELECT COUNT(*) as cnt FROM stock_transfers WHERE shop_id = ?", [shopId])
+    ]);
+    res.json({
+      success: true,
+      shop,
+      summary: {
+        productCount: Number(prodStats?.cnt || 0),
+        totalUnits: Number(prodStats?.units || 0),
+        stockCount: Number(stockStats?.cnt || 0),
+        orderCount: Number(orderStats?.cnt || 0),
+        orderedProductCount: Number(orderedProdStats?.cnt || 0),
+        deletableProductCount: Number(deletableProdStats?.cnt || 0),
+        movementCount: Number(movStats?.cnt || 0),
+        transferCount: Number(transStats?.cnt || 0)
+      }
+    });
+  } catch (err) {
+    console.error("Admin stock summary error:", err);
+    res.status(500).json({ error: "Failed to inspect tenant stock summary" });
+  }
+});
+router.post("/admin/shops/:id/wipe-stock", requireAuth, requireSuperAdmin, async (req, res) => {
+  const shopId = Number(req.params.id);
+  const { mode = "delete_products", include_orders = false, confirm_code, reason } = req.body || {};
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: "Invalid shop ID" });
+  }
+  if (mode !== "delete_products" && mode !== "zero_quantities") {
+    return res.status(400).json({ error: "mode must be 'delete_products' or 'zero_quantities'" });
+  }
+  try {
+    const existing = await queryOne("SELECT id, name, code, owner_name FROM shops WHERE id = ?", [shopId]);
+    if (!existing) {
+      return res.status(404).json({ error: "Shop tenant not found" });
+    }
+    const expectedCode = String(existing.code || "").trim().toLowerCase();
+    const providedCode = String(confirm_code || "").trim().toLowerCase();
+    if (!providedCode || providedCode !== expectedCode) {
+      return res.status(400).json({
+        error: `Confirmation failed: Please enter the exact store code "${existing.code}" to confirm wiping stock.`
+      });
+    }
+    const includeOrdersBool = Boolean(include_orders);
+    const cleanReason = reason ? String(reason).trim().slice(0, 300) : "";
+    let deletedProducts = 0;
+    let zeroedProducts = 0;
+    let deletedMovements = 0;
+    let deletedTransfers = 0;
+    let deletedOrders = 0;
+    await withTransaction(async () => {
+      const beforeRow = await queryOne("SELECT COUNT(*) as cnt FROM products WHERE shop_id = ?", [shopId]);
+      const beforeCount = Number(beforeRow?.cnt || 0);
+      if (mode === "zero_quantities") {
+        await execute("UPDATE products SET quantity = 0, updated_at = CURRENT_TIMESTAMP WHERE shop_id = ?", [shopId]);
+        zeroedProducts = beforeCount;
+        return;
+      }
+      await execute("DELETE FROM product_watch_alerts WHERE shop_id = ?", [shopId]);
+      const trRes = await execute("DELETE FROM stock_transfers WHERE shop_id = ?", [shopId]);
+      deletedTransfers = Number(trRes.changes || 0);
+      const movRes = await execute("DELETE FROM inventory_movements WHERE shop_id = ?", [shopId]);
+      deletedMovements = Number(movRes.changes || 0);
+      if (includeOrdersBool) {
+        await execute("UPDATE customer_credit_ledger SET order_id = NULL WHERE shop_id = ?", [shopId]);
+        await execute("DELETE FROM payments WHERE shop_id = ?", [shopId]);
+        await execute("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE shop_id = ?)", [shopId]);
+        const ordRes = await execute("DELETE FROM orders WHERE shop_id = ?", [shopId]);
+        deletedOrders = Number(ordRes.changes || 0);
+        await execute("UPDATE customers SET credit_balance = 0 WHERE shop_id = ?", [shopId]);
+        const prodRes = await execute("DELETE FROM products WHERE shop_id = ?", [shopId]);
+        deletedProducts = Number(prodRes.changes || 0);
+      } else {
+        const prodRes = await execute(
+          `DELETE FROM products
+           WHERE shop_id = ?
+             AND id NOT IN (SELECT DISTINCT oi.product_id FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ?)`,
+          [shopId, shopId]
+        );
+        deletedProducts = Number(prodRes.changes || 0);
+        const remRow = await queryOne("SELECT COUNT(*) as cnt FROM products WHERE shop_id = ?", [shopId]);
+        zeroedProducts = Number(remRow?.cnt || 0);
+        if (zeroedProducts > 0) {
+          await execute("UPDATE products SET quantity = 0, updated_at = CURRENT_TIMESTAMP WHERE shop_id = ?", [shopId]);
+        }
+      }
+    });
+    const auditAction = mode === "zero_quantities" ? "TENANT_STOCK_ZEROED" : "TENANT_STOCK_WIPED";
+    await logApiAudit(
+      req,
+      auditAction,
+      `SuperAdmin ${mode === "zero_quantities" ? "zeroed" : "wiped"} stock for shop #${shopId} (${existing.name}): deletedProducts=${deletedProducts}, zeroedProducts=${zeroedProducts}, deletedMovements=${deletedMovements}, deletedTransfers=${deletedTransfers}, deletedOrders=${deletedOrders}${cleanReason ? ` | Reason: ${cleanReason}` : ""}`,
+      shopId
+    );
+    const summaryMsg = mode === "zero_quantities" ? `Reset stock quantities to 0 for all ${zeroedProducts} product(s) in "${existing.name}".` : zeroedProducts > 0 ? `Deleted ${deletedProducts} un-ordered product(s) from "${existing.name}" and zeroed ${zeroedProducts} product(s) referenced in past sales orders.` : `Deleted all ${deletedProducts} product(s) and stock records for "${existing.name}".`;
+    res.json({
+      success: true,
+      mode,
+      deletedProducts,
+      zeroedProducts,
+      deletedMovements,
+      deletedTransfers,
+      deletedOrders,
+      message: summaryMsg
+    });
+  } catch (err) {
+    console.error("Admin wipe tenant stock error:", err);
+    res.status(500).json({ error: "Failed to wipe tenant stock: " + (err?.message || "Database error") });
+  }
+});
+router.get("/admin/shops/:id/bulk-template", requireAuth, requireSuperAdmin, async (req, res) => {
+  const shopId = Number(req.params.id);
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: "Invalid shop ID" });
+  }
+  try {
+    const shop = await queryOne(
+      "SELECT id, code, pricing_mode FROM shops WHERE id = ?",
+      [shopId]
+    );
+    if (!shop) {
+      return res.status(404).json({ error: "Shop tenant not found" });
+    }
+    const { buffer, filename } = await buildBulkStockExcelTemplate({
+      pricingMode: shop.pricing_mode || "standard",
+      shopCode: shop.code
+    });
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(buffer);
+  } catch (err) {
+    console.error("Admin shop bulk template error:", err);
+    res.status(500).json({ error: "Failed to generate tenant bulk Excel template." });
+  }
+});
+router.post("/admin/shops/:id/delete", requireAuth, requireSuperAdmin, async (req, res) => {
+  const shopId = Number(req.params.id);
+  const { confirm_code, reason } = req.body || {};
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: "Invalid shop ID" });
+  }
+  if (shopId === 1) {
+    return res.status(400).json({
+      error: "Cannot delete the primary platform store (#1). You may suspend other tenant stores or delete test tenants instead."
+    });
+  }
+  try {
+    const existing = await queryOne(
+      "SELECT id, name, code, owner_name FROM shops WHERE id = ?",
+      [shopId]
+    );
+    if (!existing) {
+      return res.status(404).json({ error: "Shop tenant not found" });
+    }
+    const superUserInside = await queryOne(
+      "SELECT id FROM users WHERE shop_id = ? AND role = 'superadmin' LIMIT 1",
+      [shopId]
+    );
+    if (superUserInside) {
+      return res.status(400).json({
+        error: "Cannot delete a store that currently hosts a Platform SuperAdmin account."
+      });
+    }
+    const expectedCode = String(existing.code || "").trim().toLowerCase();
+    const providedCode = String(confirm_code || "").trim().toLowerCase();
+    if (!providedCode || providedCode !== expectedCode) {
+      return res.status(400).json({
+        error: `Confirmation failed: Please enter the exact store code "${existing.code}" to permanently delete this tenant.`
+      });
+    }
+    const cleanReason = reason ? String(reason).trim().slice(0, 300) : "";
+    let deletedUsers = 0;
+    let deletedStocks = 0;
+    let deletedProducts = 0;
+    let deletedOrders = 0;
+    await withTransaction(async () => {
+      await execute("DELETE FROM product_watch_alerts WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM stock_transfers WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM inventory_movements WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM customer_credit_ledger WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM payments WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE shop_id = ?)", [shopId]);
+      const ordRes = await execute("DELETE FROM orders WHERE shop_id = ?", [shopId]);
+      deletedOrders = Number(ordRes.changes || 0);
+      const prodRes = await execute("DELETE FROM products WHERE shop_id = ?", [shopId]);
+      deletedProducts = Number(prodRes.changes || 0);
+      await execute("DELETE FROM customers WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM partner_shops WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM audit_logs WHERE shop_id = ?", [shopId]);
+      await execute("DELETE FROM payments_ledger WHERE shop_id = ?", [shopId]);
+      const usrRes = await execute("DELETE FROM users WHERE shop_id = ? AND role != 'superadmin'", [shopId]);
+      deletedUsers = Number(usrRes.changes || 0);
+      const stkRes = await execute("DELETE FROM stocks WHERE shop_id = ?", [shopId]);
+      deletedStocks = Number(stkRes.changes || 0);
+      await execute("DELETE FROM shops WHERE id = ?", [shopId]);
+    });
+    let updatedToken;
+    if (req.session?.user && Number(req.session.user.shop_id) === shopId) {
+      req.session.user.shop_id = 1;
+      await saveSession(req);
+      updatedToken = createAuthToken(req.session.user);
+    }
+    await logApiAudit(
+      req,
+      "TENANT_COMPLETELY_DELETED",
+      `SuperAdmin permanently deleted tenant #${shopId} (${existing.name} [${existing.code}]): deletedStocks=${deletedStocks}, deletedUsers=${deletedUsers}, deletedProducts=${deletedProducts}, deletedOrders=${deletedOrders}${cleanReason ? ` | Reason: ${cleanReason}` : ""}`,
+      1
+    );
+    res.json({
+      success: true,
+      deletedShopId: shopId,
+      deletedStocks,
+      deletedUsers,
+      deletedProducts,
+      deletedOrders,
+      switchedToShopId: updatedToken ? 1 : void 0,
+      token: updatedToken,
+      message: `Permanently deleted "${existing.name}" (${deletedStocks} warehouse(s), ${deletedUsers} staff account(s), ${deletedProducts} product(s), ${deletedOrders} order(s)).`
+    });
+  } catch (err) {
+    console.error("Admin delete tenant error:", err);
+    res.status(500).json({ error: "Failed to permanently delete tenant: " + (err?.message || "Database error") });
   }
 });
 router.get("/reports/summary", requireAuth, requireTenant, requirePermission("can_view_reports"), async (req, res) => {
@@ -5879,14 +6498,14 @@ var apiRoutes_default = router;
 // server/routes/iomsRoutes.ts
 init_db();
 import { Router as Router2 } from "express";
-import path3 from "path";
+import path4 from "path";
 import bcrypt3 from "bcryptjs";
 import { generateSecret, generateURI, verify as verifyOtp } from "otplib";
 import QRCode from "qrcode";
 var router2 = Router2();
 router2.get(["/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"], (req, res) => {
   res.setHeader("Content-Type", "image/svg+xml");
-  res.sendFile(path3.join(process.cwd(), "public", "icon.svg"));
+  res.sendFile(path4.join(process.cwd(), "public", "icon.svg"));
 });
 async function logAudit(userId, action, details, req, shopId) {
   try {
@@ -6452,56 +7071,18 @@ router2.get("/products", requireAuth, async (req, res) => {
   }
 });
 router2.get("/products/sample-template", requireAuth, async (req, res) => {
-  const sampleData = [
-    {
-      "Product Name": "CIMERWA Cement 32.5R (50kg)",
-      "SKU / Code": "CEM-325R",
-      "Category": "Cement",
-      "Unit": "Bag",
-      "Buying Price": 10500,
-      "Initial Quantity": 250,
-      "Low Stock Alert": 50,
-      "Description": "Standard construction cement"
-    },
-    {
-      "Product Name": "Deformed Iron Bars 12mm x 12m",
-      "SKU / Code": "IB-12MM",
-      "Category": "Steel & Rebar",
-      "Unit": "Bar",
-      "Buying Price": 11e3,
-      "Initial Quantity": 300,
-      "Low Stock Alert": 40,
-      "Description": "Fe500 grade rebar"
-    },
-    {
-      "Product Name": "Roofing Sheets Gauge 28 Blue (3m)",
-      "SKU / Code": "RS-G28-BL",
-      "Category": "Roofing",
-      "Unit": "Sheet",
-      "Buying Price": 14500,
-      "Initial Quantity": 100,
-      "Low Stock Alert": 20,
-      "Description": "Color-coated corrugated iron sheets"
-    },
-    {
-      "Product Name": "PVC Pressure Pipe 110mm PN10 (6m)",
-      "SKU / Code": "PVC-110MM",
-      "Category": "Plumbing",
-      "Unit": "Pipe",
-      "Buying Price": 16e3,
-      "Initial Quantity": 45,
-      "Low Stock Alert": 10,
-      "Description": "Heavy duty drainage pipe"
-    }
-  ];
-  const XLSX = await import("xlsx");
-  const ws2 = XLSX.utils.json_to_sheet(sampleData);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws2, "Products");
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  res.setHeader("Content-Disposition", 'attachment; filename="Quincaille_Stock_Import_Template.xlsx"');
+  const shopId = getActiveShopId(req);
+  const shop = await queryOne(
+    "SELECT code, pricing_mode FROM shops WHERE id = ?",
+    [shopId]
+  );
+  const { buffer, filename } = await buildBulkStockExcelTemplate({
+    pricingMode: shop?.pricing_mode || "standard",
+    shopCode: shop?.code || `shop-${shopId}`
+  });
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  res.send(buf);
+  res.send(buffer);
 });
 router2.post("/products/import-excel", requirePermission("can_manage_stock"), uploadSpreadsheet.single("file"), async (req, res) => {
   const user = req.session.user;
@@ -8673,8 +9254,10 @@ router4.get("/r2-status", requireAuth, requireStrictChainShop, (req, res) => {
 });
 router4.post("/upload-url", requireAuth, requireStrictChainShop, async (req, res) => {
   const user = req.session.user;
-  if (!hasUserPermission(user, "can_create_orders") && !hasUserPermission(user, "can_resolve_flagged_orders")) {
-    return res.status(403).json({ error: "Permission required to upload order photos." });
+  if (!hasUserPermission(user, "can_upload_photos") || !hasUserPermission(user, "can_create_orders") && !hasUserPermission(user, "can_resolve_flagged_orders")) {
+    return res.status(403).json({
+      error: "Permission required to upload order photos. Ask your store manager to enable Upload Photos."
+    });
   }
   if (!isR2Configured()) {
     return res.status(503).json({
@@ -9544,7 +10127,7 @@ var strictChainRoutes_default = router4;
 // server/app.ts
 init_db();
 import fs2 from "fs";
-var envLocalPath2 = path4.resolve(process.cwd(), ".env.local");
+var envLocalPath2 = path5.resolve(process.cwd(), ".env.local");
 if (fs2.existsSync(envLocalPath2)) {
   dotenv2.config({ path: envLocalPath2 });
 }
@@ -9631,9 +10214,9 @@ app.use((req, res, next) => {
   next();
 });
 app.set("view engine", "ejs");
-app.set("views", path4.join(process.cwd(), "views"));
-app.use(express.static(path4.join(process.cwd(), "public")));
-app.use("/public", express.static(path4.join(process.cwd(), "public")));
+app.set("views", path5.join(process.cwd(), "views"));
+app.use(express.static(path5.join(process.cwd(), "public")));
+app.use("/public", express.static(path5.join(process.cwd(), "public")));
 app.use("/api", apiRoutes_default);
 app.use("/api/chain", strictChainRoutes_default);
 app.use("/api", billingRoutes_default);
