@@ -24,6 +24,7 @@ __export(db_exports, {
   queryAll: () => queryAll,
   queryOne: () => queryOne,
   saveDb: () => saveDb,
+  tableExists: () => tableExists,
   withTransaction: () => withTransaction
 });
 import dotenv from "dotenv";
@@ -699,6 +700,34 @@ async function execute(sql, params = []) {
   }
   return { lastInsertId, changes };
 }
+async function tableExists(tableName) {
+  const clean = String(tableName || "").trim();
+  if (!/^[a-zA-Z0-9_]+$/.test(clean)) return false;
+  if (isPostgres()) {
+    const pool = getPgPool();
+    if (!pool) return false;
+    try {
+      const res = await pool.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND LOWER(table_name) = LOWER($1) LIMIT 1`,
+        [clean]
+      );
+      return Boolean(res.rows && res.rows.length > 0);
+    } catch {
+      return false;
+    }
+  }
+  if (!sqlJsDbInstance) await getDb();
+  if (!sqlJsDbInstance) return false;
+  try {
+    const stmt = sqlJsDbInstance.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND LOWER(name) = LOWER(?) LIMIT 1`);
+    stmt.bind([clean]);
+    const found = stmt.step();
+    stmt.free();
+    return Boolean(found);
+  } catch {
+    return false;
+  }
+}
 async function initPostgresSchemaIfNeeded() {
   if (postgresSchemaInitialized) return;
   const pool = getPgPool();
@@ -829,6 +858,32 @@ async function initPostgresSchemaIfNeeded() {
       audited_by INTEGER REFERENCES users(id),
       audited_at TIMESTAMP WITH TIME ZONE,
       audit_note TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS webhook_events (
+      id SERIAL PRIMARY KEY,
+      event_id TEXT UNIQUE NOT NULL,
+      event_type TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'RECEIVED',
+      attempts INT DEFAULT 0,
+      max_attempts INT DEFAULT 5,
+      last_error TEXT,
+      next_retry_at TIMESTAMP WITH TIME ZONE,
+      processed_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS payments_ledger (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL,
+      payment_ref TEXT UNIQUE NOT NULL,
+      client_ref TEXT UNIQUE,
+      amount NUMERIC NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      status TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      metadata TEXT,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,
@@ -5938,6 +5993,7 @@ router.get("/admin/shops/:id/stock-summary", requireAuth, requireSuperAdmin, asy
     if (!shop) {
       return res.status(404).json({ error: "Shop tenant not found" });
     }
+    const hasTransfers = await tableExists("stock_transfers");
     const [prodStats, stockStats, orderStats, orderedProdStats, deletableProdStats, movStats, transStats] = await Promise.all([
       queryOne("SELECT COUNT(*) as cnt, COALESCE(SUM(quantity), 0) as units FROM products WHERE shop_id = ?", [shopId]),
       queryOne("SELECT COUNT(*) as cnt FROM stocks WHERE shop_id = ?", [shopId]),
@@ -5953,7 +6009,7 @@ router.get("/admin/shops/:id/stock-summary", requireAuth, requireSuperAdmin, asy
         [shopId, shopId]
       ),
       queryOne("SELECT COUNT(*) as cnt FROM inventory_movements WHERE shop_id = ?", [shopId]),
-      queryOne("SELECT COUNT(*) as cnt FROM stock_transfers WHERE shop_id = ?", [shopId])
+      hasTransfers ? queryOne("SELECT COUNT(*) as cnt FROM stock_transfers WHERE shop_id = ?", [shopId]) : Promise.resolve({ cnt: 0 })
     ]);
     res.json({
       success: true,
@@ -6002,6 +6058,11 @@ router.post("/admin/shops/:id/wipe-stock", requireAuth, requireSuperAdmin, async
     let deletedMovements = 0;
     let deletedTransfers = 0;
     let deletedOrders = 0;
+    const [hasWatchAlerts, hasTransfers, hasCreditLedger] = await Promise.all([
+      tableExists("product_watch_alerts"),
+      tableExists("stock_transfers"),
+      tableExists("customer_credit_ledger")
+    ]);
     await withTransaction(async () => {
       const beforeRow = await queryOne("SELECT COUNT(*) as cnt FROM products WHERE shop_id = ?", [shopId]);
       const beforeCount = Number(beforeRow?.cnt || 0);
@@ -6010,13 +6071,19 @@ router.post("/admin/shops/:id/wipe-stock", requireAuth, requireSuperAdmin, async
         zeroedProducts = beforeCount;
         return;
       }
-      await execute("DELETE FROM product_watch_alerts WHERE shop_id = ?", [shopId]);
-      const trRes = await execute("DELETE FROM stock_transfers WHERE shop_id = ?", [shopId]);
-      deletedTransfers = Number(trRes.changes || 0);
+      if (hasWatchAlerts) {
+        await execute("DELETE FROM product_watch_alerts WHERE shop_id = ?", [shopId]);
+      }
+      if (hasTransfers) {
+        const trRes = await execute("DELETE FROM stock_transfers WHERE shop_id = ?", [shopId]);
+        deletedTransfers = Number(trRes.changes || 0);
+      }
       const movRes = await execute("DELETE FROM inventory_movements WHERE shop_id = ?", [shopId]);
       deletedMovements = Number(movRes.changes || 0);
       if (includeOrdersBool) {
-        await execute("UPDATE customer_credit_ledger SET order_id = NULL WHERE shop_id = ?", [shopId]);
+        if (hasCreditLedger) {
+          await execute("UPDATE customer_credit_ledger SET order_id = NULL WHERE shop_id = ?", [shopId]);
+        }
         await execute("DELETE FROM payments WHERE shop_id = ?", [shopId]);
         await execute("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE shop_id = ?)", [shopId]);
         const ordRes = await execute("DELETE FROM orders WHERE shop_id = ?", [shopId]);
@@ -6127,21 +6194,73 @@ router.post("/admin/shops/:id/delete", requireAuth, requireSuperAdmin, async (re
     let deletedStocks = 0;
     let deletedProducts = 0;
     let deletedOrders = 0;
+    const [
+      hasWatchAlerts,
+      hasTransfers,
+      hasMovements,
+      hasCreditLedger,
+      hasPayments,
+      hasOrderItems,
+      hasOrders,
+      hasProducts,
+      hasCustomers,
+      hasPartners,
+      hasAuditLogs,
+      hasPaymentsLedger
+    ] = await Promise.all([
+      tableExists("product_watch_alerts"),
+      tableExists("stock_transfers"),
+      tableExists("inventory_movements"),
+      tableExists("customer_credit_ledger"),
+      tableExists("payments"),
+      tableExists("order_items"),
+      tableExists("orders"),
+      tableExists("products"),
+      tableExists("customers"),
+      tableExists("partner_shops"),
+      tableExists("audit_logs"),
+      tableExists("payments_ledger")
+    ]);
     await withTransaction(async () => {
-      await execute("DELETE FROM product_watch_alerts WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM stock_transfers WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM inventory_movements WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM customer_credit_ledger WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM payments WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE shop_id = ?)", [shopId]);
-      const ordRes = await execute("DELETE FROM orders WHERE shop_id = ?", [shopId]);
-      deletedOrders = Number(ordRes.changes || 0);
-      const prodRes = await execute("DELETE FROM products WHERE shop_id = ?", [shopId]);
-      deletedProducts = Number(prodRes.changes || 0);
-      await execute("DELETE FROM customers WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM partner_shops WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM audit_logs WHERE shop_id = ?", [shopId]);
-      await execute("DELETE FROM payments_ledger WHERE shop_id = ?", [shopId]);
+      if (hasWatchAlerts) {
+        await execute("DELETE FROM product_watch_alerts WHERE shop_id = ?", [shopId]);
+      }
+      if (hasTransfers) {
+        await execute("DELETE FROM stock_transfers WHERE shop_id = ?", [shopId]);
+      }
+      if (hasMovements) {
+        await execute("DELETE FROM inventory_movements WHERE shop_id = ?", [shopId]);
+      }
+      if (hasCreditLedger) {
+        await execute("DELETE FROM customer_credit_ledger WHERE shop_id = ?", [shopId]);
+      }
+      if (hasPayments) {
+        await execute("DELETE FROM payments WHERE shop_id = ?", [shopId]);
+      }
+      if (hasOrderItems && hasOrders) {
+        await execute("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE shop_id = ?)", [shopId]);
+      }
+      if (hasOrders) {
+        const ordRes = await execute("DELETE FROM orders WHERE shop_id = ?", [shopId]);
+        deletedOrders = Number(ordRes.changes || 0);
+      }
+      if (hasProducts) {
+        const prodRes = await execute("DELETE FROM products WHERE shop_id = ?", [shopId]);
+        deletedProducts = Number(prodRes.changes || 0);
+      }
+      if (hasCustomers) {
+        await execute("DELETE FROM customers WHERE shop_id = ?", [shopId]);
+      }
+      if (hasPartners) {
+        await execute("DELETE FROM partner_shops WHERE shop_id = ?", [shopId]);
+      }
+      if (hasAuditLogs) {
+        await execute("UPDATE audit_logs SET user_id = NULL WHERE user_id IN (SELECT id FROM users WHERE shop_id = ? AND role != 'superadmin')", [shopId]);
+        await execute("DELETE FROM audit_logs WHERE shop_id = ?", [shopId]);
+      }
+      if (hasPaymentsLedger) {
+        await execute("DELETE FROM payments_ledger WHERE shop_id = ?", [shopId]);
+      }
       const usrRes = await execute("DELETE FROM users WHERE shop_id = ? AND role != 'superadmin'", [shopId]);
       deletedUsers = Number(usrRes.changes || 0);
       const stkRes = await execute("DELETE FROM stocks WHERE shop_id = ?", [shopId]);

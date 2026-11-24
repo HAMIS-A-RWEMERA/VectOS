@@ -48,6 +48,8 @@ export const helmetMiddleware = helmet({
         'https://accounts.google.com',
         'https://*.google.com'
       ],
+      workerSrc: ["'self'", 'blob:'],
+      manifestSrc: ["'self'"],
       frameAncestors: [
         "'self'",
         'https://*.netlify.app',

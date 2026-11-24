@@ -19,6 +19,7 @@ import { ReceiptModal } from './components/ReceiptModal';
 import { LoginModal } from './components/LoginModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AiHelpModal } from './components/AiHelpModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { Sparkles } from 'lucide-react';
 import { hasPermission } from './utils/permissions';
 import { useLanguage } from './i18n/LanguageContext';
@@ -228,6 +229,7 @@ export const App: React.FC = () => {
           isOpen={isAiHelpOpen}
           onClose={() => setIsAiHelpOpen(false)}
         />
+        <OfflineIndicator />
       </div>
     );
   }
@@ -442,6 +444,7 @@ export const App: React.FC = () => {
           }}
         />
       )}
+      <OfflineIndicator />
     </div>
   );
 };

@@ -457,5 +457,17 @@ describe('Inventory (stock)', () => {
     // Verify bystander tenant remains 100% untouched
     const bystanderShop = await queryOne('SELECT id FROM shops WHERE id = ?', [bystanderTenant.shopId]);
     expect(bystanderShop).toBeTruthy();
+
+    // 4. Regression: tenant deletion still succeeds cleanly even if optional payments_ledger table does not exist
+    const missingLedgerTenant = await createTestShop('NoLedgerTenantCo');
+    const missingShopRow = await queryOne<{ id: number; code: string }>('SELECT id, code FROM shops WHERE id = ?', [
+      missingLedgerTenant.shopId,
+    ]);
+    await execute('DROP TABLE IF EXISTS payments_ledger');
+    const delMissingRes = await superAgent.post(`/api/admin/shops/${missingLedgerTenant.shopId}/delete`).send({
+      confirm_code: missingShopRow!.code,
+    });
+    expect(delMissingRes.status).toBe(200);
+    expect(await queryOne('SELECT id FROM shops WHERE id = ?', [missingLedgerTenant.shopId])).toBeNull();
   });
 });

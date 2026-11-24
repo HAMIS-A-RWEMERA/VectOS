@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { api } from '../services/api';
 import { User, Shop } from '../types';
 import {
@@ -12,11 +12,10 @@ import {
   AlertCircle,
   CheckCircle2,
   MessageCircle,
-  Download,
-  Smartphone,
   Sparkles
 } from 'lucide-react';
 import { LanguageSwitcher, useLanguage } from '../i18n/LanguageContext';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface LoginModalProps {
   onLoginSuccess: (user: User, shop: Shop) => void;
@@ -42,45 +41,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // PWA Install state
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
-  const [installed, setInstalled] = useState(false);
-  const [showInstallHint, setShowInstallHint] = useState(false);
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setIsInstallable(true);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', () => {
-      setInstalled(true);
-      setIsInstallable(false);
-    });
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
-  }, []);
-
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) {
-      setShowInstallHint((prev) => !prev);
-      return;
-    }
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setIsInstallable(false);
-      setInstalled(true);
-      setShowInstallHint(false);
-    }
-    setDeferredPrompt(null);
-  };
 
   const formatErr = (err: any): string => {
     if (!err) return 'An error occurred during authentication.';
@@ -421,24 +381,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onOpenAi
         </div>
 
         {/* PWA / Download & Add to Home Screen Option */}
-        <div className="space-y-2 pt-1">
-          <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400">
-            <button
-              type="button"
-              onClick={handleInstallClick}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-              <span>{installed ? tf('✓ App Installed', '✓ App Yashyizweho') : tf('Install / Add to Home Screen', 'Shyira App kuri Telefone')}</span>
-            </button>
-          </div>
-          {showInstallHint && (
-            <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 space-y-1">
-              <p className="font-semibold text-amber-300">{tf('How to add this shop app to your phone:', 'Uko washyira iyi app kuri telefone yawe:')}</p>
-              <p>• <strong>iPhone / iPad (Safari):</strong> {tf('Tap the Share icon and choose "Add to Home Screen".', 'Kanda aho basangiriza (Share) hanyuma uhitemo "Add to Home Screen".')}</p>
-              <p>• <strong>Android (Chrome):</strong> {tf('Tap the three-dot menu and choose "Install app" or "Add to Home Screen".', 'Kanda ududomo dutatu hejuru hanyuma uhitemo "Install app" cyangwa "Add to Home Screen".')}</p>
-            </div>
-          )}
+        <div className="flex items-center justify-center pt-1">
+          <PWAInstallButton variant="login" />
         </div>
       </div>
     </div>

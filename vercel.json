@@ -11,6 +11,6 @@
   "rewrites": [
     { "source": "/api", "destination": "/api/index.js" },
     { "source": "/api/(.*)", "destination": "/api/index.js" },
-    { "source": "/((?!api|assets|public|styles).*)", "destination": "/index.html" }
+    { "source": "/((?!api|assets|public|styles|sw\\.js|workbox-.*|manifest\\.webmanifest|manifest\\.json|pwa-.*|apple-touch-icon\\.png|icon\\.svg|offline\\.html).*)", "destination": "/index.html" }
   ]
 }

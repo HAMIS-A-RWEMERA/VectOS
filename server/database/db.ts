@@ -748,6 +748,37 @@ export async function execute(sql: string, params: any[] = []): Promise<{ lastIn
   return { lastInsertId, changes };
 }
 
+export async function tableExists(tableName: string): Promise<boolean> {
+  const clean = String(tableName || '').trim();
+  if (!/^[a-zA-Z0-9_]+$/.test(clean)) return false;
+
+  if (isPostgres()) {
+    const pool = getPgPool();
+    if (!pool) return false;
+    try {
+      const res = await pool.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND LOWER(table_name) = LOWER($1) LIMIT 1`,
+        [clean]
+      );
+      return Boolean(res.rows && res.rows.length > 0);
+    } catch {
+      return false;
+    }
+  }
+
+  if (!sqlJsDbInstance) await getDb();
+  if (!sqlJsDbInstance) return false;
+  try {
+    const stmt = sqlJsDbInstance.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND LOWER(name) = LOWER(?) LIMIT 1`);
+    stmt.bind([clean]);
+    const found = stmt.step();
+    stmt.free();
+    return Boolean(found);
+  } catch {
+    return false;
+  }
+}
+
 export async function initPostgresSchemaIfNeeded(): Promise<void> {
   if (postgresSchemaInitialized) return;
   const pool = getPgPool();
@@ -881,6 +912,32 @@ export async function initPostgresSchemaIfNeeded(): Promise<void> {
       audited_by INTEGER REFERENCES users(id),
       audited_at TIMESTAMP WITH TIME ZONE,
       audit_note TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS webhook_events (
+      id SERIAL PRIMARY KEY,
+      event_id TEXT UNIQUE NOT NULL,
+      event_type TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'RECEIVED',
+      attempts INT DEFAULT 0,
+      max_attempts INT DEFAULT 5,
+      last_error TEXT,
+      next_retry_at TIMESTAMP WITH TIME ZONE,
+      processed_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `CREATE TABLE IF NOT EXISTS payments_ledger (
+      id SERIAL PRIMARY KEY,
+      shop_id INTEGER NOT NULL,
+      payment_ref TEXT UNIQUE NOT NULL,
+      client_ref TEXT UNIQUE,
+      amount NUMERIC NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      status TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      metadata TEXT,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_products_shop_sku ON products(shop_id, sku) WHERE sku IS NOT NULL;`,

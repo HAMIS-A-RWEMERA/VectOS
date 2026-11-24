@@ -21,6 +21,7 @@ import {
   Pencil
 } from 'lucide-react';
 import { LanguageSwitcher, useLanguage } from '../i18n/LanguageContext';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   user: User | null;
@@ -154,8 +155,10 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right: AI Assistant, WhatsApp Support, POS Quick Button, User Role, Profile */}
+        {/* Right: Install App, AI Assistant, WhatsApp Support, POS Quick Button, User Role, Profile */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          <PWAInstallButton variant="header" />
+
           {/* VectOS AI Help Guide Button */}
           {onOpenAiHelp && (
             <button
