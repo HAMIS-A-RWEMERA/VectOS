@@ -24,7 +24,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Search,
-  Filter
+  Filter,
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import { matchesSearch } from '../utils/searchMatch';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -74,6 +76,26 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
   });
   const [modalError, setModalError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // SuperAdmin-only Wipe Tenant Stock Modal State
+  const [wipeTargetShop, setWipeTargetShop] = useState<Shop | null>(null);
+  const [wipeSummary, setWipeSummary] = useState<{
+    productCount: number;
+    totalUnits: number;
+    stockCount: number;
+    orderCount: number;
+    orderedProductCount: number;
+    deletableProductCount: number;
+    movementCount: number;
+    transferCount: number;
+  } | null>(null);
+  const [wipeLoadingSummary, setWipeLoadingSummary] = useState(false);
+  const [wipeMode, setWipeMode] = useState<'delete_products' | 'zero_quantities'>('delete_products');
+  const [wipeIncludeOrders, setWipeIncludeOrders] = useState(false);
+  const [wipeConfirmCode, setWipeConfirmCode] = useState('');
+  const [wipeReason, setWipeReason] = useState('');
+  const [wipeError, setWipeError] = useState('');
+  const [isWipingStock, setIsWipingStock] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -257,6 +279,60 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
       showFeedback('error', err.message || tf('Failed to update store workflow mode', 'Guhindura imikorere y’iduka byanze'));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const openWipeStockModal = async (shop: Shop) => {
+    setWipeTargetShop(shop);
+    setWipeSummary(null);
+    setWipeMode('delete_products');
+    setWipeIncludeOrders(false);
+    setWipeConfirmCode('');
+    setWipeReason('');
+    setWipeError('');
+    try {
+      setWipeLoadingSummary(true);
+      const res = await api.getAdminShopStockSummary(shop.id);
+      setWipeSummary(res.summary);
+    } catch (err: any) {
+      setWipeError(err.message || tf('Failed to load stock summary for this store.', 'Kureba ibiri muri stock byanze.'));
+    } finally {
+      setWipeLoadingSummary(false);
+    }
+  };
+
+  const handleConfirmWipeStock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wipeTargetShop) return;
+
+    const expected = (wipeTargetShop.code || '').trim().toLowerCase();
+    const typed = wipeConfirmCode.trim().toLowerCase();
+    if (!typed || typed !== expected) {
+      setWipeError(
+        tf(
+          `Please type the exact store code "${wipeTargetShop.code}" to confirm.`,
+          `Nyamuneka andika neza kode y’iduka "${wipeTargetShop.code}" kugira ngo wemeze.`
+        )
+      );
+      return;
+    }
+
+    try {
+      setIsWipingStock(true);
+      setWipeError('');
+      const res = await api.wipeTenantStock(wipeTargetShop.id, {
+        mode: wipeMode,
+        include_orders: wipeMode === 'delete_products' ? wipeIncludeOrders : false,
+        confirm_code: wipeConfirmCode.trim(),
+        reason: wipeReason.trim() || undefined,
+      });
+      setWipeTargetShop(null);
+      showFeedback('success', res.message || tf('Tenant stock cleared cleanly.', 'Stock y’iduka yasibwe neza.'));
+      await loadAllData();
+    } catch (err: any) {
+      setWipeError(err.message || tf('Failed to delete tenant stock.', 'Gusiba stock y’iduka byanze.'));
+    } finally {
+      setIsWipingStock(false);
     }
   };
 
@@ -742,6 +818,21 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                         </button>
                       )}
                     </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="text-[10px] text-slate-500">
+                        {tf('SuperAdmin Stock Reset Tool', 'Gusiba Stock (SuperAdmin gusa)')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => openWipeStockModal(shop)}
+                        disabled={actionLoading}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/25 text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>{tf('Delete Whole Stock...', 'Siba Stock Yose...')}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -1119,6 +1210,234 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({
                   className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
                 >
                   {isSubmitting ? tf('Provisioning...', 'Gufungura...') : tf('Provision Tenant', 'Fungura Iduka')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SuperAdmin-Only Delete Whole Tenant Stock Modal */}
+      {wipeTargetShop && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-[#141923] border border-rose-500/40 shadow-2xl p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">
+                    {tf('Delete Whole Stock for Tenant', 'Siba Stock Yose y’Iduka')}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {wipeTargetShop.name} • <span className="font-mono text-amber-400">{wipeTargetShop.code}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isWipingStock && setWipeTargetShop(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <p>
+                {tf(
+                  'Platform-Owner Only Action: Tenants cannot run a whole-stock wipe from their own laptops to protect against accidental deletion. Warehouses, staff accounts, and customer profiles stay intact.',
+                  'Iki gikorwa gikorwa na Nyir’Urubuga gusa: Abacuruzi ntibafite uburenganzira bwo gusiba stock yose ku mudasobwa wabo kugira ngo hatazagira uyisiba atabishaka. Ububiko, abakozi n’abakiriya bigumaho.'
+                )}
+              </p>
+            </div>
+
+            {wipeLoadingSummary ? (
+              <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-center gap-2 text-xs text-slate-300">
+                <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                <span>{tf('Checking tenant stock counts...', 'Kurimo kubara ibiri muri stock y’iri duka...')}</span>
+              </div>
+            ) : wipeSummary && (
+              <div className="grid grid-cols-4 gap-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-center">
+                <div>
+                  <p className="text-[10px] text-slate-400">{tf('Products', 'Ibicuruzwa')}</p>
+                  <p className="text-sm font-black text-white mt-0.5">{wipeSummary.productCount}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400">{tf('Total Units', 'Ingano Yose')}</p>
+                  <p className="text-sm font-black text-amber-400 mt-0.5">{wipeSummary.totalUnits.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400">{tf('Movements', 'Imigendekere')}</p>
+                  <p className="text-sm font-black text-slate-200 mt-0.5">{wipeSummary.movementCount}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400">{tf('Past Orders', 'Komande Zakozwe')}</p>
+                  <p className="text-sm font-black text-indigo-300 mt-0.5">{wipeSummary.orderCount}</p>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmWipeStock} className="space-y-3">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-300 block">
+                  {tf('Choose Action', 'Hitamo Uburyo bwo Gusiba')}
+                </label>
+
+                <label
+                  className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                    wipeMode === 'delete_products'
+                      ? 'bg-rose-500/10 border-rose-500/40'
+                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="wipeMode"
+                    value="delete_products"
+                    checked={wipeMode === 'delete_products'}
+                    onChange={() => setWipeMode('delete_products')}
+                    className="mt-0.5 accent-rose-500"
+                  />
+                  <div className="text-xs">
+                    <p className="font-bold text-white">
+                      {tf('Delete Whole Stock & Product Catalog', 'Siba Stock Yose n’Ibicuruzwa Byose')}
+                    </p>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      {tf(
+                        'Permanently deletes products, warehouse stock levels, stock transfers, and movement logs so the tenant can import/start fresh.',
+                        'Bisiba burundu ibicuruzwa, imibare yo mu bubiko n’imigendekere ya stock kugira ngo batangire bushya.'
+                      )}
+                    </p>
+                  </div>
+                </label>
+
+                {wipeMode === 'delete_products' && wipeSummary && wipeSummary.orderedProductCount > 0 && (
+                  <div className="ml-6 p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                    <p className="text-[11px] text-slate-300">
+                      {tf(
+                        `${wipeSummary.orderedProductCount} product(s) are linked to existing sales orders. By default those ${wipeSummary.orderedProductCount} product(s) will be set to Qty = 0 so past receipts remain valid, while all ${wipeSummary.deletableProductCount} un-ordered products are permanently deleted.`,
+                        `Ibicuruzwa ${wipeSummary.orderedProductCount} bifitanye isano na komande zakozwe. Muri rusange ibyo bizashyirwa kuri Qty = 0 kugira ngo inyemezabuguzi za kera zidasibangana, naho ibindi ${wipeSummary.deletableProductCount} bisibwe burundu.`
+                      )}
+                    </p>
+                    <label className="flex items-start gap-2 cursor-pointer text-[11px] text-rose-300 font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={wipeIncludeOrders}
+                        onChange={(e) => setWipeIncludeOrders(e.target.checked)}
+                        className="mt-0.5 accent-rose-500"
+                      />
+                      <span>
+                        {tf(
+                          'Also clear past sales orders & payments for this tenant so 100% of products are deleted',
+                          'Siba na komande zose z’iri duka kugira ngo ibicuruzwa byose 100% bisibwe'
+                        )}
+                      </span>
+                    </label>
+                  </div>
+                )}
+
+                <label
+                  className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                    wipeMode === 'zero_quantities'
+                      ? 'bg-amber-500/10 border-amber-500/40'
+                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="wipeMode"
+                    value="zero_quantities"
+                    checked={wipeMode === 'zero_quantities'}
+                    onChange={() => setWipeMode('zero_quantities')}
+                    className="mt-0.5 accent-amber-500"
+                  />
+                  <div className="text-xs">
+                    <p className="font-bold text-white">
+                      {tf('Zero All Quantities Only (Keep Product Names & Prices)', 'Shyira Ingano kuri Zero Gusa (Guma ku Mazina n’Ibiciro)')}
+                    </p>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      {tf(
+                        'Resets every product and warehouse quantity to 0 while keeping SKUs, product names, categories, and prices.',
+                        'Ishyira ingano ya buri gicuruzwa mu bubiko bwose kuri 0 ariko ikagumana amazina, SKU n’ibiciro.'
+                      )}
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300">
+                  {tf('Reason / Tenant Request Note (Optional)', 'Impamvu / Ubusabe bw’Iduka (Si itegeko)')}
+                </label>
+                <input
+                  type="text"
+                  placeholder={tf('e.g. Owner requested clean reset before uploading new price list', 'urugero: Nyir’iduka yasabye gusiba stock ya kera mbere yo gushyiramo inshya')}
+                  value={wipeReason}
+                  onChange={(e) => setWipeReason(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-rose-300">
+                  {tf(
+                    `Type store code "${wipeTargetShop.code}" to confirm *`,
+                    `Andika kode y’iduka "${wipeTargetShop.code}" kugira ngo wemeze *`
+                  )}
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  placeholder={wipeTargetShop.code}
+                  value={wipeConfirmCode}
+                  onChange={(e) => setWipeConfirmCode(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-rose-500/40 text-xs text-white font-mono focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              {wipeError && (
+                <p className="text-xs text-rose-400 font-semibold bg-rose-500/10 border border-rose-500/30 px-3 py-2 rounded-xl">
+                  {wipeError}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  disabled={isWipingStock}
+                  onClick={() => setWipeTargetShop(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700 cursor-pointer"
+                >
+                  {tf('Cancel', 'Hagarika')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isWipingStock ||
+                    wipeLoadingSummary ||
+                    wipeConfirmCode.trim().toLowerCase() !== (wipeTargetShop.code || '').trim().toLowerCase()
+                  }
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md shadow-rose-600/20 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isWipingStock ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{tf('Deleting Stock...', 'Irimo Gusiba...')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>
+                        {wipeMode === 'zero_quantities'
+                          ? tf('Reset Quantities to 0', 'Shyira Ingano kuri 0')
+                          : tf('Confirm Delete Whole Stock', 'Emeza Gusiba Stock Yose')}
+                      </span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

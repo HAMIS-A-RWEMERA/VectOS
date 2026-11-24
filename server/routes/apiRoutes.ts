@@ -4314,6 +4314,168 @@ router.post('/admin/approve-all', requireAuth, requireSuperAdmin, async (req: Re
   }
 });
 
+// Admin Action: Inspect Tenant Stock Summary Before Wipe (SuperAdmin Only)
+router.get('/admin/shops/:id/stock-summary', requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const shopId = Number(req.params.id);
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: 'Invalid shop ID' });
+  }
+
+  try {
+    const shop = await queryOne('SELECT id, name, code, owner_name, status FROM shops WHERE id = ?', [shopId]);
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop tenant not found' });
+    }
+
+    const [prodStats, stockStats, orderStats, orderedProdStats, deletableProdStats, movStats, transStats] = await Promise.all([
+      queryOne<{ cnt: number; units: number }>('SELECT COUNT(*) as cnt, COALESCE(SUM(quantity), 0) as units FROM products WHERE shop_id = ?', [shopId]),
+      queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM stocks WHERE shop_id = ?', [shopId]),
+      queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM orders WHERE shop_id = ?', [shopId]),
+      queryOne<{ cnt: number }>(
+        'SELECT COUNT(DISTINCT oi.product_id) as cnt FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ?',
+        [shopId]
+      ),
+      queryOne<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM products
+         WHERE shop_id = ?
+           AND id NOT IN (SELECT DISTINCT oi.product_id FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ?)`,
+        [shopId, shopId]
+      ),
+      queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM inventory_movements WHERE shop_id = ?', [shopId]),
+      queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM stock_transfers WHERE shop_id = ?', [shopId]),
+    ]);
+
+    res.json({
+      success: true,
+      shop,
+      summary: {
+        productCount: Number(prodStats?.cnt || 0),
+        totalUnits: Number(prodStats?.units || 0),
+        stockCount: Number(stockStats?.cnt || 0),
+        orderCount: Number(orderStats?.cnt || 0),
+        orderedProductCount: Number(orderedProdStats?.cnt || 0),
+        deletableProductCount: Number(deletableProdStats?.cnt || 0),
+        movementCount: Number(movStats?.cnt || 0),
+        transferCount: Number(transStats?.cnt || 0),
+      },
+    });
+  } catch (err: any) {
+    console.error('Admin stock summary error:', err);
+    res.status(500).json({ error: 'Failed to inspect tenant stock summary' });
+  }
+});
+
+// Admin Action: Delete / Wipe Whole Stock for a Tenant Store (SuperAdmin Only)
+router.post('/admin/shops/:id/wipe-stock', requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+  const shopId = Number(req.params.id);
+  const { mode = 'delete_products', include_orders = false, confirm_code, reason } = req.body || {};
+
+  if (!shopId || isNaN(shopId)) {
+    return res.status(400).json({ error: 'Invalid shop ID' });
+  }
+  if (mode !== 'delete_products' && mode !== 'zero_quantities') {
+    return res.status(400).json({ error: "mode must be 'delete_products' or 'zero_quantities'" });
+  }
+
+  try {
+    const existing = await queryOne('SELECT id, name, code, owner_name FROM shops WHERE id = ?', [shopId]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Shop tenant not found' });
+    }
+
+    const expectedCode = String(existing.code || '').trim().toLowerCase();
+    const providedCode = String(confirm_code || '').trim().toLowerCase();
+    if (!providedCode || providedCode !== expectedCode) {
+      return res.status(400).json({
+        error: `Confirmation failed: Please enter the exact store code "${existing.code}" to confirm wiping stock.`,
+      });
+    }
+
+    const includeOrdersBool = Boolean(include_orders);
+    const cleanReason = reason ? String(reason).trim().slice(0, 300) : '';
+
+    let deletedProducts = 0;
+    let zeroedProducts = 0;
+    let deletedMovements = 0;
+    let deletedTransfers = 0;
+    let deletedOrders = 0;
+
+    await withTransaction(async () => {
+      const beforeRow = await queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM products WHERE shop_id = ?', [shopId]);
+      const beforeCount = Number(beforeRow?.cnt || 0);
+
+      if (mode === 'zero_quantities') {
+        await execute('UPDATE products SET quantity = 0, updated_at = CURRENT_TIMESTAMP WHERE shop_id = ?', [shopId]);
+        zeroedProducts = beforeCount;
+        return;
+      }
+
+      // mode === 'delete_products'
+      await execute('DELETE FROM product_watch_alerts WHERE shop_id = ?', [shopId]);
+      const trRes = await execute('DELETE FROM stock_transfers WHERE shop_id = ?', [shopId]);
+      deletedTransfers = Number(trRes.changes || 0);
+
+      const movRes = await execute('DELETE FROM inventory_movements WHERE shop_id = ?', [shopId]);
+      deletedMovements = Number(movRes.changes || 0);
+
+      if (includeOrdersBool) {
+        await execute('UPDATE customer_credit_ledger SET order_id = NULL WHERE shop_id = ?', [shopId]);
+        await execute('DELETE FROM payments WHERE shop_id = ?', [shopId]);
+        await execute('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE shop_id = ?)', [shopId]);
+        const ordRes = await execute('DELETE FROM orders WHERE shop_id = ?', [shopId]);
+        deletedOrders = Number(ordRes.changes || 0);
+        await execute('UPDATE customers SET credit_balance = 0 WHERE shop_id = ?', [shopId]);
+
+        const prodRes = await execute('DELETE FROM products WHERE shop_id = ?', [shopId]);
+        deletedProducts = Number(prodRes.changes || 0);
+      } else {
+        const prodRes = await execute(
+          `DELETE FROM products
+           WHERE shop_id = ?
+             AND id NOT IN (SELECT DISTINCT oi.product_id FROM order_items oi JOIN orders o ON oi.order_id = o.id WHERE o.shop_id = ?)`,
+          [shopId, shopId]
+        );
+        deletedProducts = Number(prodRes.changes || 0);
+
+        const remRow = await queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM products WHERE shop_id = ?', [shopId]);
+        zeroedProducts = Number(remRow?.cnt || 0);
+        if (zeroedProducts > 0) {
+          await execute('UPDATE products SET quantity = 0, updated_at = CURRENT_TIMESTAMP WHERE shop_id = ?', [shopId]);
+        }
+      }
+    });
+
+    const auditAction = mode === 'zero_quantities' ? 'TENANT_STOCK_ZEROED' : 'TENANT_STOCK_WIPED';
+    await logApiAudit(
+      req,
+      auditAction,
+      `SuperAdmin ${mode === 'zero_quantities' ? 'zeroed' : 'wiped'} stock for shop #${shopId} (${existing.name}): deletedProducts=${deletedProducts}, zeroedProducts=${zeroedProducts}, deletedMovements=${deletedMovements}, deletedTransfers=${deletedTransfers}, deletedOrders=${deletedOrders}${cleanReason ? ` | Reason: ${cleanReason}` : ''}`,
+      shopId
+    );
+
+    const summaryMsg =
+      mode === 'zero_quantities'
+        ? `Reset stock quantities to 0 for all ${zeroedProducts} product(s) in "${existing.name}".`
+        : zeroedProducts > 0
+        ? `Deleted ${deletedProducts} un-ordered product(s) from "${existing.name}" and zeroed ${zeroedProducts} product(s) referenced in past sales orders.`
+        : `Deleted all ${deletedProducts} product(s) and stock records for "${existing.name}".`;
+
+    res.json({
+      success: true,
+      mode,
+      deletedProducts,
+      zeroedProducts,
+      deletedMovements,
+      deletedTransfers,
+      deletedOrders,
+      message: summaryMsg,
+    });
+  } catch (err: any) {
+    console.error('Admin wipe tenant stock error:', err);
+    res.status(500).json({ error: 'Failed to wipe tenant stock: ' + (err?.message || 'Database error') });
+  }
+});
+
 // ============================================================================
 // 10. REPORTS & AUDIT TRAIL (STRICTLY SCOPED PER TENANT)
 // ============================================================================

@@ -126,4 +126,141 @@ describe('Inventory (stock)', () => {
     expect(dateAsc.status).toBe(200);
     expect(dateAsc.body.products.map((p: any) => p.sku)).toEqual(['SRT-LOW', 'SRT-MID', 'SRT-HIGH']);
   });
+
+  it('blocks tenant managers from wiping whole stock and lets SuperAdmin safely zero or delete tenant stock', async () => {
+    const { queryOne } = await import('../server/database/db');
+
+    // Create a fresh tenant A with 2 products (1 ordered, 1 un-ordered) and a bystander tenant B
+    const tenantA = await createTestShop('WipeTargetCo');
+    const tenantB = await createTestShop('BystanderCo');
+
+    const shopARow = await queryOne<{ id: number; code: string }>('SELECT id, code FROM shops WHERE id = ?', [tenantA.shopId]);
+    expect(shopARow).toBeTruthy();
+
+    const sessA = await login(tenantA.managerEmail, tenantA.managerPassword);
+    const agentA = sessA.agent as any;
+    const sessB = await login(tenantB.managerEmail, tenantB.managerPassword);
+    const agentB = sessB.agent as any;
+
+    const pOrderedRes = await agentA.post('/api/products').send({
+      name: 'Ordered Cement Bag',
+      sku: `WPO-${Date.now()}`,
+      category: 'Cement',
+      unit: 'bags',
+      buying_price: 9000,
+      selling_price: 10500,
+      quantity: 25,
+    });
+    expect(pOrderedRes.status).toBe(200);
+    const orderedProdId = pOrderedRes.body.product.id;
+
+    const pUnusedRes = await agentA.post('/api/products').send({
+      name: 'Unused Steel Rod',
+      sku: `WPU-${Date.now()}`,
+      category: 'Steel',
+      unit: 'pcs',
+      buying_price: 5000,
+      selling_price: 6000,
+      quantity: 40,
+    });
+    expect(pUnusedRes.status).toBe(200);
+
+    // Bystander shop B product (must remain untouched!)
+    const pBystanderRes = await agentB.post('/api/products').send({
+      name: 'Safe Bystander Paint',
+      sku: `BYST-${Date.now()}`,
+      category: 'Paints',
+      unit: 'liters',
+      buying_price: 4000,
+      selling_price: 5000,
+      quantity: 18,
+    });
+    expect(pBystanderRes.status).toBe(200);
+
+    // Create an order on tenant A for Ordered Cement Bag so it has order_items + inventory_movements
+    const custARes = await agentA.post('/api/customers').send({ name: 'Wipe Buyer', phone: '0788444555' });
+    expect(custARes.status).toBe(200);
+    const ordARes = await agentA.post('/api/orders').send({
+      customer_id: custARes.body.customer.id,
+      items: [{ product_id: orderedProdId, quantity: 3, selling_price: 10500 }],
+      payment_method: 'cash',
+      paid_amount: 31500,
+      immediate_release: true,
+    });
+    expect(ordARes.status).toBe(200);
+
+    // 1. Tenant Manager is strictly blocked (403) from stock-summary & wipe-stock even on their own store
+    const mgrSummaryBlocked = await agentA.get(`/api/admin/shops/${tenantA.shopId}/stock-summary`);
+    expect(mgrSummaryBlocked.status).toBe(403);
+
+    const mgrWipeBlocked = await agentA.post(`/api/admin/shops/${tenantA.shopId}/wipe-stock`).send({
+      mode: 'delete_products',
+      confirm_code: shopARow!.code,
+    });
+    expect(mgrWipeBlocked.status).toBe(403);
+
+    // 2. SuperAdmin logs in and inspects summary
+    const superSess = await login('admin@vectos.co.rw', 'password123');
+    const superAgent = superSess.agent as any;
+
+    const sumRes = await superAgent.get(`/api/admin/shops/${tenantA.shopId}/stock-summary`);
+    expect(sumRes.status).toBe(200);
+    expect(sumRes.body.summary.productCount).toBe(2);
+    expect(sumRes.body.summary.orderedProductCount).toBe(1);
+    expect(sumRes.body.summary.deletableProductCount).toBe(1);
+    expect(sumRes.body.summary.orderCount).toBe(1);
+
+    // 3. Wrong confirm_code is rejected (400)
+    const badConfirm = await superAgent.post(`/api/admin/shops/${tenantA.shopId}/wipe-stock`).send({
+      mode: 'zero_quantities',
+      confirm_code: 'WRONG-CODE',
+    });
+    expect(badConfirm.status).toBe(400);
+
+    // 4. zero_quantities mode resets quantities to 0 while keeping both products
+    const zeroRes = await superAgent.post(`/api/admin/shops/${tenantA.shopId}/wipe-stock`).send({
+      mode: 'zero_quantities',
+      confirm_code: shopARow!.code,
+      reason: 'Owner physical recount',
+    });
+    expect(zeroRes.status).toBe(200);
+    expect(zeroRes.body.zeroedProducts).toBe(2);
+
+    const afterZeroA = await agentA.get('/api/products');
+    expect(afterZeroA.body.products.length).toBe(2);
+    expect(afterZeroA.body.products.every((p: any) => Number(p.quantity) === 0)).toBe(true);
+
+    // 5. delete_products mode (default include_orders=false) deletes unused product cleanly & keeps ordered product at qty 0
+    const safeDeleteRes = await superAgent.post(`/api/admin/shops/${tenantA.shopId}/wipe-stock`).send({
+      mode: 'delete_products',
+      include_orders: false,
+      confirm_code: shopARow!.code,
+    });
+    expect(safeDeleteRes.status).toBe(200);
+    expect(safeDeleteRes.body.deletedProducts).toBe(1);
+    expect(safeDeleteRes.body.zeroedProducts).toBe(1);
+
+    const afterSafeDelA = await agentA.get('/api/products');
+    expect(afterSafeDelA.body.products.length).toBe(1);
+    expect(afterSafeDelA.body.products[0].id).toBe(orderedProdId);
+
+    // 6. delete_products with include_orders=true deletes 100% of products cleanly
+    const fullWipeRes = await superAgent.post(`/api/admin/shops/${tenantA.shopId}/wipe-stock`).send({
+      mode: 'delete_products',
+      include_orders: true,
+      confirm_code: shopARow!.code,
+      reason: 'Fresh start requested by store owner',
+    });
+    expect(fullWipeRes.status).toBe(200);
+    expect(fullWipeRes.body.deletedProducts).toBe(1);
+    expect(fullWipeRes.body.deletedOrders).toBe(1);
+
+    const afterFullDelA = await agentA.get('/api/products');
+    expect(afterFullDelA.body.products.length).toBe(0);
+
+    // 7. Bystander Tenant B's stock is 100% untouched
+    const afterB = await agentB.get('/api/products');
+    expect(afterB.body.products.length).toBe(1);
+    expect(afterB.body.products[0].quantity).toBe(18);
+  });
 });

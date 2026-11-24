@@ -431,6 +431,43 @@ export const api = {
   approveAllPending: () => request<{ success: boolean; approvedShops: number; approvedUsers: number; message: string }>('/api/admin/approve-all', {
     method: 'POST'
   }),
+  getAdminShopStockSummary: (shopId: number) =>
+    request<{
+      success: boolean;
+      shop: { id: number; name: string; code: string; owner_name: string; status: string };
+      summary: {
+        productCount: number;
+        totalUnits: number;
+        stockCount: number;
+        orderCount: number;
+        orderedProductCount: number;
+        deletableProductCount: number;
+        movementCount: number;
+        transferCount: number;
+      };
+    }>(`/api/admin/shops/${shopId}/stock-summary`),
+  wipeTenantStock: (
+    shopId: number,
+    payload: {
+      mode: 'delete_products' | 'zero_quantities';
+      include_orders?: boolean;
+      confirm_code: string;
+      reason?: string;
+    }
+  ) =>
+    request<{
+      success: boolean;
+      mode: 'delete_products' | 'zero_quantities';
+      deletedProducts: number;
+      zeroedProducts: number;
+      deletedMovements: number;
+      deletedTransfers: number;
+      deletedOrders: number;
+      message: string;
+    }>(`/api/admin/shops/${shopId}/wipe-stock`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   // Reports & Audits
   getReports: (params?: { period?: string; startDate?: string; endDate?: string }) => {
