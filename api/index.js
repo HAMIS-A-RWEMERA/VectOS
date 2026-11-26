@@ -9990,11 +9990,14 @@ router4.post("/orders/:id/release-leg", requireAuth, requireStrictChainShop, asy
     res.status(500).json({ error: "Failed to record physical release." });
   }
 });
-router4.post("/orders/:id/flag", requireAuth, requirePermission("can_release_stock"), requireStrictChainShop, async (req, res) => {
+router4.post("/orders/:id/flag", requireAuth, requireStrictChainShop, async (req, res) => {
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
   const currentUser = req.session.user;
   const reason = String(req.body?.reason || "").trim();
+  if (!hasUserPermission(currentUser, "can_release_stock") && !hasUserPermission(currentUser, "can_create_orders") && !hasUserPermission(currentUser, "can_verify_orders") && !hasUserPermission(currentUser, "can_resolve_flagged_orders")) {
+    return res.status(403).json({ error: "Permission required to stop and flag an order for Manager review." });
+  }
   if (!reason) {
     return res.status(400).json({ error: "Please explain the discrepancy reason when flagging an order." });
   }
@@ -10020,7 +10023,7 @@ router4.post("/orders/:id/flag", requireAuth, requirePermission("can_release_sto
     await logChainAudit(
       req,
       "CHAIN_WAREHOUSE_FLAGGED",
-      `Warehouse staff ${currentUser.name} flagged Order ${order.order_number} for Manager resolution: ${reason}`,
+      `${currentUser.name} stopped & flagged Order ${order.order_number} during release for Manager review: ${reason}`,
       shopId
     );
     res.json({ success: true, chain_status: "flagged_for_manager" });

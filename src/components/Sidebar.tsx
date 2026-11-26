@@ -17,9 +17,14 @@ import {
   Crown,
   Menu,
   MessageCircle,
-  X
+  X,
+  Sun,
+  Moon,
+  KeyRound,
+  Building2
 } from 'lucide-react';
 import { LanguageSwitcher, useLanguage } from '../i18n/LanguageContext';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface SidebarProps {
   activeTab: string;
@@ -30,6 +35,9 @@ interface SidebarProps {
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
   onOpenMobile?: () => void;
+  isDarkMode?: boolean;
+  onToggleTheme?: () => void;
+  onOpenChangePassword?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -40,7 +48,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   lowStockCount,
   isMobileOpen,
   onCloseMobile,
-  onOpenMobile
+  onOpenMobile,
+  isDarkMode = true,
+  onToggleTheme,
+  onOpenChangePassword
 }) => {
   const { t, tf } = useLanguage();
   const isSuperAdmin = user?.role === 'superadmin' || user?.email === 'rwemera30@gmail.com';
@@ -210,6 +221,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {isSuperAdmin ? t('header.platformOwner') : (user?.job_title || user?.role)}
                   </span>
                 </div>
+                {shop?.name && (
+                  <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-800/80 text-[11px] text-slate-300">
+                    <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">{shop.name}</span>
+                  </div>
+                )}
               </div>
               <div className="flex items-center justify-between px-1">
                 <span className="text-[11px] font-semibold text-slate-400">{t('common.switchLanguage')}</span>
@@ -254,6 +271,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Drawer Footer & Support */}
             <div className="p-3 border-t border-slate-800 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                {onToggleTheme && (
+                  <button
+                    type="button"
+                    onClick={onToggleTheme}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-slate-200 transition"
+                  >
+                    {isDarkMode ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-slate-300" />}
+                    <span>{isDarkMode ? tf('Light Mode', 'Urumuri') : tf('Dark Mode', 'Umwijima')}</span>
+                  </button>
+                )}
+                {onOpenChangePassword && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenChangePassword();
+                      onCloseMobile?.();
+                    }}
+                    className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-semibold text-slate-200 transition"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{tf('Password', 'Ijambo banga')}</span>
+                  </button>
+                )}
+              </div>
+              <div className="flex justify-center">
+                <PWAInstallButton variant="login" />
+              </div>
               <a
                 href="https://wa.me/250781549993?text=Muraho%20VectOS%20Customer%20Support%2C%20I%20need%20assistance"
                 target="_blank"

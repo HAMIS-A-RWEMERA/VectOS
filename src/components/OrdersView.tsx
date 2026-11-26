@@ -556,9 +556,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
 
         {/* Time Horizon Selector & Export Action */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
           {/* Period Selector */}
-          <div className="flex items-center bg-[#121620] p-1 rounded-xl border border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center bg-[#121620] p-1 rounded-xl border border-slate-800 text-xs max-w-full gap-1">
             {[
               { id: 'day', label: tf('Daily (Today)', 'Uyu Munsi') },
               { id: 'week', label: tf('Weekly (7d)', 'Iminsi 7') },
@@ -568,7 +568,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
               <button
                 key={p.id}
                 onClick={() => setPeriod(p.id as any)}
-                className={`px-3 py-1.5 rounded-lg font-bold text-xs transition ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg font-bold text-xs transition whitespace-nowrap ${
                   period === p.id
                     ? 'bg-amber-500 text-slate-950 shadow'
                     : 'text-slate-400 hover:text-white'
@@ -649,8 +649,115 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
       </div>
 
-      {/* Orders Table */}
-      <div className="rounded-2xl bg-[#121620] border border-slate-800 overflow-hidden">
+      {/* Mobile Orders Card List (< md) */}
+      <div className="md:hidden space-y-3">
+        {filteredOrders.map((ord) => {
+          const isCancelled = ord.fulfillment_status === 'cancelled';
+          return (
+            <div
+              key={ord.id}
+              className={`p-4 rounded-2xl border space-y-3 ${
+                isCancelled ? 'bg-rose-950/15 border-rose-500/30' : 'bg-[#121620] border-slate-800'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`font-mono font-bold text-sm ${isCancelled ? 'text-rose-400 line-through' : 'text-amber-400'}`}>
+                      {ord.order_number}
+                    </span>
+                    {isCancelled ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                        {trFulfillmentStatus('cancelled')}
+                      </span>
+                    ) : (
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        ord.payment_status === 'paid'
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                          : ord.payment_status === 'partial'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                      }`}>
+                        {trPaymentStatus(ord.payment_status)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs font-bold text-slate-200 mt-1 truncate">
+                    {ord.customer_name || tf('Walk-in Cash Client', 'Umukiriya usanzwe')}
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-mono">
+                    {new Date(ord.created_at).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="text-right shrink-0">
+                  <p className="font-mono font-black text-sm text-white whitespace-nowrap">
+                    {isCancelled ? 'RWF 0' : formatRwf(ord.total_amount)}
+                  </p>
+                  {!isCancelled && ord.debt_amount > 0 && (
+                    <p className="text-[10px] font-mono text-rose-400 whitespace-nowrap">
+                      {tf('Due:', 'Asigaye:')} {formatRwf(ord.debt_amount)}
+                    </p>
+                  )}
+                  <p className={`text-[10px] font-semibold mt-0.5 capitalize ${isCancelled ? 'text-rose-400' : 'text-slate-300'}`}>
+                    {ord.fulfillment_status === 'approved' ? tf('Released', 'Byasohowe') : trFulfillmentStatus(ord.fulfillment_status)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 flex-wrap pt-2 border-t border-slate-800/70">
+                {ord.handwritten_photo_key && (
+                  <button
+                    type="button"
+                    onClick={() => openPhotoViewer(ord)}
+                    className="px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 text-[11px] font-semibold flex items-center gap-1"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>{tf('Photo', 'Ifoto')}</span>
+                  </button>
+                )}
+                {canEditAnyOrder && ord.fulfillment_status !== 'cancelled' && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingOrder(ord)}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold flex items-center gap-1"
+                  >
+                    <Edit3 className="w-3 h-3 text-amber-400" />
+                    <span>{tf('Edit', 'Hindura')}</span>
+                  </button>
+                )}
+                {(canPrintReceipt || canPrintDeliveryNote) && (
+                  <button
+                    type="button"
+                    onClick={() => onPrintReceipt(ord)}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-semibold flex items-center gap-1"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>{tf('Print', 'Sohora')}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleViewOrder(ord.id)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold"
+                >
+                  {tf('Open', 'Fungura')}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        {filteredOrders.length === 0 && (
+          <div className="p-10 rounded-2xl bg-[#121620] border border-slate-800 text-center text-slate-400 text-xs">
+            <FileText className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+            <p className="font-semibold text-slate-300">{tf('No orders found', 'Nta tegeko ryabonetse')}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Orders Table (Desktop md+) */}
+      <div className="hidden md:block rounded-2xl bg-[#121620] border border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-[11px] uppercase tracking-wider text-slate-400 bg-slate-900/60 border-b border-slate-800">

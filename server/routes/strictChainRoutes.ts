@@ -902,14 +902,23 @@ router.post('/orders/:id/release-leg', requireAuth, requireStrictChainShop, asyn
 });
 
 // ============================================================================
-// 8. WAREHOUSE STAFF FLAG MISMATCH (FREEZES FOR MANAGER — CANNOT EDIT/RETURN)
+// 8. RELEASER STAFF FLAG MISMATCH (FREEZES FOR MANAGER — CANNOT EDIT/RETURN)
 // ============================================================================
 
-router.post('/orders/:id/flag', requireAuth, requirePermission('can_release_stock'), requireStrictChainShop, async (req: Request, res: Response) => {
+router.post('/orders/:id/flag', requireAuth, requireStrictChainShop, async (req: Request, res: Response) => {
   const shopId = res.locals.shopId;
   const orderId = Number(req.params.id);
   const currentUser = req.session.user!;
   const reason = String(req.body?.reason || '').trim();
+
+  if (
+    !hasUserPermission(currentUser, 'can_release_stock') &&
+    !hasUserPermission(currentUser, 'can_create_orders') &&
+    !hasUserPermission(currentUser, 'can_verify_orders') &&
+    !hasUserPermission(currentUser, 'can_resolve_flagged_orders')
+  ) {
+    return res.status(403).json({ error: 'Permission required to stop and flag an order for Manager review.' });
+  }
 
   if (!reason) {
     return res.status(400).json({ error: 'Please explain the discrepancy reason when flagging an order.' });
@@ -940,7 +949,7 @@ router.post('/orders/:id/flag', requireAuth, requirePermission('can_release_stoc
     await logChainAudit(
       req,
       'CHAIN_WAREHOUSE_FLAGGED',
-      `Warehouse staff ${currentUser.name} flagged Order ${order.order_number} for Manager resolution: ${reason}`,
+      `${currentUser.name} stopped & flagged Order ${order.order_number} during release for Manager review: ${reason}`,
       shopId
     );
 

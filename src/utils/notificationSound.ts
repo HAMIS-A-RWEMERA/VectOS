@@ -88,40 +88,53 @@ export function setSoundAlertsEnabled(enabled: boolean): void {
 
 interface ToneStep {
   freq: number;
+  harmonicFreq?: number;
   delay: number;
   duration: number;
   type: OscillatorType;
+  harmonicType?: OscillatorType;
   gain: number;
 }
 
 const SOUND_PATTERNS: Record<ChainSoundKind, ToneStep[]> = {
-  // Crisp rising 3-note chime for Verificators (new order incoming for Verify #1)
+  // Loud, penetrating double-ring rising doorbell alert for Verificators (new order Verify #1)
   verify_1: [
-    { freq: 523.25, delay: 0, duration: 0.14, type: 'triangle', gain: 0.22 },
-    { freq: 659.25, delay: 0.12, duration: 0.15, type: 'triangle', gain: 0.24 },
-    { freq: 783.99, delay: 0.24, duration: 0.28, type: 'sine', gain: 0.28 }
+    { freq: 1046.5, harmonicFreq: 1567.98, delay: 0.0, duration: 0.16, type: 'square', harmonicType: 'sawtooth', gain: 0.85 },
+    { freq: 1318.51, harmonicFreq: 1975.53, delay: 0.14, duration: 0.16, type: 'square', harmonicType: 'sawtooth', gain: 0.9 },
+    { freq: 1567.98, harmonicFreq: 2093.0, delay: 0.28, duration: 0.24, type: 'square', harmonicType: 'triangle', gain: 0.95 },
+    { freq: 1046.5, harmonicFreq: 1567.98, delay: 0.62, duration: 0.16, type: 'square', harmonicType: 'sawtooth', gain: 0.85 },
+    { freq: 1318.51, harmonicFreq: 1975.53, delay: 0.76, duration: 0.16, type: 'square', harmonicType: 'sawtooth', gain: 0.9 },
+    { freq: 1567.98, harmonicFreq: 2093.0, delay: 0.9, duration: 0.34, type: 'square', harmonicType: 'triangle', gain: 1.0 }
   ],
-  // Distinct double-bell chime for Storekeepers & Shop Releasers (authorized items ready to hand out)
+  // Loud, urgent triple store-bell ring for Storekeepers & Shop Releasers (authorized items ready for release)
   release: [
-    { freq: 587.33, delay: 0, duration: 0.16, type: 'sine', gain: 0.26 },
-    { freq: 880.0, delay: 0.14, duration: 0.24, type: 'triangle', gain: 0.24 },
-    { freq: 880.0, delay: 0.42, duration: 0.26, type: 'sine', gain: 0.22 }
+    { freq: 1174.66, harmonicFreq: 1760.0, delay: 0.0, duration: 0.18, type: 'square', harmonicType: 'sawtooth', gain: 0.92 },
+    { freq: 1760.0, harmonicFreq: 2349.32, delay: 0.17, duration: 0.22, type: 'square', harmonicType: 'sawtooth', gain: 0.98 },
+    { freq: 1174.66, harmonicFreq: 1760.0, delay: 0.48, duration: 0.18, type: 'square', harmonicType: 'sawtooth', gain: 0.92 },
+    { freq: 1760.0, harmonicFreq: 2349.32, delay: 0.65, duration: 0.22, type: 'square', harmonicType: 'sawtooth', gain: 0.98 },
+    { freq: 1760.0, harmonicFreq: 2637.02, delay: 0.98, duration: 0.36, type: 'square', harmonicType: 'sawtooth', gain: 1.0 }
   ],
-  // Confirmation chime for Verificator #2 (released items awaiting final #2 sign-off)
+  // Loud bright double-chime for Verificator #2 (released items awaiting final #2 sign-off)
   verify_2: [
-    { freq: 659.25, delay: 0, duration: 0.13, type: 'sine', gain: 0.22 },
-    { freq: 987.77, delay: 0.12, duration: 0.26, type: 'triangle', gain: 0.25 }
+    { freq: 1318.51, harmonicFreq: 1975.53, delay: 0.0, duration: 0.16, type: 'square', harmonicType: 'triangle', gain: 0.88 },
+    { freq: 1975.53, harmonicFreq: 2637.02, delay: 0.15, duration: 0.28, type: 'square', harmonicType: 'sawtooth', gain: 0.95 },
+    { freq: 1318.51, harmonicFreq: 1975.53, delay: 0.54, duration: 0.16, type: 'square', harmonicType: 'triangle', gain: 0.88 },
+    { freq: 1975.53, harmonicFreq: 2637.02, delay: 0.69, duration: 0.34, type: 'square', harmonicType: 'sawtooth', gain: 1.0 }
   ],
-  // Gentle 2-tone downward cue for Seller (order returned for edit)
+  // Loud 3-tone attention cue for Seller (order returned for edit)
   returned: [
-    { freq: 659.25, delay: 0, duration: 0.16, type: 'triangle', gain: 0.22 },
-    { freq: 493.88, delay: 0.17, duration: 0.26, type: 'sine', gain: 0.24 }
+    { freq: 1318.51, harmonicFreq: 987.77, delay: 0.0, duration: 0.18, type: 'square', harmonicType: 'sawtooth', gain: 0.9 },
+    { freq: 987.77, harmonicFreq: 1479.98, delay: 0.2, duration: 0.22, type: 'square', harmonicType: 'sawtooth', gain: 0.92 },
+    { freq: 1318.51, harmonicFreq: 1975.53, delay: 0.48, duration: 0.18, type: 'square', harmonicType: 'sawtooth', gain: 0.9 },
+    { freq: 987.77, harmonicFreq: 1479.98, delay: 0.68, duration: 0.34, type: 'square', harmonicType: 'sawtooth', gain: 0.95 }
   ],
-  // Urgent 3-pulse alert for Manager (warehouse discrepancy flagged)
+  // High-urgency piercing 4-pulse alarm for Manager (order discrepancy stopped & flagged)
   flagged: [
-    { freq: 880.0, delay: 0, duration: 0.14, type: 'triangle', gain: 0.25 },
-    { freq: 698.46, delay: 0.16, duration: 0.14, type: 'triangle', gain: 0.25 },
-    { freq: 880.0, delay: 0.32, duration: 0.28, type: 'sine', gain: 0.28 }
+    { freq: 1760.0, harmonicFreq: 2349.32, delay: 0.0, duration: 0.16, type: 'sawtooth', harmonicType: 'square', gain: 0.95 },
+    { freq: 1396.91, harmonicFreq: 2093.0, delay: 0.18, duration: 0.16, type: 'sawtooth', harmonicType: 'square', gain: 0.95 },
+    { freq: 1760.0, harmonicFreq: 2349.32, delay: 0.36, duration: 0.16, type: 'sawtooth', harmonicType: 'square', gain: 1.0 },
+    { freq: 1396.91, harmonicFreq: 2093.0, delay: 0.54, duration: 0.16, type: 'sawtooth', harmonicType: 'square', gain: 0.95 },
+    { freq: 1760.0, harmonicFreq: 2637.02, delay: 0.72, duration: 0.38, type: 'sawtooth', harmonicType: 'square', gain: 1.0 }
   ]
 };
 
@@ -145,23 +158,61 @@ export async function playChainNotificationSound(
   const steps = SOUND_PATTERNS[kind] || SOUND_PATTERNS.verify_1;
   const startAt = ctx.currentTime + 0.02;
 
+  // Brickwall compressor + boosted master gain maximizes speaker volume without harsh clipping
+  const masterGain = ctx.createGain();
+  masterGain.gain.setValueAtTime(2.6, startAt);
+
+  if (typeof ctx.createDynamicsCompressor === 'function') {
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-18, startAt);
+    compressor.knee.setValueAtTime(6, startAt);
+    compressor.ratio.setValueAtTime(16, startAt);
+    compressor.attack.setValueAtTime(0.001, startAt);
+    compressor.release.setValueAtTime(0.1, startAt);
+    masterGain.connect(compressor);
+    compressor.connect(ctx.destination);
+  } else {
+    masterGain.connect(ctx.destination);
+  }
+
   for (const step of steps) {
+    const t0 = startAt + step.delay;
+    const tEnd = t0 + step.duration;
+
     const osc = ctx.createOscillator();
     const gainNode = ctx.createGain();
     osc.type = step.type;
-    osc.frequency.setValueAtTime(step.freq, startAt + step.delay);
+    osc.frequency.setValueAtTime(step.freq, t0);
 
-    const t0 = startAt + step.delay;
-    const tEnd = t0 + step.duration;
     gainNode.gain.setValueAtTime(0.0001, t0);
-    gainNode.gain.exponentialRampToValueAtTime(step.gain, t0 + 0.018);
+    gainNode.gain.exponentialRampToValueAtTime(step.gain, t0 + 0.012);
+    gainNode.gain.setValueAtTime(step.gain, Math.max(t0 + 0.015, tEnd - 0.04));
     gainNode.gain.exponentialRampToValueAtTime(0.0001, tEnd);
 
     osc.connect(gainNode);
-    gainNode.connect(ctx.destination);
+    gainNode.connect(masterGain);
 
     osc.start(t0);
     osc.stop(tEnd + 0.02);
+
+    if (step.harmonicFreq) {
+      const hOsc = ctx.createOscillator();
+      const hGain = ctx.createGain();
+      hOsc.type = step.harmonicType || 'triangle';
+      hOsc.frequency.setValueAtTime(step.harmonicFreq, t0);
+
+      const hPeak = Math.min(0.85, step.gain * 0.65);
+      hGain.gain.setValueAtTime(0.0001, t0);
+      hGain.gain.exponentialRampToValueAtTime(hPeak, t0 + 0.012);
+      hGain.gain.setValueAtTime(hPeak, Math.max(t0 + 0.015, tEnd - 0.04));
+      hGain.gain.exponentialRampToValueAtTime(0.0001, tEnd);
+
+      hOsc.connect(hGain);
+      hGain.connect(masterGain);
+
+      hOsc.start(t0);
+      hOsc.stop(tEnd + 0.02);
+    }
   }
 
   return true;

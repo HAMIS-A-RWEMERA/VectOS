@@ -2127,19 +2127,19 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                   {(ord.items || []).map((it) => (
                     <div
                       key={it.id}
-                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between gap-2"
+                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-start justify-between gap-2.5"
                     >
-                      <div className="min-w-0">
-                        <span className="font-semibold text-slate-200 truncate block">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-semibold text-slate-200 break-words block">
                           {it.product_name || it.custom_product_name}
                         </span>
                         {it.leg_type === 'partner' && (
-                          <span className="text-[10px] text-teal-300">
+                          <span className="text-[10px] text-teal-300 block mt-0.5">
                             {tf('Partner:', 'Iduka Dufatanya:')} {it.partner_shop_name || 'Partner'}
                           </span>
                         )}
                       </div>
-                      <span className="font-mono font-black text-amber-400 shrink-0">
+                      <span className="font-mono font-black text-amber-400 shrink-0 whitespace-nowrap px-2 py-0.5 rounded-md bg-slate-950/80 border border-amber-500/25">
                         {it.quantity} {it.sold_unit || it.product_unit}
                       </span>
                     </div>
@@ -2295,17 +2295,17 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                           key={it.id}
                           className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                         >
-                          <div className="min-w-0">
-                            <span className="font-bold text-white">{it.product_name || it.custom_product_name}</span>
+                          <div className="min-w-0 flex-1">
+                            <span className="font-bold text-white break-words">{it.product_name || it.custom_product_name}</span>
                             {it.leg_released_by_name && (
-                              <span className="ml-2 text-[10px] text-slate-400">
+                              <span className="block sm:inline sm:ml-2 text-[10px] text-slate-400 mt-0.5 sm:mt-0">
                                 ({tf('By:', 'Na:')} {it.leg_released_by_name})
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 shrink-0">
+                          <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 flex-wrap">
                             {renderLegBadge(it)}
-                            <span className="font-mono font-black text-amber-400">
+                            <span className="font-mono font-black text-amber-400 whitespace-nowrap px-2 py-0.5 rounded-md bg-slate-950/80 border border-amber-500/25">
                               {it.quantity} {it.sold_unit || it.product_unit}
                             </span>
                           </div>
@@ -2480,42 +2480,84 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
             shopReleaseOrders.map((ord) => {
               const shopItems = (ord.items || []).filter((it) => it.leg_type === 'shop');
               return (
-                <div key={ord.id} className="p-5 rounded-2xl bg-[#121620] border border-sky-500/30 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
+                <div key={ord.id} className="p-4 sm:p-5 rounded-2xl bg-[#121620] border border-sky-500/30 space-y-3">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-mono font-black text-amber-400">{ord.order_number}</span>
                         {renderChainStatusBadge(ord.chain_status)}
+                        {ord.handwritten_photo_key ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            {tf('Handwritten Slip Attached', 'Ifoto Yometseho')}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                            {tf('No Slip Photo', 'Nta Foto')}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-400 mt-1">
-                        {tf('Client:', 'Umukiriya:')} <strong className="text-slate-200">{ord.customer_name}</strong> &bull;{' '}
+                        {tf('Client:', 'Umukiriya:')} <strong className="text-slate-200">{ord.customer_name || tf('Walk-in Client', 'Umukiriya usanzwe')}</strong> &bull;{' '}
                         {tf('Authorized by Supervisor #1:', 'Byemejwe n’Umugenzuzi #1:')}{' '}
                         <strong className="text-amber-300">{ord.first_verified_by_name}</strong>
                       </p>
+                      {ord.notes && (
+                        <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+                          <strong>{tf('Order Note:', 'Icyitonderwa:')}</strong> {ord.notes}
+                        </div>
+                      )}
                     </div>
 
-                    <button
-                      type="button"
-                      disabled={busyActionId === ord.id}
-                      onClick={() => handleReleaseLeg(ord, 'shop')}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs"
-                    >
-                      <Package className="w-4 h-4" />
-                      <span>{tf('Confirm Main Shop Items Released', 'Emeza ko Ibyo mu Iduka Byasohotse')}</span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {ord.handwritten_photo_key && (
+                        <button
+                          type="button"
+                          onClick={() => openPhotoViewer(ord)}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-300 border border-slate-700 flex-1 sm:flex-none whitespace-nowrap"
+                        >
+                          <Eye className="w-3.5 h-3.5 shrink-0" />
+                          <span>{tf('View Original Slip', 'Reba Ifoto y’Urupapuro')}</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={busyActionId === ord.id}
+                        onClick={() => {
+                          setFlagTargetOrder(ord);
+                          setFlagReason('');
+                        }}
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 text-xs font-bold flex-1 sm:flex-none whitespace-nowrap"
+                      >
+                        <Flag className="w-3.5 h-3.5 shrink-0" />
+                        <span>{tf('Stop & Flag Manager', 'Hagarika / Menyesha')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={busyActionId === ord.id}
+                        onClick={() => handleReleaseLeg(ord, 'shop')}
+                        className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs"
+                      >
+                        <Package className="w-4 h-4 shrink-0" />
+                        <span>{tf('Confirm Main Shop Items Released', 'Emeza ko Ibyo mu Iduka Byasohotse')}</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
                     {shopItems.map((it) => (
                       <div
                         key={it.id}
-                        className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs"
+                        className="p-2.5 sm:p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-start sm:items-center justify-between gap-3 text-xs"
                       >
-                        <div>
-                          <span className="font-bold text-white">{it.product_name}</span>
-                          <span className="ml-2 text-[10px] text-sky-300">({it.source_stock_name || 'Main Shop'})</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-white break-words">{it.product_name}</p>
+                          <p className="text-[11px] text-sky-300 mt-0.5 truncate">
+                            {it.source_stock_name || tf('Main Shop', 'Iduka')}
+                          </p>
                         </div>
-                        <span className="font-mono font-black text-amber-400">
+                        <span className="font-mono font-black text-amber-400 shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg bg-slate-950/80 border border-amber-500/25">
                           {it.quantity} {it.sold_unit || it.product_unit}
                         </span>
                       </div>
@@ -2543,30 +2585,44 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
               const hasPendingWh = whItems.some((it) => it.leg_status === 'pending');
 
               return (
-                <div key={ord.id} className="p-5 rounded-2xl bg-[#121620] border border-indigo-500/40 space-y-4">
+                <div key={ord.id} className="p-4 sm:p-5 rounded-2xl bg-[#121620] border border-indigo-500/40 space-y-4">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Warehouse className="w-4 h-4 text-indigo-400" />
+                        <Warehouse className="w-4 h-4 text-indigo-400 shrink-0" />
                         <span className="text-sm font-mono font-black text-amber-400">{ord.order_number}</span>
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                           {tf('Warehouse Request Only', 'Ibisabwa mu Bubiko Bukuru Gusa')}
                         </span>
+                        {ord.handwritten_photo_key ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                            {tf('Slip Attached', 'Ifoto Yometseho')}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                            {tf('No Slip Photo', 'Nta Foto')}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-400 mt-1">
-                        {tf('Client:', 'Umukiriya:')} <strong className="text-slate-200">{ord.customer_name}</strong> &bull;{' '}
+                        {tf('Client:', 'Umukiriya:')} <strong className="text-slate-200">{ord.customer_name || tf('Walk-in Client', 'Umukiriya usanzwe')}</strong> &bull;{' '}
                         {tf('Authorized by:', 'Byemejwe na:')} <strong className="text-amber-300">{ord.first_verified_by_name}</strong>
                       </p>
+                      {ord.notes && (
+                        <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+                          <strong>{tf('Order Note:', 'Icyitonderwa:')}</strong> {ord.notes}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
                       {ord.handwritten_photo_key && (
                         <button
                           type="button"
                           onClick={() => openPhotoViewer(ord)}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-300 border border-slate-700"
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-300 border border-slate-700 flex-1 sm:flex-none whitespace-nowrap"
                         >
-                          <Eye className="w-3.5 h-3.5" />
+                          <Eye className="w-3.5 h-3.5 shrink-0" />
                           <span>{tf('View Handwritten Slip', 'Reba Ifoto y’Urupapuro')}</span>
                         </button>
                       )}
@@ -2580,19 +2636,19 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                               setFlagTargetOrder(ord);
                               setFlagReason('');
                             }}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 text-xs font-bold"
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 text-xs font-bold flex-1 sm:flex-none whitespace-nowrap"
                           >
-                            <Flag className="w-3.5 h-3.5" />
-                            <span>{tf('Flag Discrepancy', 'Menyesha Ikibazo')}</span>
+                            <Flag className="w-3.5 h-3.5 shrink-0" />
+                            <span>{tf('Stop & Flag Manager', 'Hagarika / Menyesha')}</span>
                           </button>
 
                           <button
                             type="button"
                             disabled={busyActionId === ord.id}
                             onClick={() => handleReleaseLeg(ord, 'warehouse')}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
+                            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
                           >
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
                             <span>{tf('Release Warehouse Stock', 'Sohora Ibiri mu Bubiko')}</span>
                           </button>
                         </>
@@ -2606,13 +2662,15 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                         key={it.id}
                         className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                       >
-                        <div>
-                          <span className="font-bold text-white">{it.product_name}</span>
-                          <span className="ml-2 text-[10px] font-mono text-slate-400">{it.product_sku}</span>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-white break-words">{it.product_name}</span>
+                          {it.product_sku && (
+                            <span className="ml-2 text-[10px] font-mono text-slate-400">{it.product_sku}</span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 flex-wrap">
                           {renderLegBadge(it)}
-                          <span className="font-mono font-black text-amber-400 text-sm">
+                          <span className="font-mono font-black text-amber-400 text-sm whitespace-nowrap px-2.5 py-0.5 rounded-lg bg-slate-950/80 border border-amber-500/25">
                             {it.quantity} {it.sold_unit || it.product_unit}
                           </span>
                         </div>
@@ -2753,17 +2811,17 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                         key={it.id}
                         className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                       >
-                        <div>
-                          <span className="font-bold text-white">{it.product_name || it.custom_product_name}</span>
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-white break-words">{it.product_name || it.custom_product_name}</span>
                           {it.leg_released_by_name && (
-                            <span className="ml-2 text-[10px] text-slate-400">
+                            <span className="block sm:inline sm:ml-2 text-[10px] text-slate-400 mt-0.5 sm:mt-0">
                               ({it.leg_type === 'partner' ? tf('Added by:', 'Byashyizweho na:') : tf('Released by:', 'Yasohowe na:')} {it.leg_released_by_name})
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 flex-wrap">
                           {renderLegBadge(it)}
-                          <span className="font-mono font-black text-amber-400">
+                          <span className="font-mono font-black text-amber-400 whitespace-nowrap px-2 py-0.5 rounded-md bg-slate-950/80 border border-amber-500/25">
                             {it.quantity} {it.sold_unit || it.product_unit}
                           </span>
                           {it.leg_type === 'partner' && it.id && (
@@ -2844,19 +2902,19 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                   {(ord.items || []).map((it) => (
                     <div
                       key={it.id}
-                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between gap-2"
+                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-start justify-between gap-2.5"
                     >
-                      <div className="min-w-0">
-                        <span className="font-semibold text-slate-200 truncate block">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-semibold text-slate-200 break-words block">
                           {it.product_name || it.custom_product_name}
                         </span>
                         {it.leg_type === 'partner' && (
-                          <span className="text-[10px] text-teal-300">
+                          <span className="text-[10px] text-teal-300 block mt-0.5">
                             {tf('Partner:', 'Iduka Dufatanya:')} {it.partner_shop_name || 'Partner'}
                           </span>
                         )}
                       </div>
-                      <span className="font-mono font-black text-amber-400 shrink-0">
+                      <span className="font-mono font-black text-amber-400 shrink-0 whitespace-nowrap px-2 py-0.5 rounded-md bg-slate-950/80 border border-amber-500/25">
                         {it.quantity} {it.sold_unit || it.product_unit}
                       </span>
                     </div>
@@ -3255,7 +3313,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL: WAREHOUSE FLAG DISCREPANCY                                     */}
+      {/* MODAL: STOCK RELEASE STOP & FLAG DISCREPANCY                          */}
       {/* ===================================================================== */}
       {flagTargetOrder && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -3264,18 +3322,18 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
             className="w-full max-w-md rounded-2xl bg-[#131722] border border-rose-500/40 p-5 space-y-4"
           >
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Flag className="w-4 h-4 text-rose-400" />
-              <span>{tf('Flag Mismatch for Manager', 'Menyesha Umuyobozi Ikibazo')} &mdash; {flagTargetOrder.order_number}</span>
+              <Flag className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{tf('Stop Release & Flag for Manager', 'Hagarika & Menyesha Umuyobozi')} &mdash; {flagTargetOrder.order_number}</span>
             </h3>
             <p className="text-xs text-slate-400">
               {tf(
-                'This order will freeze until the Manager (or delegated officer) reviews the handwritten slip and resolves it.',
-                'Iyi komande irafungwa kugeza Umuyobozi arebye ifoto akabikemura.'
+                'Stock release will stop immediately and this order will freeze until the Manager reviews the handwritten slip and resolves the mistake.',
+                'Isohorwa rirahagarara ako kanya kandi iyi komande irafungwa kugeza Umuyobozi arebye ifoto akabikemura.'
               )}
             </p>
             <div>
               <label className="text-xs font-semibold text-slate-300">
-                {tf('Discrepancy Reason *', 'Ikibazo Cyawe *')}
+                {tf('Discrepancy / Mistake Reason *', 'Ikibazo Cyabonetse *')}
               </label>
               <textarea
                 required
@@ -3283,7 +3341,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                 value={flagReason}
                 onChange={(e) => setFlagReason(e.target.value)}
                 placeholder={tf(
-                  'e.g. Handwritten photo reads 10 cartons, but system says 1 carton.',
+                  'e.g. Handwritten slip photo reads 10 cartons, but system says 1 carton.',
                   'urugero: Ku rupapuro handitse amakarito 10 ariko muri sisitemu hari 1.'
                 )}
                 className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-rose-500"
@@ -3302,7 +3360,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                 disabled={busyActionId === flagTargetOrder.id}
                 className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs"
               >
-                {tf('Freeze & Flag Order', 'Funga & Wohereze ku Muyobozi')}
+                {tf('Stop & Freeze Order', 'Hagarika Komande')}
               </button>
             </div>
           </form>

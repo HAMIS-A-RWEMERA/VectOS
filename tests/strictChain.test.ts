@@ -446,4 +446,50 @@ describe('Phase 1 Strict Verification Chain, Isolation, Stock-Only & Watched Pro
     expect(partnerItemDb.leg_status).toBe('supervisor_confirmed');
     expect(partnerItemDb.custom_product_name).toBe('Brass Valve 1 inch');
   });
+
+  it('exposes uploaded order photo in shop_release queue and allows Main Shop releaser to stop & flag for Manager', async () => {
+    const sellerAgent = (await login(sellerEmail, staffPass)).agent as any;
+    const sup1Agent = (await login(sup1Email, staffPass)).agent as any;
+
+    const photoKey = `shops/${chainShopId}/orders/test-slip-${Date.now()}.webp`;
+    const createRes = await sellerAgent.post('/api/chain/orders').send({
+      customer_name: 'Kacyiru Client',
+      handwritten_photo_key: photoKey,
+      items: [{ product_id: shopProductId, quantity: 3 }],
+    });
+    expect(createRes.status).toBe(200);
+    const orderId = createRes.body.order.id;
+
+    // Supervisor #1 approves -> moves to in_release
+    const v1 = await sup1Agent.post(`/api/chain/orders/${orderId}/verify-1`).send({ decision: 'approve' });
+    expect(v1.status).toBe(200);
+
+    // Shop Release queue exposes handwritten_photo_key so releaser can inspect original slip
+    const shopQueueRes = await sellerAgent.get('/api/chain/orders?queue=shop_release');
+    expect(shopQueueRes.status).toBe(200);
+    const queuedOrder = shopQueueRes.body.orders.find((o: any) => o.id === orderId);
+    expect(queuedOrder).toBeTruthy();
+    expect(queuedOrder.handwritten_photo_key).toBe(photoKey);
+
+    // Releaser spots a mistake comparing against handwritten photo and stops & flags for Manager
+    const flagRes = await sellerAgent.post(`/api/chain/orders/${orderId}/flag`).send({
+      reason: 'Original slip photo asks for 5 cartons, not 3 cartons',
+    });
+    expect(flagRes.status).toBe(200);
+    expect(flagRes.body.chain_status).toBe('flagged_for_manager');
+
+    // Verify order is frozen in flagged queue awaiting Manager resolution
+    const flaggedQueue = await chainManagerAgent.get('/api/chain/orders?queue=flagged');
+    expect(flaggedQueue.status).toBe(200);
+    const flaggedOrder = flaggedQueue.body.orders.find((o: any) => o.id === orderId);
+    expect(flaggedOrder).toBeTruthy();
+    expect(flaggedOrder.flag_reason).toContain('5 cartons');
+
+    // Clean up: Manager cancels the test flagged order so reserved counts stay clean
+    const resolveCancel = await chainManagerAgent.post(`/api/chain/orders/${orderId}/manager-resolve`).send({
+      action: 'cancel',
+      resolution_note: 'Cancelled after verification test',
+    });
+    expect(resolveCancel.status).toBe(200);
+  });
 });

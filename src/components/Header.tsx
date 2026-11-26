@@ -74,9 +74,9 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-[#0F131A]/95 backdrop-blur border-b border-slate-800/80 px-3 sm:px-6 py-2.5 sm:py-3">
-      <div className="flex items-center justify-between gap-2 sm:gap-4">
+      <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0">
         {/* Left: Mobile Menu Toggle + Brand & Active Shop */}
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
           {/* Mobile hamburger menu toggle */}
           {user && (
             <button
@@ -90,14 +90,14 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-lg sm:text-xl tracking-tight shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-base sm:text-xl tracking-tight shrink-0">
               V
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="font-bold text-base sm:text-lg text-white tracking-wide">VectOS</span>
-                <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <span className="font-bold text-sm sm:text-lg text-white tracking-wide truncate">VectOS</span>
+                <span className="hidden sm:inline-block text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   Rwanda
                 </span>
               </div>
@@ -105,22 +105,22 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          <div className="hidden md:block h-6 w-px bg-slate-800 mx-1" />
+          <div className="hidden md:block h-6 w-px bg-slate-800 mx-1 shrink-0" />
 
           {/* Active Shop Selector / Indicator */}
           {shop && (
-            <div className="relative min-w-0">
+            <div className="relative hidden sm:block min-w-0">
               {isSuperAdmin && availableShops.length > 1 ? (
                 <button
                   onClick={() => setShowShopMenu(!showShopMenu)}
-                  className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-200 transition max-w-[120px] sm:max-w-[180px]"
+                  className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-200 transition max-w-[160px] sm:max-w-[200px]"
                 >
                   <Store className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <span className="truncate">{shop.name}</span>
                   <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
                 </button>
               ) : (
-                <div className="hidden xs:flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs font-medium text-slate-300 max-w-[140px] sm:max-w-[230px]">
+                <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs font-medium text-slate-300 max-w-[230px]">
                   <Building2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <span className="truncate">{shop.name}</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
@@ -169,17 +169,19 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Install App, AI Assistant, WhatsApp Support, POS Quick Button, User Role, Profile */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          <PWAInstallButton variant="header" />
+          <div className="hidden sm:flex items-center">
+            <PWAInstallButton variant="header" />
+          </div>
 
-          {/* VectOS AI Help Guide Button */}
+          {/* VectOS AI Help Guide Button (mobile uses floating Sparkles button to avoid header crowding) */}
           {onOpenAiHelp && (
             <button
               onClick={onOpenAiHelp}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-600/25 hover:from-amber-500/25 hover:to-amber-600/40 border border-amber-500/40 text-amber-300 text-xs font-bold transition shadow-sm cursor-pointer"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-600/25 hover:from-amber-500/25 hover:to-amber-600/40 border border-amber-500/40 text-amber-300 text-xs font-bold transition shadow-sm cursor-pointer"
               title={tf('Open VectOS AI Assistant', 'Fungura Umufasha wa VectOS AI')}
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">{t('header.aiHelpGuide')}</span>
+              <span>{t('header.aiHelpGuide')}</span>
             </button>
           )}
 
@@ -199,31 +201,31 @@ export const Header: React.FC<HeaderProps> = ({
           {(!isStrictChain || canSeeChain) && (
             <button
               onClick={onOpenPos}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer whitespace-nowrap"
             >
               {isStrictChain ? (
                 isWarehouseOnly ? (
                   <>
-                    <Warehouse className="w-3.5 h-3.5" />
+                    <Warehouse className="w-3.5 h-3.5 shrink-0" />
                     <span className="hidden sm:inline">{tf('Stock Releases', 'Isohorwa ry’Ububiko')}</span>
                     <span className="sm:hidden">{tf('Stock', 'Ububiko')}</span>
                   </>
                 ) : isVerifierOnly ? (
                   <>
-                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                     <span className="hidden sm:inline">{tf('Verify Orders', 'Igenzura')}</span>
                     <span className="sm:hidden">{tf('Verify', 'Genzura')}</span>
                   </>
                 ) : (
                   <>
-                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                     <span className="hidden sm:inline">{tf('Order Chain', 'Uruhererekane')}</span>
                     <span className="sm:hidden">{tf('Chain', 'Igenzura')}</span>
                   </>
                 )
               ) : (
                 <>
-                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
                   <span className="hidden sm:inline">{t('header.makeSale')}</span>
                   <span className="sm:hidden">{t('header.sell')}</span>
                 </>
@@ -231,13 +233,15 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Compact Language Switcher (EN | RW) */}
-          <LanguageSwitcher variant="compact" />
+          {/* Compact Language Switcher (EN | RW) — available inside Mobile Drawer on <sm */}
+          <div className="hidden sm:block">
+            <LanguageSwitcher variant="compact" />
+          </div>
 
-          {/* Theme Toggle Button */}
+          {/* Theme Toggle Button — available inside Mobile Drawer on <sm */}
           <button
             onClick={onToggleTheme}
-            className="p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition cursor-pointer"
+            className="hidden sm:flex p-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/80 border border-slate-700/60 text-slate-300 hover:text-white transition cursor-pointer"
             title={isDarkMode ? tf('Switch to Light Mode', 'Hindura ku Rumuri') : tf('Switch to Dark Mode', 'Hindura ku Mwijima')}
           >
             {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
@@ -269,7 +273,7 @@ export const Header: React.FC<HeaderProps> = ({
           {user && (
             <div className="flex items-center gap-1 pl-1.5 sm:pl-2 border-l border-slate-800">
               <div 
-                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[11px] sm:text-xs font-bold text-amber-400 shrink-0"
+                className="hidden sm:flex w-8 h-8 rounded-full bg-slate-800 border border-slate-700 items-center justify-center text-xs font-bold text-amber-400 shrink-0"
                 title={`${user.name} (${user.email})`}
               >
                 {user.name.slice(0, 2).toUpperCase()}
@@ -278,10 +282,10 @@ export const Header: React.FC<HeaderProps> = ({
               {onOpenChangePassword && (
                 <button
                   onClick={onOpenChangePassword}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
+                  className="hidden sm:flex p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer"
                   title={t('header.changePasswordTitle')}
                 >
-                  <KeyRound className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <KeyRound className="w-4 h-4" />
                 </button>
               )}
 
@@ -289,8 +293,9 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={onLogout}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition cursor-pointer"
                 title={tf('Sign Out', 'Sohoka muri konti')}
+                aria-label={tf('Sign Out', 'Sohoka muri konti')}
               >
-                <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
           )}

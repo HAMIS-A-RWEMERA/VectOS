@@ -365,10 +365,13 @@ export const App: React.FC = () => {
           isMobileOpen={isMobileMenuOpen}
           onCloseMobile={() => setIsMobileMenuOpen(false)}
           onOpenMobile={() => setIsMobileMenuOpen(true)}
+          isDarkMode={isDarkMode}
+          onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+          onOpenChangePassword={() => setIsChangePasswordOpen(true)}
         />
 
         {/* Content View Area */}
-        <main className={`flex-1 overflow-y-auto min-h-0 pb-20 lg:pb-0 ${isDarkMode ? 'bg-[#090d16]' : 'bg-slate-50'}`}>
+        <main className={`flex-1 overflow-y-auto min-h-0 pb-24 lg:pb-0 ${isDarkMode ? 'bg-[#090d16]' : 'bg-slate-50'}`}>
           {activeTab === 'dashboard' && (shop?.workflow_mode !== 'strict_chain' || canAccessStrictChainDashboard(user)) && (
             <DashboardView
               user={user}
