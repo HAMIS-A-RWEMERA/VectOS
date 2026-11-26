@@ -84,6 +84,7 @@ export interface Product {
   pack_buying_price?: number | null;
   pack_selling_price?: number;
   quantity: number | null;
+  physical_quantity?: number | null;
   low_stock_threshold: number | null;
   is_watched?: boolean | number;
   reserved_quantity?: number | null;

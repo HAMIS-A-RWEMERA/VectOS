@@ -171,6 +171,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     }
   };
 
+  const getRemainingStockQty = (p: Product): number =>
+    Math.max(0, Math.round(Number(p.available_quantity ?? p.quantity ?? 0)));
+
   const sortProductList = (list: Product[], sortKey: StockSortOption): Product[] => {
     const getSellPrice = (p: Product) =>
       p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
@@ -189,9 +192,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     return [...list].sort((a, b) => {
       switch (effectiveSort) {
         case 'qty_desc':
-          return Number(b.quantity || 0) - Number(a.quantity || 0) || a.name.localeCompare(b.name);
+          return getRemainingStockQty(b) - getRemainingStockQty(a) || a.name.localeCompare(b.name);
         case 'qty_asc':
-          return Number(a.quantity || 0) - Number(b.quantity || 0) || a.name.localeCompare(b.name);
+          return getRemainingStockQty(a) - getRemainingStockQty(b) || a.name.localeCompare(b.name);
         case 'sold_desc':
           return Number(b.total_units_sold || 0) - Number(a.total_units_sold || 0) || a.name.localeCompare(b.name);
         case 'sold_asc':
@@ -228,11 +231,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       const matchQuery = matchesSearch(searchQuery, p.name, p.sku, p.barcode, p.category, p.stock_name);
       
       let matchStock = true;
-      const inStockFlag = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : Number(p.quantity || 0) > 0;
+      const remainingQty = getRemainingStockQty(p);
+      const inStockFlag = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : remainingQty > 0;
       if (filterStockStatus === 'low' && showStockLevels) {
-        const q = Number(p.quantity || 0);
         const th = Number(p.low_stock_threshold || 0);
-        matchStock = q > 0 && q <= th;
+        matchStock = remainingQty > 0 && remainingQty <= th;
       } else if (filterStockStatus === 'out') {
         matchStock = !inStockFlag;
       }
@@ -296,7 +299,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
   const handlePrintDirect = () => {
     setIsExportMenuOpen(false);
     const list = filteredProducts;
-    const totalUnits = list.reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+    const totalUnits = list.reduce((sum, p) => sum + getRemainingStockQty(p), 0);
     const totalSold = list.reduce((sum, p) => sum + Number(p.total_units_sold || 0), 0);
 
     let iframe = document.getElementById('vectos-stock-print-frame') as HTMLIFrameElement;
@@ -316,7 +319,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
     const rowsHtml = list.map((p, idx) => {
       const sellPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
-      const qty = Number(p.quantity || 0);
+      const qty = getRemainingStockQty(p);
       const breakdown = formatPackStock(qty, p.units_per_pack, p.unit, p.pack_unit);
       const inStock = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : qty > 0;
       const status = !showStockLevels
@@ -459,7 +462,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
     const rows = list.map((p) => {
       const sellPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
       const packSellPrice = isPackProduct(p) ? getPackSellingPrice(p) : '';
-      const qty = Number(p.quantity || 0);
+      const qty = getRemainingStockQty(p);
       const breakdown = formatPackStock(qty, p.units_per_pack, p.unit, p.pack_unit);
       const inStock = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : qty > 0;
       const status = !showStockLevels
@@ -994,7 +997,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filteredProducts.map((p) => {
-                const qtyVal = Number(p.quantity || 0);
+                const qtyVal = getRemainingStockQty(p);
+                const reservedQty = Math.max(0, Math.round(Number(p.reserved_quantity || 0)));
+                const physQty = Math.max(0, Math.round(Number(p.physical_quantity ?? p.quantity ?? qtyVal)));
                 const isInStock = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : qtyVal > 0;
                 const isOutOfStock = !isInStock;
                 const isLowStock = showStockLevels && isInStock && qtyVal <= Number(p.low_stock_threshold || 0);
@@ -1071,10 +1076,30 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                           {breakdown.isMultiUnit ? (
                             <div>
                               <p className="font-black text-white">{breakdown.primary}</p>
-                              <p className="text-[10px] text-slate-400">({breakdown.totalText} {tf('total', 'yose')})</p>
+                              <p className="text-[10px] text-slate-400">
+                                ({breakdown.totalText} {tf('remaining', 'bisigaye')})
+                              </p>
+                              {reservedQty > 0 && (
+                                <p className="text-[10px] text-amber-300 mt-0.5">
+                                  {tf(
+                                    `${reservedQty.toLocaleString()} in active orders · ${physQty.toLocaleString()} shelf`,
+                                    `${reservedQty.toLocaleString()} muri komande · ${physQty.toLocaleString()} mu bubiko`
+                                  )}
+                                </p>
+                              )}
                             </div>
                           ) : (
-                            <span className="font-black text-white">{p.quantity}</span>
+                            <div>
+                              <span className="font-black text-white">{qtyVal.toLocaleString()}</span>
+                              {reservedQty > 0 && (
+                                <p className="text-[10px] text-amber-300 mt-0.5">
+                                  {tf(
+                                    `${reservedQty.toLocaleString()} in active orders · ${physQty.toLocaleString()} shelf`,
+                                    `${reservedQty.toLocaleString()} muri komande · ${physQty.toLocaleString()} mu bubiko`
+                                  )}
+                                </p>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="py-3 px-4 font-mono font-semibold text-sky-300">
@@ -1092,7 +1117,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                         </span>
                       ) : isLowStock ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                          {tf('Low Stock', 'Biri Gushira')} ({p.quantity} &lt; {p.low_stock_threshold})
+                          {tf('Low Stock', 'Biri Gushira')} ({qtyVal} &lt;= {p.low_stock_threshold})
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
@@ -1447,7 +1472,11 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     )}
 
                     <div>
-                      <label className="text-xs font-semibold text-slate-300">{tf('Initial Quantity in Stock', 'Umubare utangiranye mu Bubiko')}</label>
+                      <label className="text-xs font-semibold text-slate-300">
+                        {isEditModalOpen
+                          ? tf('Physical Quantity in Warehouse', 'Umubare wose uri mu Bubiko')
+                          : tf('Initial Quantity in Stock', 'Umubare utangiranye mu Bubiko')}
+                      </label>
                       <input
                         type="number"
                         step="1"
@@ -1455,6 +1484,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                         onChange={(e) => setFormData({ ...formData, quantity: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
                       />
+                      {isEditModalOpen && currentProduct && Number(currentProduct.reserved_quantity || 0) > 0 && (
+                        <p className="text-[11px] text-amber-300 mt-1">
+                          {tf(
+                            `${currentProduct.reserved_quantity} currently reserved in active orders (${getRemainingStockQty(currentProduct)} remaining available).`,
+                            `${currentProduct.reserved_quantity} biri muri komande zirimo gusohoka (${getRemainingStockQty(currentProduct)} nibyo bisigaye).`
+                          )}
+                        </p>
+                      )}
                     </div>
                   </>
                 )}

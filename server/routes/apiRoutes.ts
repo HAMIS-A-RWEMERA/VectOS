@@ -702,8 +702,8 @@ router.get('/dashboard/stats', requireAuth, requireTenant, async (req: Request, 
 
     const todaySalesRow = await queryOne(todaySql, [shopId]);
 
-    const lowStockProducts = await queryAll(
-      `SELECT * FROM products WHERE shop_id = ? AND quantity <= low_stock_threshold ORDER BY quantity ASC LIMIT 8`,
+    const lowStockProductsRaw = await queryAll(
+      `SELECT * FROM products WHERE shop_id = ? ORDER BY quantity ASC`,
       [shopId]
     );
 
@@ -756,7 +756,43 @@ router.get('/dashboard/stats', requireAuth, requireTenant, async (req: Request, 
       'SELECT workflow_mode, pricing_mode FROM shops WHERE id = ?',
       [shopId]
     );
-    const hideStockLevels = shopRow?.workflow_mode === 'strict_chain' && !canViewStockLevels(req.session?.user);
+    const isStrictChain = shopRow?.workflow_mode === 'strict_chain';
+    const hideStockLevels = isStrictChain && !canViewStockLevels(req.session?.user);
+
+    const reservedMap = new Map<number, number>();
+    if (isStrictChain && !hideStockLevels) {
+      const reservedRows = await queryAll<{ product_id: number; reserved_units: number }>(
+        `SELECT oi.product_id,
+                COALESCE(SUM(oi.quantity * COALESCE(oi.pack_size, 1)), 0) as reserved_units
+         FROM order_items oi
+         INNER JOIN orders o ON oi.order_id = o.id
+         WHERE o.shop_id = ?
+           AND oi.product_id IS NOT NULL
+           AND o.chain_status IN ('pending_supervisor_1', 'in_release', 'flagged_for_manager')
+         GROUP BY oi.product_id`,
+        [shopId]
+      );
+      for (const r of reservedRows) {
+        reservedMap.set(Number(r.product_id), Math.max(0, Math.round(Number(r.reserved_units || 0))));
+      }
+    }
+
+    const lowStockProducts = lowStockProductsRaw
+      .map((p: any) => {
+        const phys = Math.max(0, Math.round(Number(p.quantity || 0)));
+        const reserved = reservedMap.get(Number(p.id)) || 0;
+        const available = Math.max(0, phys - reserved);
+        return {
+          ...p,
+          quantity: available,
+          physical_quantity: phys,
+          reserved_quantity: reserved,
+          available_quantity: available,
+        };
+      })
+      .filter((p: any) => Number(p.available_quantity) <= Number(p.low_stock_threshold || 0))
+      .sort((a: any, b: any) => Number(a.available_quantity) - Number(b.available_quantity))
+      .slice(0, 8);
 
     res.json({
       todaySales: Number(todaySalesRow?.today_sales || 0),
@@ -807,6 +843,7 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
           WHERE oi.product_id = p.id
             AND o.shop_id = p.shop_id
             AND o.fulfillment_status != 'cancelled'
+            AND COALESCE(o.chain_status, 'completed') NOT IN ('cancelled', 'returned_to_seller')
             AND COALESCE(oi.item_status, 'approved') != 'rejected'
         ), 0) as total_units_sold,
         COALESCE((
@@ -840,7 +877,8 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
       'SELECT workflow_mode, pricing_mode FROM shops WHERE id = ?',
       [shopId]
     );
-    const hideStockLevels = shopRow?.workflow_mode === 'strict_chain' && !canViewStockLevels(req.session?.user);
+    const isStrictChain = shopRow?.workflow_mode === 'strict_chain';
+    const hideStockLevels = isStrictChain && !canViewStockLevels(req.session?.user);
     const effectiveSort = hideStockLevels && (sort === 'qty_desc' || sort === 'qty_asc' || sort === 'sold_desc' || sort === 'sold_asc')
       ? 'name_asc'
       : sort;
@@ -861,10 +899,31 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
     sql += ` ORDER BY ${orderBy}`;
 
     const products = await queryAll(sql, params);
+
+    const reservedMap = new Map<number, number>();
+    if (isStrictChain) {
+      const reservedRows = await queryAll<{ product_id: number; reserved_units: number }>(
+        `SELECT oi.product_id,
+                COALESCE(SUM(oi.quantity * COALESCE(oi.pack_size, 1)), 0) as reserved_units
+         FROM order_items oi
+         INNER JOIN orders o ON oi.order_id = o.id
+         WHERE o.shop_id = ?
+           AND oi.product_id IS NOT NULL
+           AND o.chain_status IN ('pending_supervisor_1', 'in_release', 'flagged_for_manager')
+         GROUP BY oi.product_id`,
+        [shopId]
+      );
+      for (const r of reservedRows) {
+        reservedMap.set(Number(r.product_id), Math.max(0, Math.round(Number(r.reserved_units || 0))));
+      }
+    }
+
     const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
     const normalizedProducts = products.map((p: any) => {
       const unitsPerPack = Math.max(1, Math.round(Number(p.units_per_pack || 1)));
       const physQty = Math.max(0, Math.round(Number(p.quantity || 0)));
+      const reservedQty = isStrictChain ? (reservedMap.get(Number(p.id)) || 0) : 0;
+      const availableQty = Math.max(0, physQty - reservedQty);
       const buyPrice = Number(p.buying_price || 0);
       const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : buyPrice;
       const packBuyPrice = Number(p.pack_buying_price || 0) > 0
@@ -878,10 +937,13 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
         units_per_pack: unitsPerPack,
         pack_unit: unitsPerPack > 1 ? ((p.pack_unit || '').trim() || 'Carton') : (p.pack_unit || null),
         quantity: hideStockLevels ? null : physQty,
+        physical_quantity: hideStockLevels ? null : physQty,
+        reserved_quantity: hideStockLevels ? null : reservedQty,
+        available_quantity: hideStockLevels ? null : availableQty,
         low_stock_threshold: hideStockLevels ? null : Math.max(0, Math.round(Number(p.low_stock_threshold || 0))),
         total_units_sold: hideStockLevels ? null : Math.max(0, Math.round(Number(p.total_units_sold || 0))),
-        in_stock: physQty > 0,
-        pack_in_stock: unitsPerPack > 1 ? physQty >= unitsPerPack : false,
+        in_stock: availableQty > 0,
+        pack_in_stock: unitsPerPack > 1 ? availableQty >= unitsPerPack : false,
         stock_levels_hidden: hideStockLevels,
         last_stocked_at: p.last_stocked_at || p.created_at || null,
         selling_price: sellPrice,
@@ -890,6 +952,14 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
         pack_buying_price: canViewBuying ? packBuyPrice : null
       };
     });
+
+    if (isStrictChain && !hideStockLevels && (effectiveSort === 'qty_desc' || effectiveSort === 'qty_asc')) {
+      normalizedProducts.sort((a: any, b: any) =>
+        effectiveSort === 'qty_desc'
+          ? Number(b.available_quantity || 0) - Number(a.available_quantity || 0) || String(a.name).localeCompare(String(b.name))
+          : Number(a.available_quantity || 0) - Number(b.available_quantity || 0) || String(a.name).localeCompare(String(b.name))
+      );
+    }
 
     const categories = await queryAll(
       `SELECT DISTINCT category FROM products WHERE shop_id = ? AND category IS NOT NULL AND category != '' ORDER BY category ASC`,
@@ -4795,7 +4865,7 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id
-       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' AND COALESCE(o.chain_status, 'completed') NOT IN ('cancelled', 'returned_to_seller') ${dateFilter}
        GROUP BY p.category ORDER BY revenue DESC`,
       [shopId, ...dateParams]
     );
@@ -4805,7 +4875,7 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
        FROM order_items oi
        JOIN products p ON oi.product_id = p.id
        JOIN orders o ON oi.order_id = o.id
-       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' AND COALESCE(o.chain_status, 'completed') NOT IN ('cancelled', 'returned_to_seller') ${dateFilter}
        GROUP BY p.id, p.name, p.sku, p.category ORDER BY total_revenue DESC LIMIT 20`,
       [shopId, ...dateParams]
     );
@@ -4814,7 +4884,7 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
       `SELECT u.name, u.email, COUNT(o.id) as total_orders, COALESCE(SUM(o.total_amount), 0) as total_sales
        FROM orders o
        JOIN users u ON o.salesperson_id = u.id
-       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' AND COALESCE(o.chain_status, 'completed') NOT IN ('cancelled', 'returned_to_seller') ${dateFilter}
        GROUP BY u.id, u.name, u.email ORDER BY total_sales DESC`,
       [shopId, ...dateParams]
     );
@@ -4826,7 +4896,7 @@ router.get('/reports/summary', requireAuth, requireTenant, requirePermission('ca
          COALESCE(SUM(o.paid_amount), 0) as total_paid,
          COALESCE(SUM(o.debt_amount), 0) as total_debt
        FROM orders o
-       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' ${dateFilter}`,
+       WHERE o.shop_id = ? AND o.fulfillment_status != 'cancelled' AND COALESCE(o.chain_status, 'completed') NOT IN ('cancelled', 'returned_to_seller') ${dateFilter}`,
       [shopId, ...dateParams]
     );
 

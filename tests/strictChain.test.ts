@@ -492,4 +492,63 @@ describe('Phase 1 Strict Verification Chain, Isolation, Stock-Only & Watched Pro
     });
     expect(resolveCancel.status).toBe(200);
   });
+
+  it('shows remaining available stock (physical minus active orders) in GET /api/products and excludes returned drafts from Sold', async () => {
+    const sellerAgent = (await login(sellerEmail, staffPass)).agent as any;
+    const sup1Agent = (await login(sup1Email, staffPass)).agent as any;
+
+    const beforeRes = await chainManagerAgent.get('/api/products');
+    expect(beforeRes.status).toBe(200);
+    const beforeProd = beforeRes.body.products.find((p: any) => p.id === shopProductId);
+    expect(beforeProd).toBeTruthy();
+    const startAvail = Number(beforeProd.available_quantity);
+    const startPhys = Number(beforeProd.physical_quantity);
+    const startSold = Number(beforeProd.total_units_sold);
+
+    // 1. Place order for 4 units -> available_quantity drops by 4 immediately while reserved_quantity increases by 4
+    const createRes = await sellerAgent.post('/api/chain/orders').send({
+      customer_name: 'Nyamirambo Walk-in',
+      items: [{ product_id: shopProductId, quantity: 4 }],
+    });
+    expect(createRes.status).toBe(200);
+    const orderId = createRes.body.order.id;
+
+    const pendingRes = await chainManagerAgent.get('/api/products');
+    const pendingProd = pendingRes.body.products.find((p: any) => p.id === shopProductId);
+    expect(Number(pendingProd.physical_quantity)).toBe(startPhys);
+    expect(Number(pendingProd.reserved_quantity)).toBe(Number(beforeProd.reserved_quantity || 0) + 4);
+    expect(Number(pendingProd.available_quantity)).toBe(startAvail - 4);
+    expect(Number(pendingProd.total_units_sold)).toBe(startSold + 4);
+
+    // 2. Return to seller -> reserved drops back and total_units_sold excludes returned_to_seller
+    const retRes = await sup1Agent.post(`/api/chain/orders/${orderId}/verify-1`).send({
+      decision: 'return',
+      reason: 'Check quantity',
+    });
+    expect(retRes.status).toBe(200);
+
+    const afterReturnRes = await chainManagerAgent.get('/api/products');
+    const afterReturnProd = afterReturnRes.body.products.find((p: any) => p.id === shopProductId);
+    expect(Number(afterReturnProd.available_quantity)).toBe(startAvail);
+    expect(Number(afterReturnProd.total_units_sold)).toBe(startSold);
+
+    // 3. Resubmit, Approve #1, Release, Confirm #2 -> physical decrements by 4 and available stays startAvail - 4 seamlessly
+    const resubRes = await sellerAgent.put(`/api/chain/orders/${orderId}/seller-edit`).send({
+      items: [{ product_id: shopProductId, quantity: 4 }],
+    });
+    expect(resubRes.status).toBe(200);
+    await sup1Agent.post(`/api/chain/orders/${orderId}/verify-1`).send({ decision: 'approve' });
+    await sellerAgent.post(`/api/chain/orders/${orderId}/release-leg`).send({ leg: 'shop' });
+    const v2Res = await sup1Agent.post(`/api/chain/orders/${orderId}/verify-2`).send({});
+    expect(v2Res.status).toBe(200);
+    expect(v2Res.body.completed).toBe(true);
+
+    const afterCompleteRes = await chainManagerAgent.get('/api/products');
+    const afterCompleteProd = afterCompleteRes.body.products.find((p: any) => p.id === shopProductId);
+    expect(Number(afterCompleteProd.physical_quantity)).toBe(startPhys - 4);
+    expect(Number(afterCompleteProd.reserved_quantity)).toBe(Number(beforeProd.reserved_quantity || 0));
+    expect(Number(afterCompleteProd.available_quantity)).toBe(startAvail - 4);
+    expect(Number(afterCompleteProd.total_units_sold)).toBe(startSold + 4);
+  });
 });
+

@@ -924,17 +924,19 @@ export function exportStockPdf({
   const isStockOnly = shop?.pricing_mode === 'stock_only';
   const showCosts = !isStockOnly && showBuyingPrices;
 
+  const getRemainingQty = (p: Product) => Math.max(0, Number(p.available_quantity ?? p.quantity ?? 0));
+
   // Stock Summary KPIs
   const totalItems = products.length;
-  const totalUnits = products.reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+  const totalUnits = products.reduce((sum, p) => sum + getRemainingQty(p), 0);
   const totalSold = products.reduce((sum, p) => sum + Number(p.total_units_sold || 0), 0);
-  const lowOrOutCount = products.filter((p) => Number(p.quantity || 0) <= Number(p.low_stock_threshold || 0)).length;
+  const lowOrOutCount = products.filter((p) => getRemainingQty(p) <= Number(p.low_stock_threshold || 0)).length;
   const totalRetailValue = products.reduce((sum, p) => {
     const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
-    return sum + Number(p.quantity || 0) * sellPrice;
+    return sum + getRemainingQty(p) * sellPrice;
   }, 0);
   const totalCostValue = products.reduce(
-    (sum, p) => sum + Number(p.quantity || 0) * Number(p.buying_price || 0),
+    (sum, p) => sum + getRemainingQty(p) * Number(p.buying_price || 0),
     0
   );
 
@@ -997,7 +999,7 @@ export function exportStockPdf({
     : [['#', 'Code', 'Product Name', 'Category', 'Location', 'Unit', 'Selling Price', 'In Stock', 'Sold', 'Status', 'Date Added']];
 
   const bodyRows = products.map((p, idx) => {
-    const qty = Number(p.quantity || 0);
+    const qty = getRemainingQty(p);
     const threshold = Number(p.low_stock_threshold || 0);
     const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
     const statusLabel = qty <= 0 ? 'OUT OF STOCK' : qty <= threshold ? 'LOW STOCK' : 'HEALTHY';
