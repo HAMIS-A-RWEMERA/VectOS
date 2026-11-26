@@ -148,13 +148,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2.5">
           {isStrictChain ? (
-            <button
-              onClick={() => onNavigate('chain')}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>{tf('Open Verification Chain', 'Fungura Uruhererekane rw’Igenzura')}</span>
-            </button>
+            (canCreateOrders ||
+              hasPermission(user, 'can_release_stock') ||
+              hasPermission(user, 'can_verify_orders') ||
+              canResolveFlagged) && (
+              <button
+                onClick={() => onNavigate('chain')}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition transform active:scale-95"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>{tf('Open Verification Chain', 'Fungura Uruhererekane rw’Igenzura')}</span>
+              </button>
+            )
           ) : (
             canCreateOrders && (
               <button

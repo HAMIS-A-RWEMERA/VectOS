@@ -18,7 +18,8 @@ import {
   Smartphone,
   Crown,
   Menu,
-  Pencil
+  Pencil,
+  Warehouse
 } from 'lucide-react';
 import { LanguageSwitcher, useLanguage } from '../i18n/LanguageContext';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -59,6 +60,17 @@ export const Header: React.FC<HeaderProps> = ({
   const { t, tf } = useLanguage();
   const [showShopMenu, setShowShopMenu] = useState(false);
   const canEditShopInfo = hasPermission(user, 'can_edit_company_settings');
+  const isStrictChain = shop?.workflow_mode === 'strict_chain';
+  const canCreateOrders = hasPermission(user, 'can_create_orders');
+  const canReleaseStock = hasPermission(user, 'can_release_stock');
+  const canVerifyOrders = hasPermission(user, 'can_verify_orders');
+  const canResolveFlagged = hasPermission(user, 'can_resolve_flagged_orders');
+  const canSeeChain =
+    canCreateOrders || canReleaseStock || canVerifyOrders || canResolveFlagged;
+  const isWarehouseOnly =
+    canReleaseStock && !canCreateOrders && !canVerifyOrders && !canResolveFlagged;
+  const isVerifierOnly =
+    canVerifyOrders && !canCreateOrders && !canReleaseStock && !canResolveFlagged;
 
   return (
     <header className="sticky top-0 z-40 bg-[#0F131A]/95 backdrop-blur border-b border-slate-800/80 px-3 sm:px-6 py-2.5 sm:py-3">
@@ -184,24 +196,40 @@ export const Header: React.FC<HeaderProps> = ({
           </a>
 
           {/* Quick POS / Order Chain Launch Button */}
-          <button
-            onClick={onOpenPos}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
-          >
-            {shop?.workflow_mode === 'strict_chain' ? (
-              <>
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{tf('Order Chain', 'Uruhererekane')}</span>
-                <span className="sm:hidden">{tf('Chain', 'Igenzura')}</span>
-              </>
-            ) : (
-              <>
-                <ShoppingBag className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t('header.makeSale')}</span>
-                <span className="sm:hidden">{t('header.sell')}</span>
-              </>
-            )}
-          </button>
+          {(!isStrictChain || canSeeChain) && (
+            <button
+              onClick={onOpenPos}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition transform active:scale-95 cursor-pointer"
+            >
+              {isStrictChain ? (
+                isWarehouseOnly ? (
+                  <>
+                    <Warehouse className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">{tf('Stock Releases', 'Isohorwa ry’Ububiko')}</span>
+                    <span className="sm:hidden">{tf('Stock', 'Ububiko')}</span>
+                  </>
+                ) : isVerifierOnly ? (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">{tf('Verify Orders', 'Igenzura')}</span>
+                    <span className="sm:hidden">{tf('Verify', 'Genzura')}</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">{tf('Order Chain', 'Uruhererekane')}</span>
+                    <span className="sm:hidden">{tf('Chain', 'Igenzura')}</span>
+                  </>
+                )
+              ) : (
+                <>
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t('header.makeSale')}</span>
+                  <span className="sm:hidden">{t('header.sell')}</span>
+                </>
+              )}
+            </button>
+          )}
 
           {/* Compact Language Switcher (EN | RW) */}
           <LanguageSwitcher variant="compact" />

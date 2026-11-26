@@ -21,7 +21,7 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AiHelpModal } from './components/AiHelpModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { Sparkles } from 'lucide-react';
-import { hasPermission, canAccessStrictChainDashboard } from './utils/permissions';
+import { hasPermission, canAccessStrictChainDashboard, canViewStockLevels } from './utils/permissions';
 import { useLanguage } from './i18n/LanguageContext';
 
 export const App: React.FC = () => {
@@ -149,6 +149,77 @@ export const App: React.FC = () => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
   };
+
+  const getStrictChainTabAllowed = (tab: string, targetUser: User | null, targetShop: Shop | null) => {
+    if (!targetUser || targetShop?.workflow_mode !== 'strict_chain') return true;
+    const isSuper = targetUser.role === 'superadmin' || targetUser.email === 'rwemera30@gmail.com';
+    const canDash = canAccessStrictChainDashboard(targetUser);
+    const canCreate = hasPermission(targetUser, 'can_create_orders');
+    const canRelease = hasPermission(targetUser, 'can_release_stock');
+    const canVerify = hasPermission(targetUser, 'can_verify_orders');
+    const canResolve = hasPermission(targetUser, 'can_resolve_flagged_orders');
+    const canChain = canCreate || canRelease || canVerify || canResolve;
+    const canProd =
+      canDash ||
+      hasPermission(targetUser, 'can_manage_stock') ||
+      hasPermission(targetUser, 'can_import_export_stock') ||
+      canRelease ||
+      canVerify ||
+      canViewStockLevels(targetUser);
+    const canStocks =
+      canDash || hasPermission(targetUser, 'can_manage_stock') || canRelease;
+    const canPartners =
+      hasPermission(targetUser, 'can_manage_partners') ||
+      hasPermission(targetUser, 'can_partner_borrow') ||
+      canVerify ||
+      canResolve;
+
+    switch (tab) {
+      case 'dashboard':
+        return canDash;
+      case 'chain':
+        return canChain;
+      case 'pos':
+      case 'orders':
+        return false;
+      case 'products':
+        return canProd;
+      case 'stocks':
+        return canStocks;
+      case 'customers':
+        return canDash;
+      case 'partners':
+        return canPartners;
+      case 'reports':
+        return hasPermission(targetUser, 'can_view_reports');
+      case 'shop_settings':
+        return hasPermission(targetUser, 'can_edit_company_settings');
+      case 'users':
+        return hasPermission(targetUser, 'can_manage_users');
+      case 'superadmin':
+        return isSuper;
+      default:
+        return false;
+    }
+  };
+
+  useEffect(() => {
+    if (!user || shop?.workflow_mode !== 'strict_chain') return;
+    if (!getStrictChainTabAllowed(activeTab, user, shop)) {
+      const canChain =
+        hasPermission(user, 'can_create_orders') ||
+        hasPermission(user, 'can_release_stock') ||
+        hasPermission(user, 'can_verify_orders') ||
+        hasPermission(user, 'can_resolve_flagged_orders');
+      if (canChain) {
+        setActiveTab('chain');
+      } else if (canAccessStrictChainDashboard(user)) {
+        setActiveTab('dashboard');
+      } else {
+        setActiveTab('products');
+      }
+    }
+  }, [activeTab, user, shop]);
 
   const handleSwitchShop = async (shopId: number) => {
     try {
@@ -319,7 +390,7 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'pos' && (
+          {activeTab === 'pos' && shop?.workflow_mode !== 'strict_chain' && (
             <PosView
               user={user}
               shop={shop}
@@ -327,15 +398,15 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'products' && (
+          {activeTab === 'products' && getStrictChainTabAllowed('products', user, shop) && (
             <ProductsView user={user} shop={shop} />
           )}
 
-          {activeTab === 'stocks' && (
+          {activeTab === 'stocks' && getStrictChainTabAllowed('stocks', user, shop) && (
             <StocksView user={user} />
           )}
 
-          {activeTab === 'orders' && (
+          {activeTab === 'orders' && shop?.workflow_mode !== 'strict_chain' && (
             <OrdersView
               user={user}
               shop={shop}
@@ -350,19 +421,19 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'customers' && (
+          {activeTab === 'customers' && getStrictChainTabAllowed('customers', user, shop) && (
             <CustomersView user={user} shop={shop} onLedgerUpdated={loadDashboardStats} />
           )}
 
-          {activeTab === 'partners' && (
+          {activeTab === 'partners' && getStrictChainTabAllowed('partners', user, shop) && (
             <PartnersView user={user} shop={shop} />
           )}
 
-          {activeTab === 'users' && (
+          {activeTab === 'users' && getStrictChainTabAllowed('users', user, shop) && (
             <UsersView currentUser={user} shop={shop} />
           )}
 
-          {activeTab === 'shop_settings' && (
+          {activeTab === 'shop_settings' && getStrictChainTabAllowed('shop_settings', user, shop) && (
             <ShopSettingsView
               shop={shop}
               user={user}
@@ -379,7 +450,7 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'superadmin' && (
+          {activeTab === 'superadmin' && getStrictChainTabAllowed('superadmin', user, shop) && (
             <SuperAdminView
               currentUser={user}
               activeShop={shop}
@@ -393,7 +464,7 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'reports' && (
+          {activeTab === 'reports' && getStrictChainTabAllowed('reports', user, shop) && (
             <ReportsView user={user} shop={shop} />
           )}
         </main>

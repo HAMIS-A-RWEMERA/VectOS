@@ -516,11 +516,16 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser, shop }) => {
 
   const applyTemplate = (tpl: RoleTemplate) => {
     setSelectedTemplateId(tpl.id);
+    const strictOverrides =
+      isStrictChain && tpl.id === 'storekeeper'
+        ? { can_partner_borrow: false, can_manage_partners: false }
+        : {};
     setFormData((prev: any) => ({
       ...prev,
       role: tpl.role,
       job_title: tpl.job_title,
-      ...tpl.permissions
+      ...tpl.permissions,
+      ...strictOverrides
     }));
   };
 

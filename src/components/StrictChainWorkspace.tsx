@@ -4,7 +4,21 @@ import { api } from '../services/api';
 import { canViewStockLevels, hasPermission } from '../utils/permissions';
 import { matchesSearch } from '../utils/searchMatch';
 import { useLanguage } from '../i18n/LanguageContext';
-import { compressOrderPhoto } from '../utils/imageCompression';
+import {
+  compressOrderPhoto
+} from '../utils/imageCompression';
+import {
+  ChainIncomingAlertEvent,
+  ChainNotificationSnapshot,
+  createEmptyNotificationSnapshot,
+  ensureAudioAutoUnlock,
+  evaluateChainIncomingAlerts,
+  getAudioContextState,
+  getSoundAlertsEnabled,
+  playChainNotificationSound,
+  setSoundAlertsEnabled,
+  unlockNotificationAudio
+} from '../utils/notificationSound';
 import {
   formatPackStock,
   getPackSize,
@@ -14,6 +28,7 @@ import {
 } from '../utils/unitConversion';
 import {
   AlertTriangle,
+  BellRing,
   Building2,
   Camera,
   CheckCircle2,
@@ -40,6 +55,8 @@ import {
   Store,
   Trash2,
   UserCheck,
+  Volume2,
+  VolumeX,
   Warehouse,
   X,
   ZoomIn,
@@ -197,6 +214,21 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const [photoZoom, setPhotoZoom] = useState(1);
   const [photoRotate, setPhotoRotate] = useState(0);
 
+  // Sound notification state & background polling refs
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => getSoundAlertsEnabled());
+  const [audioReady, setAudioReady] = useState<boolean>(() => getAudioContextState() === 'ready');
+  const [liveAlertBanner, setLiveAlertBanner] = useState<{
+    tab: ChainQueueTab;
+    message: string;
+    kind: 'verify_1' | 'release' | 'verify_2' | 'returned' | 'flagged';
+  } | null>(null);
+  const notificationSnapshotRef = useRef<ChainNotificationSnapshot>(createEmptyNotificationSnapshot());
+  const isPollingRef = useRef<boolean>(false);
+  const titleResetTimerRef = useRef<number | null>(null);
+  const originalDocTitleRef = useRef<string>(
+    typeof document !== 'undefined' ? document.title : 'VectOS'
+  );
+
   // History filter
   const [historySearch, setHistorySearch] = useState('');
 
@@ -204,15 +236,129 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     if (onToast) onToast(msg);
   };
 
-  const loadWorkspaceData = async (silent = false) => {
+  const describeIncomingAlert = (ev: ChainIncomingAlertEvent): string => {
+    const nums = ev.orderNumbers.slice(0, 2).join(', ') + (ev.orderNumbers.length > 2 ? ` +${ev.orderNumbers.length - 2}` : '');
+    switch (ev.tab) {
+      case 'supervisor_1':
+        return tf(
+          `New incoming order to verify & authorize (${nums})`,
+          `Komande nshya yo kugenzura no kwemeza (${nums})`
+        );
+      case 'warehouse':
+        return tf(
+          `Authorized warehouse release ready (${nums})`,
+          `Ibicuruzwa byo mu bubiko byemejwe — bisohore (${nums})`
+        );
+      case 'shop_release':
+        return tf(
+          `Authorized Main Shop items ready to hand over (${nums})`,
+          `Ibyo mu iduka ry’imbere byemejwe — bitange (${nums})`
+        );
+      case 'supervisor_2':
+        return tf(
+          `Items released — ready for Verification #2 (${nums})`,
+          `Ibicuruzwa byasohowe — bitegereje Igenzura #2 (${nums})`
+        );
+      case 'returned':
+        return tf(
+          `Order returned by verificator for correction (${nums})`,
+          `Komande yasubijwe n’umugenzuzi ngo ikosorwe (${nums})`
+        );
+      case 'manager_resolve':
+        return tf(
+          `Urgent warehouse discrepancy flagged (${nums})`,
+          `Ikibazo mu bubiko cyamenyeshejwe Umuyobozi (${nums})`
+        );
+    }
+  };
+
+  const handleIncomingAlerts = (alerts: ChainIncomingAlertEvent[]) => {
+    if (alerts.length === 0) return;
+    const priorityOrder: Record<ChainIncomingAlertEvent['kind'], number> = {
+      flagged: 5,
+      verify_1: 4,
+      release: 3,
+      verify_2: 2,
+      returned: 1
+    };
+    const primary = [...alerts].sort(
+      (a, b) => (priorityOrder[b.kind] || 0) - (priorityOrder[a.kind] || 0)
+    )[0];
+    const message = describeIncomingAlert(primary);
+
+    setLiveAlertBanner({
+      tab: primary.tab,
+      message,
+      kind: primary.kind
+    });
+    notify(message);
+
+    if (getSoundAlertsEnabled()) {
+      playChainNotificationSound(primary.kind).then((played) => {
+        if (played) setAudioReady(true);
+      });
+    }
+
+    if (typeof document !== 'undefined') {
+      if (titleResetTimerRef.current) {
+        window.clearTimeout(titleResetTimerRef.current);
+      }
+      document.title = `🔔 ${message}`;
+      titleResetTimerRef.current = window.setTimeout(() => {
+        document.title = originalDocTitleRef.current || 'VectOS';
+      }, 10000);
+    }
+  };
+
+  const loadWorkspaceData = async (silent = false, checkAlerts = false) => {
+    if (isPollingRef.current && silent) return;
+    isPollingRef.current = true;
     try {
       if (!silent) setLoading(true);
       setErrorBanner('');
 
+      const ordersQueueArg = isWarehouseOnly ? 'in_release' : 'all';
+
+      if (silent && checkAlerts) {
+        // Lightweight background poll: only fetch queues needed for UI + sound alerts
+        const [ordersRes, whRes] = await Promise.all([
+          api.chain.getOrders(ordersQueueArg),
+          canReleaseStock
+            ? api.chain.getOrders('warehouse_release')
+            : Promise.resolve({ orders: [] as Order[] })
+        ]);
+        const nextAll = ordersRes?.orders || [];
+        const nextWh = whRes?.orders || [];
+        setAllOrders(nextAll);
+        if (canReleaseStock) {
+          setWarehouseOrders(nextWh);
+        }
+        const { nextSnapshot, alerts } = evaluateChainIncomingAlerts({
+          userId: user?.id,
+          canCreateOrders,
+          canReleaseStock,
+          canVerifyOrders,
+          canResolveFlagged,
+          allOrders: nextAll,
+          warehouseOrders: nextWh,
+          prevSnapshot: notificationSnapshotRef.current
+        });
+        notificationSnapshotRef.current = nextSnapshot;
+        handleIncomingAlerts(alerts);
+        return;
+      }
+
+      const needProducts = canCreateOrders || canResolveFlagged;
+      const needPartners = canVerifyOrders || canResolveFlagged || canCreateOrders;
+
       const tasks: Promise<any>[] = [
-        api.chain.getR2Status().catch(() => ({ configured: false })),
-        api.chain.getProductsAvailability(),
-        api.chain.getOrders('all')
+        canCreateOrders
+          ? api.chain.getR2Status().catch(() => ({ configured: false }))
+          : Promise.resolve({ configured: true }),
+        needProducts
+          ? api.chain.getProductsAvailability()
+          : Promise.resolve({ products: [] }),
+        api.chain.getOrders(ordersQueueArg)
       ];
 
       if (canReleaseStock) {
@@ -221,34 +367,52 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       if (canResolveFlagged) {
         tasks.push(api.getUsers().catch(() => ({ users: [] })));
       }
-      if (canVerifyOrders || canResolveFlagged || canCreateOrders) {
+      if (needPartners) {
         tasks.push(api.chain.getPartners().catch(() => ({ partners: [] })));
       }
 
       const results = await Promise.all(tasks);
       setR2Configured(Boolean(results[0]?.configured));
       setProducts(results[1]?.products || []);
-      setAllOrders(results[2]?.orders || []);
+      const nextAll: Order[] = results[2]?.orders || [];
+      setAllOrders(nextAll);
 
+      let nextWh: Order[] = [];
       let idx = 3;
       if (canReleaseStock) {
-        setWarehouseOrders(results[idx]?.orders || []);
+        nextWh = results[idx]?.orders || [];
+        setWarehouseOrders(nextWh);
         idx++;
       }
       if (canResolveFlagged) {
         setStaffUsers(results[idx]?.users || []);
         idx++;
       }
-      if (canVerifyOrders || canResolveFlagged || canCreateOrders) {
+      if (needPartners) {
         setPartnerShops(results[idx]?.partners || []);
       }
+
+      const { nextSnapshot } = evaluateChainIncomingAlerts({
+        userId: user?.id,
+        canCreateOrders,
+        canReleaseStock,
+        canVerifyOrders,
+        canResolveFlagged,
+        allOrders: nextAll,
+        warehouseOrders: nextWh,
+        prevSnapshot: notificationSnapshotRef.current
+      });
+      notificationSnapshotRef.current = nextSnapshot;
     } catch (err: any) {
-      setErrorBanner(
-        err?.message ||
-          tf('Failed to load verification chain workspace.', 'Ntibyakunze gufungura urutonde rw’igenzura.')
-      );
+      if (!silent) {
+        setErrorBanner(
+          err?.message ||
+            tf('Failed to load verification chain workspace.', 'Ntibyakunze gufungura urutonde rw’igenzura.')
+        );
+      }
     } finally {
-      setLoading(false);
+      isPollingRef.current = false;
+      if (!silent) setLoading(false);
     }
   };
 
@@ -257,11 +421,59 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   }, [defaultTab, user?.id]);
 
   useEffect(() => {
+    notificationSnapshotRef.current = createEmptyNotificationSnapshot();
+    setLiveAlertBanner(null);
     if (user && shop?.workflow_mode === 'strict_chain') {
-      loadWorkspaceData();
+      loadWorkspaceData(false, false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, shop?.id, shop?.workflow_mode]);
+
+  useEffect(() => {
+    const cleanup = ensureAudioAutoUnlock((ready) => {
+      if (ready) setAudioReady(true);
+    });
+    return () => {
+      cleanup();
+      if (titleResetTimerRef.current) {
+        window.clearTimeout(titleResetTimerRef.current);
+      }
+      if (typeof document !== 'undefined' && originalDocTitleRef.current) {
+        document.title = originalDocTitleRef.current;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user || shop?.workflow_mode !== 'strict_chain') return;
+    const pollNow = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      loadWorkspaceData(true, true);
+    };
+    const intervalId = window.setInterval(pollNow, 8000);
+    const handleFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadWorkspaceData(true, true);
+      }
+    };
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    user?.id,
+    shop?.id,
+    shop?.workflow_mode,
+    canCreateOrders,
+    canReleaseStock,
+    canVerifyOrders,
+    canResolveFlagged,
+    isWarehouseOnly
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1164,7 +1376,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       id: 'tracker',
       label: tf('Track Orders', 'Kurikirana Komande'),
       count: activeInChainCount,
-      visible: canCreateOrders || canVerifyOrders || canResolveFlagged || canReleaseStock
+      visible: canCreateOrders || canVerifyOrders || canResolveFlagged
     },
     {
       id: 'supervisor_1',
@@ -1177,7 +1389,8 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       id: 'shop_release',
       label: tf('Shop Release', 'Isohora mu Iduka'),
       count: shopReleaseOrders.length,
-      visible: canCreateOrders || canReleaseStock
+      visible: canCreateOrders || canReleaseStock,
+      urgent: shopReleaseOrders.length > 0 && !canCreateOrders
     },
     {
       id: 'warehouse',
@@ -1203,9 +1416,58 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       id: 'history',
       label: tf('Completed', 'Ibyarangiye'),
       count: historyOrders.length,
-      visible: true
+      visible: canCreateOrders || canVerifyOrders || canResolveFlagged
     }
   ];
+
+  useEffect(() => {
+    const visibleIds = tabs.filter((t) => t.visible).map((t) => t.id);
+    if (visibleIds.length > 0 && !visibleIds.includes(activeTab)) {
+      setActiveTab(visibleIds.includes(defaultTab) ? defaultTab : visibleIds[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeTab,
+    defaultTab,
+    canCreateOrders,
+    canReleaseStock,
+    canVerifyOrders,
+    canResolveFlagged
+  ]);
+
+  const handleToggleSoundAlerts = async () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setSoundAlertsEnabled(next);
+    if (next) {
+      const unlocked = await unlockNotificationAudio();
+      setAudioReady(unlocked);
+      const previewKind = canVerifyOrders
+        ? 'verify_1'
+        : canReleaseStock
+        ? 'release'
+        : canResolveFlagged
+        ? 'flagged'
+        : 'returned';
+      await playChainNotificationSound(previewKind, true);
+      notify(tf('Incoming task sound alerts enabled.', 'Amajwi y’imenyesha yafunguwe.'));
+    } else {
+      notify(tf('Sound alerts muted.', 'Amajwi y’imenyesha yafunzwe.'));
+    }
+  };
+
+  const handleTestSoundAlert = async () => {
+    const unlocked = await unlockNotificationAudio();
+    setAudioReady(unlocked);
+    const previewKind = canVerifyOrders
+      ? 'verify_1'
+      : canReleaseStock
+      ? 'release'
+      : canResolveFlagged
+      ? 'flagged'
+      : 'returned';
+    await playChainNotificationSound(previewKind, true);
+  };
 
   if (loading) {
     return (
@@ -1237,15 +1499,92 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => loadWorkspaceData(false)}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition self-start md:self-auto"
-        >
-          <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-          <span>{tf('Refresh Queues', 'Vugurura Urutonde')}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+          <button
+            type="button"
+            onClick={handleToggleSoundAlerts}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition ${
+              soundEnabled
+                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'
+            }`}
+            title={
+              soundEnabled
+                ? tf('Mute incoming order sound alerts', 'Funga amajwi y’imenyesha')
+                : tf('Turn on incoming order sound alerts', 'Fungura amajwi y’imenyesha')
+            }
+          >
+            {soundEnabled ? (
+              <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+            )}
+            <span>
+              {soundEnabled
+                ? audioReady
+                  ? tf('Sound On', 'Amajwi Ariho')
+                  : tf('Enable Audio', 'Fungura Ijwi')
+                : tf('Muted', 'Byafunzwe')}
+            </span>
+          </button>
+
+          {soundEnabled && (
+            <button
+              type="button"
+              onClick={handleTestSoundAlert}
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-amber-300 border border-slate-700 transition"
+              title={tf('Test alert chime volume', 'Gerageza ijwi ry’imenyesha')}
+            >
+              <BellRing className="w-3.5 h-3.5" />
+              <span>{tf('Test', 'Gerageza')}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => loadWorkspaceData(false, false)}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+            <span>{tf('Refresh Queues', 'Vugurura Urutonde')}</span>
+          </button>
+        </div>
       </div>
+
+      {liveAlertBanner && (
+        <div
+          className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs animate-in fade-in ${
+            liveAlertBanner.kind === 'flagged'
+              ? 'bg-rose-500/15 border-rose-500/40 text-rose-200'
+              : 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <BellRing className="w-4 h-4 text-amber-400 shrink-0 animate-bounce" />
+            <span className="font-bold">{liveAlertBanner.message}</span>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab(liveAlertBanner.tab);
+                setLiveAlertBanner(null);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] transition"
+            >
+              {tf('Open Now', 'Fungura Ubu')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLiveAlertBanner(null)}
+              className="p-1 text-slate-300 hover:text-white"
+              aria-label={tf('Dismiss alert', 'Funga imenyesha')}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {!r2Configured && canCreateOrders && (
         <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200">
