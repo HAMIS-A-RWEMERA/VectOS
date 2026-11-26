@@ -11,6 +11,7 @@ import {
   requirePermission,
   createAuthToken,
   hasUserPermission,
+  canViewStockLevels,
   refreshSessionUserFromDb
 } from '../auth';
 import { throttleCheck, throttleFail, throttleClear } from '../security';
@@ -418,6 +419,10 @@ router.post('/auth/login', async (req: Request, res: Response) => {
       can_reset_passwords: Boolean(user.can_reset_passwords),
       can_view_all_tenants: Boolean(user.can_view_all_tenants),
       can_manage_subscriptions: Boolean(user.can_manage_subscriptions),
+      can_verify_orders: Boolean(user.can_verify_orders),
+      can_resolve_flagged_orders: Boolean(user.can_resolve_flagged_orders),
+      can_upload_photos: user.can_upload_photos !== undefined ? Boolean(user.can_upload_photos) : true,
+      can_view_stock_levels: Boolean(user.can_view_stock_levels),
       force_password_change: Number(user.force_password_change || 0)
     };
 
@@ -747,6 +752,11 @@ router.get('/dashboard/stats', requireAuth, requireTenant, async (req: Request, 
     );
 
     const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
+    const shopRow = await queryOne<{ workflow_mode?: string; pricing_mode?: string }>(
+      'SELECT workflow_mode, pricing_mode FROM shops WHERE id = ?',
+      [shopId]
+    );
+    const hideStockLevels = shopRow?.workflow_mode === 'strict_chain' && !canViewStockLevels(req.session?.user);
 
     res.json({
       todaySales: Number(todaySalesRow?.today_sales || 0),
@@ -755,13 +765,14 @@ router.get('/dashboard/stats', requireAuth, requireTenant, async (req: Request, 
       totalPaid: Number(totalSalesRow?.total_paid || 0),
       totalDebt: Number(totalSalesRow?.total_debt || 0),
       productCount: Number(totalProductsRow?.count || 0),
-      inventoryValue: canViewBuying ? Number(totalProductsRow?.total_inventory_value || 0) : 0,
+      inventoryValue: canViewBuying && !hideStockLevels ? Number(totalProductsRow?.total_inventory_value || 0) : 0,
       customerCount: Number(totalCustomersRow?.count || 0),
       totalReceivables: Number(totalCustomersRow?.total_receivables || 0),
-      lowStockCount: lowStockProducts.length,
+      lowStockCount: hideStockLevels ? 0 : lowStockProducts.length,
+      stockLevelsHidden: hideStockLevels,
       pendingPaymentCount: Number(pendingCountsRow?.pending_payment_count || 0),
       pendingStoreCount: Number(pendingCountsRow?.pending_store_count || 0),
-      lowStockProducts,
+      lowStockProducts: hideStockLevels ? [] : lowStockProducts,
       recentOrders: allOrders,
       stockLocations,
       paymentBreakdown,
@@ -825,6 +836,15 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
       params.push(stockIdFilter);
     }
 
+    const shopRow = await queryOne<{ workflow_mode?: string; pricing_mode?: string }>(
+      'SELECT workflow_mode, pricing_mode FROM shops WHERE id = ?',
+      [shopId]
+    );
+    const hideStockLevels = shopRow?.workflow_mode === 'strict_chain' && !canViewStockLevels(req.session?.user);
+    const effectiveSort = hideStockLevels && (sort === 'qty_desc' || sort === 'qty_asc' || sort === 'sold_desc' || sort === 'sold_asc')
+      ? 'name_asc'
+      : sort;
+
     const orderClauseMap: Record<string, string> = {
       qty_desc: 'p.quantity DESC, p.name ASC',
       qty_asc: 'p.quantity ASC, p.name ASC',
@@ -837,13 +857,14 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
       name_desc: 'p.name DESC',
       name_asc: 'p.name ASC'
     };
-    const orderBy = orderClauseMap[sort] || orderClauseMap.name_asc;
+    const orderBy = orderClauseMap[effectiveSort] || orderClauseMap.name_asc;
     sql += ` ORDER BY ${orderBy}`;
 
     const products = await queryAll(sql, params);
     const canViewBuying = hasUserPermission(req.session?.user, 'can_view_buying_prices');
     const normalizedProducts = products.map((p: any) => {
       const unitsPerPack = Math.max(1, Math.round(Number(p.units_per_pack || 1)));
+      const physQty = Math.max(0, Math.round(Number(p.quantity || 0)));
       const buyPrice = Number(p.buying_price || 0);
       const sellPrice = Number(p.selling_price || 0) > 0 ? Number(p.selling_price) : buyPrice;
       const packBuyPrice = Number(p.pack_buying_price || 0) > 0
@@ -856,9 +877,12 @@ router.get('/products', requireAuth, requireTenant, async (req: Request, res: Re
         ...p,
         units_per_pack: unitsPerPack,
         pack_unit: unitsPerPack > 1 ? ((p.pack_unit || '').trim() || 'Carton') : (p.pack_unit || null),
-        quantity: Math.max(0, Math.round(Number(p.quantity || 0))),
-        low_stock_threshold: Math.max(0, Math.round(Number(p.low_stock_threshold || 0))),
-        total_units_sold: Math.max(0, Math.round(Number(p.total_units_sold || 0))),
+        quantity: hideStockLevels ? null : physQty,
+        low_stock_threshold: hideStockLevels ? null : Math.max(0, Math.round(Number(p.low_stock_threshold || 0))),
+        total_units_sold: hideStockLevels ? null : Math.max(0, Math.round(Number(p.total_units_sold || 0))),
+        in_stock: physQty > 0,
+        pack_in_stock: unitsPerPack > 1 ? physQty >= unitsPerPack : false,
+        stock_levels_hidden: hideStockLevels,
         last_stocked_at: p.last_stocked_at || p.created_at || null,
         selling_price: sellPrice,
         buying_price: canViewBuying ? buyPrice : null,
@@ -1573,7 +1597,16 @@ router.get('/stocks', requireAuth, requireTenant, async (req: Request, res: Resp
       [shopId]
     );
 
-    res.json({ stocks, transfers });
+    const shopRow = await queryOne<{ workflow_mode?: string }>(
+      'SELECT workflow_mode FROM shops WHERE id = ?',
+      [shopId]
+    );
+    const hideStockLevels = shopRow?.workflow_mode === 'strict_chain' && !canViewStockLevels(req.session?.user);
+    const safeStocks = hideStockLevels
+      ? stocks.map((s: any) => ({ ...s, total_units: null, stock_levels_hidden: true }))
+      : stocks;
+
+    res.json({ stocks: safeStocks, transfers, stockLevelsHidden: hideStockLevels });
   } catch (err: any) {
     console.error('Stocks API error:', err);
     res.status(500).json({ error: 'Failed to fetch warehouse stocks' });
@@ -3795,14 +3828,14 @@ router.get('/users', requireAuth, requireTenant, requireManager, async (req: Req
                 u.can_partner_borrow, u.can_view_reports, u.can_view_buying_prices, u.can_give_discounts, u.can_manage_users,
                 u.can_print_full_receipt, u.can_print_delivery_note, u.can_manage_customers, u.can_manage_partners, u.can_void_orders,
                 u.can_edit_company_settings, u.can_view_audit_trail, u.can_reset_passwords, u.can_view_all_tenants, u.can_manage_subscriptions,
-                u.can_verify_orders, u.can_resolve_flagged_orders, u.can_upload_photos, u.force_password_change, s.name as shop_name 
+                u.can_verify_orders, u.can_resolve_flagged_orders, u.can_upload_photos, u.can_view_stock_levels, u.force_password_change, s.name as shop_name 
          FROM users u LEFT JOIN shops s ON u.shop_id = s.id ORDER BY u.role DESC, u.name ASC`
       : `SELECT id, shop_id, stock_id, name, email, role, job_title, phone, is_active, activation_status,
                 can_create_orders, can_process_payments, can_release_stock, can_manage_stock, can_import_export_stock,
                 can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
                 can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
                 can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-                can_verify_orders, can_resolve_flagged_orders, can_upload_photos, force_password_change
+                can_verify_orders, can_resolve_flagged_orders, can_upload_photos, can_view_stock_levels, force_password_change
          FROM users WHERE shop_id = ? ORDER BY role DESC, name ASC`;
     const params = isSuper ? [] : [shopId];
 
@@ -3843,6 +3876,14 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         ? 1
         : 0;
 
+    const defaultViewStockLevels =
+      isOwnerOrManagerRole ||
+      Boolean(p.can_release_stock) ||
+      Boolean(p.can_manage_stock) ||
+      assignedRole === 'storekeeper'
+        ? 1
+        : 0;
+
     const assignedStockId = req.body.stock_id ? Number(req.body.stock_id) : 1;
     const result = await execute(
       `INSERT INTO users (
@@ -3851,8 +3892,8 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         can_partner_borrow, can_view_reports, can_view_buying_prices, can_give_discounts, can_manage_users,
         can_print_full_receipt, can_print_delivery_note, can_manage_customers, can_manage_partners, can_void_orders,
         can_edit_company_settings, can_view_audit_trail, can_reset_passwords, can_view_all_tenants, can_manage_subscriptions,
-        can_verify_orders, can_resolve_flagged_orders, can_upload_photos, force_password_change
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        can_verify_orders, can_resolve_flagged_orders, can_upload_photos, can_view_stock_levels, force_password_change
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
       [
         targetShopId,
         assignedStockId,
@@ -3884,7 +3925,8 @@ router.post('/users', requireAuth, requireTenant, requireManager, async (req: Re
         p.can_manage_subscriptions ? 1 : 0,
         p.can_verify_orders ? 1 : 0,
         isOwnerOrManagerRole || p.can_resolve_flagged_orders ? 1 : 0,
-        p.can_upload_photos !== undefined ? (p.can_upload_photos ? 1 : 0) : defaultUploadPhotos
+        p.can_upload_photos !== undefined ? (p.can_upload_photos ? 1 : 0) : defaultUploadPhotos,
+        p.can_view_stock_levels !== undefined ? (p.can_view_stock_levels ? 1 : 0) : defaultViewStockLevels
       ]
     );
 
@@ -3949,7 +3991,7 @@ router.put('/users/:id', requireAuth, requireTenant, requireManager, async (req:
       'can_give_discounts', 'can_manage_users', 'can_print_full_receipt', 'can_print_delivery_note',
       'can_manage_customers', 'can_manage_partners', 'can_void_orders', 'can_edit_company_settings',
       'can_view_audit_trail', 'can_reset_passwords', 'can_view_all_tenants', 'can_manage_subscriptions',
-      'can_verify_orders', 'can_resolve_flagged_orders', 'can_upload_photos'
+      'can_verify_orders', 'can_resolve_flagged_orders', 'can_upload_photos', 'can_view_stock_levels'
     ];
     const effectiveRole = role && (currentUser.role === 'superadmin' || role !== 'superadmin')
       ? String(role).toLowerCase()

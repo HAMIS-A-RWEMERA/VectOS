@@ -172,16 +172,28 @@ describe('Phase 1 Strict Verification Chain, Isolation, Stock-Only & Watched Pro
     expect(createRes.body.order.chain_status).toBe('pending_supervisor_1');
     expect(Number(createRes.body.order.total_amount)).toBe(0); // Stock-only mode hides prices
 
-    // Verify physical stock is NOT deducted yet, while reserved availability reflects pending order
+    // Verify physical stock is NOT deducted yet, and seller WITHOUT can_view_stock_levels sees stock_levels_hidden
+    // while Warehouse Storekeeper sees exact remaining quantities!
     const availRes = await sellerAgent.get('/api/chain/products-availability');
     expect(availRes.status).toBe(200);
     expect(availRes.body.pricing_mode).toBe('stock_only');
+    expect(availRes.body.stock_levels_hidden).toBe(true);
     const shopProdAvail = availRes.body.products.find((p: any) => p.id === shopProductId);
-    expect(shopProdAvail.quantity).toBe(40);
-    expect(shopProdAvail.reserved_quantity).toBe(3);
-    expect(shopProdAvail.available_quantity).toBe(37);
+    expect(shopProdAvail.quantity).toBeNull();
+    expect(shopProdAvail.reserved_quantity).toBeNull();
+    expect(shopProdAvail.available_quantity).toBeNull();
+    expect(shopProdAvail.in_stock).toBe(true);
+    expect(shopProdAvail.stock_levels_hidden).toBe(true);
     expect(shopProdAvail.buying_price).toBeNull();
     expect(shopProdAvail.selling_price).toBe(0);
+
+    const whAvailRes = await whAgent.get('/api/chain/products-availability');
+    expect(whAvailRes.status).toBe(200);
+    expect(whAvailRes.body.stock_levels_hidden).toBe(false);
+    const whShopProdAvail = whAvailRes.body.products.find((p: any) => p.id === shopProductId);
+    expect(whShopProdAvail.quantity).toBe(40);
+    expect(whShopProdAvail.reserved_quantity).toBe(3);
+    expect(whShopProdAvail.available_quantity).toBe(37);
 
     // 2. Supervisor 1 returns order to Seller for quantity edit -> Seller edits & resubmits
     const retRes = await sup1Agent.post(`/api/chain/orders/${orderId}/verify-1`).send({
@@ -299,5 +311,139 @@ describe('Phase 1 Strict Verification Chain, Isolation, Stock-Only & Watched Pro
     const afterAuditRes = await chainManagerAgent.get('/api/chain/watch-alerts?filter=unaudited');
     expect(afterAuditRes.status).toBe(200);
     expect(afterAuditRes.body.unauditedCount).toBe(0);
+  });
+
+  it('enforces can_view_stock_levels masking for sellers and toggles cleanly via manager', async () => {
+    const sellerRow = await queryOne<{ id: number }>('SELECT id FROM users WHERE email = ?', [sellerEmail]);
+    expect(sellerRow?.id).toBeTruthy();
+
+    const sellerAgentMasked = (await login(sellerEmail, staffPass)).agent as any;
+
+    // 1. Masked /api/products response hides remaining stock quantity
+    const prodsMasked = await sellerAgentMasked.get('/api/products');
+    expect(prodsMasked.status).toBe(200);
+    const pMasked = prodsMasked.body.products.find((p: any) => p.id === shopProductId);
+    expect(pMasked.quantity).toBeNull();
+    expect(pMasked.low_stock_threshold).toBeNull();
+    expect(pMasked.stock_levels_hidden).toBe(true);
+    expect(pMasked.in_stock).toBe(true);
+
+    // 2. Insufficient-stock order rejection does not leak numeric remaining count
+    const tooManyRes = await sellerAgentMasked.post('/api/chain/orders').send({
+      customer_name: 'Probe Client',
+      items: [{ product_id: shopProductId, quantity: 999 }],
+    });
+    expect(tooManyRes.status).toBe(400);
+    expect(tooManyRes.body.error).not.toContain('Physical:');
+    expect(tooManyRes.body.error).toContain('exceeds currently available unreserved stock');
+
+    // 3. Manager grants can_view_stock_levels to seller -> seller now sees live counts
+    const grantRes = await chainManagerAgent.put(`/api/users/${sellerRow!.id}`).send({
+      permissions: { can_create_orders: true, can_view_stock_levels: true },
+    });
+    expect(grantRes.status).toBe(200);
+
+    const sellerAgentUnmasked = (await login(sellerEmail, staffPass)).agent as any;
+    const availUnmasked = await sellerAgentUnmasked.get('/api/chain/products-availability');
+    expect(availUnmasked.status).toBe(200);
+    expect(availUnmasked.body.stock_levels_hidden).toBe(false);
+    const pUnmasked = availUnmasked.body.products.find((p: any) => p.id === shopProductId);
+    expect(pUnmasked.quantity).toBe(36);
+
+    // 4. Manager revokes can_view_stock_levels -> masked again
+    const revokeRes = await chainManagerAgent.put(`/api/users/${sellerRow!.id}`).send({
+      permissions: { can_create_orders: true, can_view_stock_levels: false },
+    });
+    expect(revokeRes.status).toBe(200);
+  });
+
+  it('allows verificators to source out-of-stock items from partner shops onto orders without deducting internal stock', async () => {
+    const sellerAgent = (await login(sellerEmail, staffPass)).agent as any;
+    const sup1Agent = (await login(sup1Email, staffPass)).agent as any;
+
+    const qtyBefore = await queryOne<{ quantity: number }>('SELECT quantity FROM products WHERE id = ?', [shopProductId]);
+    const initialQty = Number(qtyBefore?.quantity || 0);
+
+    // 1. Seller places an order with in-stock Cement + note asking Verificator to add Partner-Shop items
+    const createRes = await sellerAgent.post('/api/chain/orders').send({
+      customer_name: 'Nyamirambo Builders',
+      notes: 'Also needs 5x Brass Valve 1in from partner shop',
+      items: [{ product_id: shopProductId, quantity: 2 }],
+    });
+    expect(createRes.status).toBe(200);
+    const orderId = createRes.body.order.id;
+
+    // 2. Seller is forbidden from adding partner-shop items directly
+    const sellerPartnerTry = await sellerAgent.post(`/api/chain/orders/${orderId}/partner-items`).send({
+      partner_shop_name: 'Unauthorized Partner',
+      item_name: 'Brass Valve',
+      quantity: 5,
+      unit: 'pcs',
+    });
+    expect(sellerPartnerTry.status).toBe(403);
+
+    // 3. Verificator registers a Partner Shop & adds the out-of-stock item onto the order during Verify #1
+    const partnerRes = await sup1Agent.post('/api/chain/partners').send({
+      name: 'Kigali Hardware Partners',
+      contact_person: 'Claude',
+      phone: '0788000111',
+    });
+    expect(partnerRes.status).toBe(200);
+    const partnerId = partnerRes.body.partner.id;
+
+    const addTemp = await sup1Agent.post(`/api/chain/orders/${orderId}/partner-items`).send({
+      partner_shop_id: partnerId,
+      item_name: 'Wrong Item',
+      quantity: 1,
+      unit: 'pcs',
+    });
+    expect(addTemp.status).toBe(200);
+    const delTemp = await sup1Agent.delete(`/api/chain/orders/${orderId}/partner-items/${addTemp.body.item.id}`);
+    expect(delTemp.status).toBe(200);
+
+    const addPartner = await sup1Agent.post(`/api/chain/orders/${orderId}/partner-items`).send({
+      partner_shop_id: partnerId,
+      item_name: 'Brass Valve 1 inch',
+      quantity: 5,
+      unit: 'pcs',
+    });
+    expect(addPartner.status).toBe(200);
+    expect(addPartner.body.item.leg_type).toBe('partner');
+    expect(addPartner.body.item.leg_status).toBe('partner_released');
+    expect(addPartner.body.item.partner_shop_name).toBe('Kigali Hardware Partners');
+
+    // 4. Verify #1 approves -> Shop item becomes pending release, Partner item stays partner_released
+    const v1 = await sup1Agent.post(`/api/chain/orders/${orderId}/verify-1`).send({ decision: 'approve' });
+    expect(v1.status).toBe(200);
+
+    // Tracker queue returns order while in_release
+    const trackerRes = await sellerAgent.get('/api/chain/orders?queue=tracker');
+    expect(trackerRes.status).toBe(200);
+    const tracked = trackerRes.body.orders.find((o: any) => o.id === orderId);
+    expect(tracked).toBeTruthy();
+    expect(tracked.items.length).toBe(2);
+
+    // 5. Seller releases Main Shop leg -> Sup1 confirms Verification #2 -> Order completes atomically
+    const relShop = await sellerAgent.post(`/api/chain/orders/${orderId}/release-leg`).send({ leg: 'shop' });
+    expect(relShop.status).toBe(200);
+
+    const v2 = await sup1Agent.post(`/api/chain/orders/${orderId}/verify-2`).send({});
+    expect(v2.status).toBe(200);
+    expect(v2.body.completed).toBe(true);
+    expect(v2.body.chain_status).toBe('completed');
+
+    // 6. Verify internal stock deducted by 2, and partner item completed cleanly with product_id = NULL
+    const qtyAfter = await queryOne<{ quantity: number }>('SELECT quantity FROM products WHERE id = ?', [shopProductId]);
+    expect(Number(qtyAfter?.quantity)).toBe(initialQty - 2);
+
+    const partnerItemDb = await queryOne<any>(
+      `SELECT * FROM order_items WHERE order_id = ? AND leg_type = 'partner'`,
+      [orderId]
+    );
+    expect(partnerItemDb).toBeTruthy();
+    expect(partnerItemDb.product_id).toBeNull();
+    expect(partnerItemDb.item_status).toBe('partner_fulfilled');
+    expect(partnerItemDb.leg_status).toBe('supervisor_confirmed');
+    expect(partnerItemDb.custom_product_name).toBe('Brass Valve 1 inch');
   });
 });

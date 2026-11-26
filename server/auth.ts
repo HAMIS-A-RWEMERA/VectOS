@@ -62,7 +62,8 @@ export type UserPermission =
   | 'can_edit_company_settings'
   | 'can_verify_orders'
   | 'can_resolve_flagged_orders'
-  | 'can_upload_photos';
+  | 'can_upload_photos'
+  | 'can_view_stock_levels';
 
 declare module 'express-session' {
   interface SessionData {
@@ -105,6 +106,7 @@ declare module 'express-session' {
       can_verify_orders?: number | boolean;
       can_resolve_flagged_orders?: number | boolean;
       can_upload_photos?: number | boolean;
+      can_view_stock_levels?: number | boolean;
     };
   }
 }
@@ -165,7 +167,8 @@ export const ALL_USER_PERMISSION_KEYS: UserPermission[] = [
   'can_edit_company_settings',
   'can_verify_orders',
   'can_resolve_flagged_orders',
-  'can_upload_photos'
+  'can_upload_photos',
+  'can_view_stock_levels'
 ];
 
 export function hasUserPermission(user: any, permission: UserPermission): boolean {
@@ -175,6 +178,15 @@ export function hasUserPermission(user: any, permission: UserPermission): boolea
   }
   const val = user[permission];
   return val === true || Number(val) === 1;
+}
+
+export function canViewStockLevels(user: any): boolean {
+  if (!user) return false;
+  return (
+    hasUserPermission(user, 'can_view_stock_levels') ||
+    hasUserPermission(user, 'can_release_stock') ||
+    hasUserPermission(user, 'can_manage_stock')
+  );
 }
 
 /**
@@ -474,7 +486,8 @@ export function requirePermission(permission: UserPermission) {
       can_edit_company_settings: 'Edit Store Profile & Tax Info',
       can_verify_orders: 'Verify & Authorize Orders (Supervisor Step 1 & 2)',
       can_resolve_flagged_orders: 'Resolve Flagged Orders & Override Verifier Lock',
-      can_upload_photos: 'Upload Order Slips & Payment Proof Photos'
+      can_upload_photos: 'Upload Order Slips & Payment Proof Photos',
+      can_view_stock_levels: 'View Remaining Stock Quantities & Low-Stock Alerts'
     };
 
     return handleAuthFailure(

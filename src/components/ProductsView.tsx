@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import { BulkImportModal } from './BulkImportModal';
 import { AiInvoiceScannerModal } from './AiInvoiceScannerModal';
 import { exportStockPdf } from '../services/pdfExport';
-import { hasPermission } from '../utils/permissions';
+import { hasPermission, canViewStockLevels } from '../utils/permissions';
 import { matchesSearch } from '../utils/searchMatch';
 import { useLanguage } from '../i18n/LanguageContext';
 import {
@@ -134,6 +134,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
 
   const isStrictChain = shop?.workflow_mode === 'strict_chain';
   const isStockOnly = shop?.pricing_mode === 'stock_only';
+  const showStockLevels = !isStrictChain || canViewStockLevels(user);
   const canManageStock = hasPermission(user, 'can_manage_stock');
   const canBulkImport = hasPermission(user, 'can_import_export_stock');
   const canViewBuyingPrices = hasPermission(user, 'can_view_buying_prices') && !isStockOnly;
@@ -180,8 +181,13 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       return Number.isNaN(ms) ? 0 : ms;
     };
 
+    const effectiveSort =
+      !showStockLevels && (sortKey === 'qty_desc' || sortKey === 'qty_asc' || sortKey === 'sold_desc' || sortKey === 'sold_asc')
+        ? 'name_asc'
+        : sortKey;
+
     return [...list].sort((a, b) => {
-      switch (sortKey) {
+      switch (effectiveSort) {
         case 'qty_desc':
           return Number(b.quantity || 0) - Number(a.quantity || 0) || a.name.localeCompare(b.name);
         case 'qty_asc':
@@ -222,17 +228,20 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       const matchQuery = matchesSearch(searchQuery, p.name, p.sku, p.barcode, p.category, p.stock_name);
       
       let matchStock = true;
-      if (filterStockStatus === 'low') {
-        matchStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
+      const inStockFlag = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : Number(p.quantity || 0) > 0;
+      if (filterStockStatus === 'low' && showStockLevels) {
+        const q = Number(p.quantity || 0);
+        const th = Number(p.low_stock_threshold || 0);
+        matchStock = q > 0 && q <= th;
       } else if (filterStockStatus === 'out') {
-        matchStock = p.quantity <= 0;
+        matchStock = !inStockFlag;
       }
 
       return matchCat && matchLoc && matchQuery && matchStock;
     });
 
     return sortProductList(filtered, sortBy);
-  }, [products, searchQuery, selectedCategory, selectedStockId, filterStockStatus, sortBy]);
+  }, [products, searchQuery, selectedCategory, selectedStockId, filterStockStatus, sortBy, showStockLevels]);
 
   const toggleColumnSort = (descKey: StockSortOption, ascKey: StockSortOption) => {
     setSortBy((prev) => (prev === descKey ? ascKey : descKey));
@@ -309,7 +318,10 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       const sellPrice = p.selling_price && Number(p.selling_price) > 0 ? Number(p.selling_price) : Number(p.buying_price || 0);
       const qty = Number(p.quantity || 0);
       const breakdown = formatPackStock(qty, p.units_per_pack, p.unit, p.pack_unit);
-      const status = qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy';
+      const inStock = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : qty > 0;
+      const status = !showStockLevels
+        ? (inStock ? 'In Stock' : 'Out of Stock')
+        : (qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy');
       const unitCell = breakdown.isMultiUnit
         ? `${escapeHtml(breakdown.retailUnit)}<br><span class="muted">1 ${escapeHtml(breakdown.packUnit)} = ${breakdown.packSize}</span>`
         : escapeHtml(p.unit || 'pcs');
@@ -327,9 +339,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
           <td>${escapeHtml(p.stock_name || 'Main')}</td>
           <td class="center">${unitCell}</td>
           ${canViewBuyingPrices ? `<td class="right mono">${formatRwf(p.buying_price)}</td>` : ''}
-          <td class="right mono">${priceCell}</td>
-          <td class="right mono bold">${stockCell}</td>
-          <td class="right mono">${Number(p.total_units_sold || 0).toLocaleString()}</td>
+          ${!isStockOnly ? `<td class="right mono">${priceCell}</td>` : ''}
+          ${showStockLevels ? `<td class="right mono bold">${stockCell}</td>` : ''}
+          ${showStockLevels ? `<td class="right mono">${Number(p.total_units_sold || 0).toLocaleString()}</td>` : ''}
           <td class="center">${escapeHtml(status)}</td>
           <td class="center">${escapeHtml(formatShortDate(p.last_stocked_at || p.created_at))}</td>
         </tr>
@@ -367,7 +379,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       <body>
         <div class="header">
           <div>
-            <h1 class="title">${escapeHtml(shop?.name || 'Hardware Store')} — Stock Sheet</h1>
+            <h1 class="title">${escapeHtml(shop?.name || 'Hardware Store')} — ${showStockLevels ? 'Stock Sheet' : 'Catalog Sheet'}</h1>
             <p class="sub">${[
               escapeHtml(shop?.location || 'Kigali, Rwanda'),
               ...(shop?.tin_number?.trim() ? [`TIN: ${escapeHtml(shop.tin_number.trim())}`] : []),
@@ -382,8 +394,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
         </div>
         <div class="summary">
           <div class="pill"><strong>Items Listed:</strong> ${list.length.toLocaleString()}</div>
-          <div class="pill"><strong>Total Units in Stock:</strong> ${totalUnits.toLocaleString()}</div>
-          <div class="pill"><strong>Total Units Sold:</strong> ${totalSold.toLocaleString()}</div>
+          ${showStockLevels ? `<div class="pill"><strong>Total Units in Stock:</strong> ${totalUnits.toLocaleString()}</div>` : ''}
+          ${showStockLevels ? `<div class="pill"><strong>Total Units Sold:</strong> ${totalSold.toLocaleString()}</div>` : ''}
         </div>
         <table>
           <thead>
@@ -394,9 +406,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
               <th>Location</th>
               <th class="center">Unit</th>
               ${canViewBuyingPrices ? '<th class="right">Buying Cost</th>' : ''}
-              <th class="right">Selling Price</th>
-              <th class="right">In Stock</th>
-              <th class="right">Sold</th>
+              ${!isStockOnly ? '<th class="right">Selling Price</th>' : ''}
+              ${showStockLevels ? '<th class="right">In Stock</th>' : ''}
+              ${showStockLevels ? '<th class="right">Sold</th>' : ''}
               <th class="center">Status</th>
               <th class="center">Date Entered</th>
             </tr>
@@ -428,9 +440,20 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
   const handleExportCsv = () => {
     setIsExportMenuOpen(false);
     const list = filteredProducts;
-    const headers = canViewBuyingPrices
-      ? ['Item Code', 'Product Name', 'Category', 'Location', 'Retail Unit', 'Pack Unit', 'Units Per Pack', 'Buying Cost (RWF)', 'Selling Price (RWF)', 'Pack Selling Price (RWF)', 'In Stock (Base)', 'Stock Breakdown', 'Units Sold', 'Status', 'Date Entered']
-      : ['Item Code', 'Product Name', 'Category', 'Location', 'Retail Unit', 'Pack Unit', 'Units Per Pack', 'Selling Price (RWF)', 'Pack Selling Price (RWF)', 'In Stock (Base)', 'Stock Breakdown', 'Units Sold', 'Status', 'Date Entered'];
+    const headers = [
+      'Item Code',
+      'Product Name',
+      'Category',
+      'Location',
+      'Retail Unit',
+      'Pack Unit',
+      'Units Per Pack',
+      ...(canViewBuyingPrices ? ['Buying Cost (RWF)'] : []),
+      ...(!isStockOnly ? ['Selling Price (RWF)', 'Pack Selling Price (RWF)'] : []),
+      ...(showStockLevels ? ['In Stock (Base)', 'Stock Breakdown', 'Units Sold'] : []),
+      'Status',
+      'Date Entered'
+    ];
 
     const csvSafe = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = list.map((p) => {
@@ -438,11 +461,25 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
       const packSellPrice = isPackProduct(p) ? getPackSellingPrice(p) : '';
       const qty = Number(p.quantity || 0);
       const breakdown = formatPackStock(qty, p.units_per_pack, p.unit, p.pack_unit);
-      const status = qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy';
+      const inStock = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : qty > 0;
+      const status = !showStockLevels
+        ? (inStock ? 'In Stock' : 'Out of Stock')
+        : (qty <= 0 ? 'Out of Stock' : qty <= Number(p.low_stock_threshold || 0) ? 'Low Stock' : 'Healthy');
       const dateStr = formatShortDate(p.last_stocked_at || p.created_at);
-      const cols = canViewBuyingPrices
-        ? [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, breakdown.isMultiUnit ? breakdown.packUnit : '', breakdown.packSize, Number(p.buying_price || 0), sellPrice, packSellPrice, qty, breakdown.primary, Number(p.total_units_sold || 0), status, dateStr]
-        : [p.sku, p.name, p.category, p.stock_name || 'Main', p.unit, breakdown.isMultiUnit ? breakdown.packUnit : '', breakdown.packSize, sellPrice, packSellPrice, qty, breakdown.primary, Number(p.total_units_sold || 0), status, dateStr];
+      const cols = [
+        p.sku,
+        p.name,
+        p.category,
+        p.stock_name || 'Main',
+        p.unit,
+        breakdown.isMultiUnit ? breakdown.packUnit : '',
+        breakdown.packSize,
+        ...(canViewBuyingPrices ? [Number(p.buying_price || 0)] : []),
+        ...(!isStockOnly ? [sellPrice, packSellPrice] : []),
+        ...(showStockLevels ? [qty, breakdown.primary, Number(p.total_units_sold || 0)] : []),
+        status,
+        dateStr
+      ];
       return cols.map(csvSafe).join(',');
     });
 
@@ -807,14 +844,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             <ArrowUpDown className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select
               aria-label={tf('Sort stock items', 'Tondeka ibicuruzwa')}
-              value={sortBy}
+              value={(!showStockLevels && (sortBy === 'qty_desc' || sortBy === 'qty_asc' || sortBy === 'sold_desc' || sortBy === 'sold_asc')) ? 'name_asc' : sortBy}
               onChange={(e) => setSortBy(e.target.value as StockSortOption)}
               className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-semibold text-slate-100 focus:outline-none focus:border-amber-500"
             >
-              <option value="qty_desc">{tf('Sort: Most in Stock First (High → Low)', 'Tondeka: Bwinshi Imbere (Bwinshi → Buke)')}</option>
-              <option value="qty_asc">{tf('Sort: Least / Zero Stock First (Low → High)', 'Tondeka: Buke / Zero Imbere (Buke → Bwinshi)')}</option>
-              <option value="sold_desc">{tf('Sort: Best Selling First (Most Sold)', 'Tondeka: Ibigurwa Cyane Imbere')}</option>
-              <option value="sold_asc">{tf('Sort: Slowest Moving First (Least Sold)', 'Tondeka: Ibigurwa Gake Imbere')}</option>
+              {showStockLevels && (
+                <>
+                  <option value="qty_desc">{tf('Sort: Most in Stock First (High → Low)', 'Tondeka: Bwinshi Imbere (Bwinshi → Buke)')}</option>
+                  <option value="qty_asc">{tf('Sort: Least / Zero Stock First (Low → High)', 'Tondeka: Buke / Zero Imbere (Buke → Bwinshi)')}</option>
+                  <option value="sold_desc">{tf('Sort: Best Selling First (Most Sold)', 'Tondeka: Ibigurwa Cyane Imbere')}</option>
+                  <option value="sold_asc">{tf('Sort: Slowest Moving First (Least Sold)', 'Tondeka: Ibigurwa Gake Imbere')}</option>
+                </>
+              )}
               <option value="date_desc">{tf('Sort: Date Entered / Restocked (Newest)', 'Tondeka: Itariki Byinjiriye (Bishya)')}</option>
               <option value="date_asc">{tf('Sort: Date Entered (Oldest First)', 'Tondeka: Itariki Byinjiriye (Bishaje)')}</option>
               <option value="name_asc">{tf('Sort: Product Name (A → Z)', 'Tondeka: Izina (A → Z)')}</option>
@@ -828,7 +869,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
           <div className="flex gap-2 md:col-span-3">
             {[
               { id: 'all', label: tf('All Stock', 'Byose') },
-              { id: 'low', label: tf('Low Stock', 'Biri Gushira') },
+              ...(showStockLevels ? [{ id: 'low', label: tf('Low Stock', 'Biri Gushira') }] : []),
               { id: 'out', label: tf('Out of Stock', 'Byashize') },
             ].map((st) => (
               <button
@@ -913,26 +954,30 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                     </button>
                   </th>
                 )}
-                <th className="py-3 px-4 font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => toggleColumnSort('qty_desc', 'qty_asc')}
-                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
-                  >
-                    <span>{tf('In Stock', 'Mu Bubiko')}</span>
-                    {sortBy === 'qty_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'qty_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
-                  </button>
-                </th>
-                <th className="py-3 px-4 font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => toggleColumnSort('sold_desc', 'sold_asc')}
-                    className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
-                  >
-                    <span>{tf('Sold', 'Byagurishijwe')}</span>
-                    {sortBy === 'sold_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'sold_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
-                  </button>
-                </th>
+                {showStockLevels && (
+                  <>
+                    <th className="py-3 px-4 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => toggleColumnSort('qty_desc', 'qty_asc')}
+                        className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                      >
+                        <span>{tf('In Stock', 'Mu Bubiko')}</span>
+                        {sortBy === 'qty_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'qty_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                      </button>
+                    </th>
+                    <th className="py-3 px-4 font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => toggleColumnSort('sold_desc', 'sold_asc')}
+                        className="inline-flex items-center gap-1 hover:text-amber-300 transition uppercase"
+                      >
+                        <span>{tf('Sold', 'Byagurishijwe')}</span>
+                        {sortBy === 'sold_desc' ? <ArrowDown className="w-3 h-3 text-amber-400" /> : sortBy === 'sold_asc' ? <ArrowUp className="w-3 h-3 text-amber-400" /> : <ArrowUpDown className="w-3 h-3 opacity-50" />}
+                      </button>
+                    </th>
+                  </>
+                )}
                 <th className="py-3 px-4 font-semibold">
                   <button
                     type="button"
@@ -949,12 +994,14 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filteredProducts.map((p) => {
-                const isOutOfStock = p.quantity <= 0;
-                const isLowStock = p.quantity > 0 && p.quantity <= p.low_stock_threshold;
+                const qtyVal = Number(p.quantity || 0);
+                const isInStock = p.stock_levels_hidden || p.quantity === null ? Boolean(p.in_stock) : qtyVal > 0;
+                const isOutOfStock = !isInStock;
+                const isLowStock = showStockLevels && isInStock && qtyVal <= Number(p.low_stock_threshold || 0);
                 const sellingPrice = p.selling_price && Number(p.selling_price) > 0
                   ? Number(p.selling_price)
                   : Number(p.buying_price || 0);
-                const breakdown = formatPackStock(p.quantity, p.units_per_pack, p.unit, p.pack_unit);
+                const breakdown = formatPackStock(qtyVal, p.units_per_pack, p.unit, p.pack_unit);
                 const packSellPrice = breakdown.isMultiUnit ? getPackSellingPrice(p) : 0;
 
                 return (
@@ -1018,19 +1065,23 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                         )}
                       </td>
                     )}
-                    <td className="py-3 px-4 font-mono">
-                      {breakdown.isMultiUnit ? (
-                        <div>
-                          <p className="font-black text-white">{breakdown.primary}</p>
-                          <p className="text-[10px] text-slate-400">({breakdown.totalText} {tf('total', 'yose')})</p>
-                        </div>
-                      ) : (
-                        <span className="font-black text-white">{p.quantity}</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 font-mono font-semibold text-sky-300">
-                      {Number(p.total_units_sold || 0).toLocaleString()} {breakdown.isMultiUnit ? breakdown.retailUnit : ''}
-                    </td>
+                    {showStockLevels && (
+                      <>
+                        <td className="py-3 px-4 font-mono">
+                          {breakdown.isMultiUnit ? (
+                            <div>
+                              <p className="font-black text-white">{breakdown.primary}</p>
+                              <p className="text-[10px] text-slate-400">({breakdown.totalText} {tf('total', 'yose')})</p>
+                            </div>
+                          ) : (
+                            <span className="font-black text-white">{p.quantity}</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-semibold text-sky-300">
+                          {Number(p.total_units_sold || 0).toLocaleString()} {breakdown.isMultiUnit ? breakdown.retailUnit : ''}
+                        </td>
+                      </>
+                    )}
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap">
                       {formatShortDate(p.last_stocked_at || p.created_at)}
                     </td>
@@ -1045,7 +1096,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({ user, shop }) => {
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {tf('Healthy', 'Birahagije')}
+                          {showStockLevels ? tf('Healthy', 'Birahagije') : tf('In Stock', 'Birahari')}
                         </span>
                       )}
                     </td>

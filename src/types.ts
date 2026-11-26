@@ -36,6 +36,7 @@ export interface User {
   can_verify_orders?: boolean;
   can_resolve_flagged_orders?: boolean;
   can_upload_photos?: boolean;
+  can_view_stock_levels?: boolean;
   shop_name?: string;
   created_at?: string;
 }
@@ -82,16 +83,19 @@ export interface Product {
   selling_price?: number;
   pack_buying_price?: number | null;
   pack_selling_price?: number;
-  quantity: number;
-  low_stock_threshold: number;
+  quantity: number | null;
+  low_stock_threshold: number | null;
   is_watched?: boolean | number;
-  reserved_quantity?: number;
-  available_quantity?: number;
+  reserved_quantity?: number | null;
+  available_quantity?: number | null;
+  in_stock?: boolean;
+  pack_in_stock?: boolean;
+  stock_levels_hidden?: boolean;
   description?: string | null;
   created_at?: string;
   updated_at?: string;
   last_stocked_at?: string;
-  total_units_sold?: number;
+  total_units_sold?: number | null;
 }
 
 export interface StockLocation {
@@ -128,10 +132,13 @@ export interface StockTransfer {
 export interface OrderItem {
   id?: number;
   order_id?: number;
-  product_id: number;
+  product_id: number | null;
   product_name?: string;
   product_sku?: string;
   product_unit?: string;
+  custom_product_name?: string | null;
+  partner_shop_id?: number | null;
+  partner_shop_name?: string | null;
   quantity: number;
   sale_mode?: 'pack' | 'retail';
   sold_unit?: string;
@@ -144,8 +151,8 @@ export interface OrderItem {
   item_status?: 'pending_store' | 'approved' | 'rejected' | 'partner_fulfilled' | 'unavailable';
   source_stock_id?: number | null;
   source_stock_name?: string | null;
-  leg_type?: 'shop' | 'warehouse';
-  leg_status?: 'pending' | 'seller_released' | 'warehouse_released' | 'supervisor_confirmed' | 'flagged';
+  leg_type?: 'shop' | 'warehouse' | 'partner';
+  leg_status?: 'pending' | 'seller_released' | 'warehouse_released' | 'partner_released' | 'supervisor_confirmed' | 'flagged';
   leg_released_by?: number | null;
   leg_released_by_name?: string | null;
   leg_released_at?: string | null;
@@ -355,6 +362,7 @@ export interface DashboardStats {
   customerCount: number;
   totalReceivables: number;
   lowStockCount: number;
+  stockLevelsHidden?: boolean;
   pendingPaymentCount?: number;
   pendingStoreCount?: number;
   lowStockProducts: Product[];

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Order, OrderItem, Product, Shop, User } from '../types';
+import { Order, OrderItem, PartnerShop, Product, Shop, User } from '../types';
 import { api } from '../services/api';
-import { hasPermission } from '../utils/permissions';
+import { canViewStockLevels, hasPermission } from '../utils/permissions';
 import { matchesSearch } from '../utils/searchMatch';
 import { useLanguage } from '../i18n/LanguageContext';
 import { compressOrderPhoto } from '../utils/imageCompression';
@@ -14,9 +14,11 @@ import {
 } from '../utils/unitConversion';
 import {
   AlertTriangle,
+  Building2,
   Camera,
   CheckCircle2,
   ClipboardCheck,
+  Clock,
   Edit3,
   Eye,
   FileImage,
@@ -24,6 +26,7 @@ import {
   History,
   Image as ImageIcon,
   Lock,
+  Navigation,
   Package,
   Plus,
   RefreshCw,
@@ -34,6 +37,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShoppingBag,
+  Store,
   Trash2,
   UserCheck,
   Warehouse,
@@ -52,6 +56,7 @@ interface StrictChainWorkspaceProps {
 type ChainQueueTab =
   | 'new_order'
   | 'returned'
+  | 'tracker'
   | 'supervisor_1'
   | 'shop_release'
   | 'warehouse'
@@ -66,12 +71,15 @@ interface DraftCartItem {
 }
 
 interface ManagerEditRow {
-  product_id: number;
+  product_id: number | null;
   product_name: string;
   sold_unit: string;
   sale_mode: 'retail' | 'pack';
   quantity: number;
-  leg_type: 'shop' | 'warehouse';
+  leg_type: 'shop' | 'warehouse' | 'partner';
+  custom_product_name?: string | null;
+  partner_shop_id?: number | null;
+  partner_shop_name?: string | null;
 }
 
 export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
@@ -87,6 +95,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const canVerifyOrders = hasPermission(user, 'can_verify_orders');
   const canResolveFlagged = hasPermission(user, 'can_resolve_flagged_orders');
   const canUploadPhotos = hasPermission(user, 'can_upload_photos');
+  const showStockLevels = canViewStockLevels(user);
 
   const isWarehouseOnly =
     canReleaseStock && !canCreateOrders && !canVerifyOrders && !canResolveFlagged;
@@ -98,7 +107,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     if (canCreateOrders) return 'new_order';
     if (canVerifyOrders) return 'supervisor_1';
     if (canReleaseStock) return 'warehouse';
-    return 'history';
+    return 'tracker';
   }, [canCreateOrders, canReleaseStock, canVerifyOrders, canResolveFlagged, isWarehouseOnly]);
 
   const [activeTab, setActiveTab] = useState<ChainQueueTab>(defaultTab);
@@ -106,6 +115,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const [allOrders, setAllOrders] = useState<Order[]>([]);
   const [warehouseOrders, setWarehouseOrders] = useState<Order[]>([]);
   const [staffUsers, setStaffUsers] = useState<User[]>([]);
+  const [partnerShops, setPartnerShops] = useState<PartnerShop[]>([]);
   const [r2Configured, setR2Configured] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
   const [busyActionId, setBusyActionId] = useState<number | null>(null);
@@ -143,7 +153,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const [returnedPhotoFile, setReturnedPhotoFile] = useState<File | null>(null);
   const [returnedPhotoPreview, setReturnedPhotoPreview] = useState<string | null>(null);
 
-  // Action Modals (Return / Flag / Override / Manager Resolve)
+  // Action Modals (Return / Flag / Override / Manager Resolve / Add Partner Item)
   const [returnTargetOrder, setReturnTargetOrder] = useState<Order | null>(null);
   const [returnReason, setReturnReason] = useState('');
 
@@ -151,7 +161,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const [flagReason, setFlagReason] = useState('');
 
   const [overrideTargetOrder, setOverrideTargetOrder] = useState<Order | null>(null);
-  const [overrideLeg, setOverrideLeg] = useState<'shop' | 'warehouse' | undefined>(undefined);
+  const [overrideLeg, setOverrideLeg] = useState<'shop' | 'warehouse' | 'partner' | undefined>(undefined);
   const [overrideReason, setOverrideReason] = useState('');
 
   const [managerTargetOrder, setManagerTargetOrder] = useState<Order | null>(null);
@@ -162,6 +172,22 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   const [managerReassignSupId, setManagerReassignSupId] = useState<string>('');
   const [managerEditRows, setManagerEditRows] = useState<ManagerEditRow[]>([]);
   const [managerAddProductId, setManagerAddProductId] = useState<string>('');
+
+  // Partner-Shop Sourcing Modal (for Verificators on Verify #1 & Verify #2)
+  const [partnerModalOrder, setPartnerModalOrder] = useState<Order | null>(null);
+  const [partnerShopMode, setPartnerShopMode] = useState<'existing' | 'new'>('existing');
+  const [selectedPartnerId, setSelectedPartnerId] = useState<string>('');
+  const [newPartnerName, setNewPartnerName] = useState('');
+  const [newPartnerContact, setNewPartnerContact] = useState('');
+  const [newPartnerPhone, setNewPartnerPhone] = useState('');
+  const [partnerItemName, setPartnerItemName] = useState('');
+  const [partnerItemQty, setPartnerItemQty] = useState<string>('1');
+  const [partnerItemUnit, setPartnerItemUnit] = useState<string>('pcs');
+  const [savingPartnerItem, setSavingPartnerItem] = useState(false);
+
+  // Live Order Tracker filters
+  const [trackerSearch, setTrackerSearch] = useState('');
+  const [trackerFilter, setTrackerFilter] = useState<'active' | 'returned' | 'all'>('active');
 
   // Signed Handwritten Photo Viewer Modal
   const [photoModalOrder, setPhotoModalOrder] = useState<Order | null>(null);
@@ -195,6 +221,9 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       if (canResolveFlagged) {
         tasks.push(api.getUsers().catch(() => ({ users: [] })));
       }
+      if (canVerifyOrders || canResolveFlagged || canCreateOrders) {
+        tasks.push(api.chain.getPartners().catch(() => ({ partners: [] })));
+      }
 
       const results = await Promise.all(tasks);
       setR2Configured(Boolean(results[0]?.configured));
@@ -208,6 +237,10 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       }
       if (canResolveFlagged) {
         setStaffUsers(results[idx]?.users || []);
+        idx++;
+      }
+      if (canVerifyOrders || canResolveFlagged || canCreateOrders) {
+        setPartnerShops(results[idx]?.partners || []);
       }
     } catch (err: any) {
       setErrorBanner(
@@ -218,6 +251,10 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setActiveTab(defaultTab);
+  }, [defaultTab, user?.id]);
 
   useEffect(() => {
     if (user && shop?.workflow_mode === 'strict_chain') {
@@ -283,6 +320,45 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     );
   }, [allOrders, historySearch]);
 
+  const trackedOrders = useMemo(() => {
+    let base = allOrders;
+    if (trackerFilter === 'active') {
+      base = allOrders.filter(
+        (o) =>
+          o.chain_status === 'pending_supervisor_1' ||
+          o.chain_status === 'returned_to_seller' ||
+          o.chain_status === 'in_release' ||
+          o.chain_status === 'flagged_for_manager'
+      );
+    } else if (trackerFilter === 'returned') {
+      base = allOrders.filter((o) => o.chain_status === 'returned_to_seller');
+    }
+    if (!trackerSearch.trim()) return base;
+    return base.filter((o) =>
+      matchesSearch(
+        trackerSearch,
+        o.order_number,
+        o.customer_name,
+        o.salesperson_name,
+        o.first_verified_by_name,
+        o.final_verified_by_name,
+        o.notes
+      )
+    );
+  }, [allOrders, trackerFilter, trackerSearch]);
+
+  const activeInChainCount = useMemo(
+    () =>
+      allOrders.filter(
+        (o) =>
+          o.chain_status === 'pending_supervisor_1' ||
+          o.chain_status === 'returned_to_seller' ||
+          o.chain_status === 'in_release' ||
+          o.chain_status === 'flagged_for_manager'
+      ).length,
+    [allOrders]
+  );
+
   const activeSupervisors = useMemo(
     () =>
       staffUsers.filter(
@@ -338,7 +414,34 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   };
 
   const addToCart = (product: Product, mode: 'retail' | 'pack') => {
+    const hidden = Boolean(product.stock_levels_hidden || !showStockLevels);
     const packSize = isPackProduct(product) ? getPackSize(product) : 1;
+
+    if (hidden) {
+      const availFlag =
+        mode === 'pack'
+          ? product.pack_in_stock ?? product.in_stock !== false
+          : product.in_stock !== false;
+      if (!availFlag) {
+        setErrorBanner(
+          tf(
+            `"${product.name}" is out of stock. Write it on the handwritten slip and leave a note for Verificators to source from a partner shop.`,
+            `"${product.name}" yashize muri sitoki. Yishyire ku rupapuro wandikire Abagenzuzi bayishake mu iduka dufatanya.`
+          )
+        );
+        return;
+      }
+
+      setCart((prev) => {
+        const idx = prev.findIndex((c) => c.product.id === product.id && c.sale_mode === mode);
+        if (idx >= 0) {
+          return prev.map((c, i) => (i === idx ? { ...c, quantity: c.quantity + 1 } : c));
+        }
+        return [...prev, { product, sale_mode: mode, quantity: 1 }];
+      });
+      return;
+    }
+
     const availableBase = Math.max(0, Number(product.available_quantity ?? product.quantity ?? 0));
     const stepBase = mode === 'pack' ? packSize : 1;
 
@@ -374,6 +477,12 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       const target = prev[index];
       if (!target) return prev;
       const prod = target.product;
+      const hidden = Boolean(prod.stock_levels_hidden || !showStockLevels);
+      if (hidden) {
+        const clampedHidden = Math.max(1, Math.round(nextQty));
+        return prev.map((c, i) => (i === index ? { ...c, quantity: clampedHidden } : c));
+      }
+
       const packSize = isPackProduct(prod) ? getPackSize(prod) : 1;
       const availableBase = Math.max(0, Number(prod.available_quantity ?? prod.quantity ?? 0));
       const otherBase = prev
@@ -551,13 +660,15 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     setEditingReturnedOrder(order);
     setReturnedNotes(order.notes || '');
     setReturnedDraftItems(
-      (order.items || []).map((it) => ({
-        product_id: it.product_id,
-        product_name: it.product_name || `#${it.product_id}`,
-        sold_unit: it.sold_unit || it.product_unit || 'pcs',
-        sale_mode: it.sale_mode === 'pack' ? 'pack' : 'retail',
-        quantity: Number(it.quantity || 1)
-      }))
+      (order.items || [])
+        .filter((it) => it.leg_type !== 'partner' && it.product_id)
+        .map((it) => ({
+          product_id: Number(it.product_id),
+          product_name: it.product_name || `#${it.product_id}`,
+          sold_unit: it.sold_unit || it.product_unit || 'pcs',
+          sale_mode: it.sale_mode === 'pack' ? 'pack' : 'retail',
+          quantity: Number(it.quantity || 1)
+        }))
     );
     setReturnedAddProductId('');
     setReturnedPhotoFile(null);
@@ -607,7 +718,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     }
   };
 
-  const handleReleaseLeg = async (order: Order, leg: 'shop' | 'warehouse') => {
+  const handleReleaseLeg = async (order: Order, leg: 'shop' | 'warehouse' | 'partner') => {
     try {
       setBusyActionId(order.id);
       setErrorBanner('');
@@ -617,6 +728,11 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
           ? tf(
               `Warehouse items released for ${order.order_number}. Sent to Supervisor #2 for final check.`,
               `Ibiri mu bubiko bukuru byasohowe kuri ${order.order_number}. Byoherejwe ku Mugenzuzi wa 2.`
+            )
+          : leg === 'partner'
+          ? tf(
+              `Partner shop items marked sourced for ${order.order_number}.`,
+              `Ibicuruzwa byo mu maduka dufatanya byabonetse kuri ${order.order_number}.`
             )
           : tf(
               `Main Shop items marked released for ${order.order_number}. Awaiting Supervisor #2 confirmation.`,
@@ -658,7 +774,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
 
   const handleVerifyStep2 = async (
     order: Order,
-    leg?: 'shop' | 'warehouse',
+    leg?: 'shop' | 'warehouse' | 'partner',
     overrideMsg?: string
   ) => {
     try {
@@ -687,6 +803,92 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     }
   };
 
+  const openAddPartnerItemModal = (order: Order) => {
+    setPartnerModalOrder(order);
+    setPartnerShopMode(partnerShops.length > 0 ? 'existing' : 'new');
+    setSelectedPartnerId(partnerShops[0] ? String(partnerShops[0].id) : '');
+    setNewPartnerName('');
+    setNewPartnerContact('');
+    setNewPartnerPhone('');
+    setPartnerItemName('');
+    setPartnerItemQty('1');
+    setPartnerItemUnit('pcs');
+  };
+
+  const handleAddPartnerItemSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!partnerModalOrder) return;
+    const cleanItem = partnerItemName.trim();
+    const qty = Math.max(1, Math.round(Number(partnerItemQty) || 0));
+    if (!cleanItem) {
+      setErrorBanner(tf('Enter the product name to source from partner shop.', 'Andika izina ry’igicuruzwa gishakwa mu iduka dufatanya.'));
+      return;
+    }
+
+    try {
+      setSavingPartnerItem(true);
+      setErrorBanner('');
+      let partnerId: number | undefined;
+      let partnerName: string | undefined;
+
+      if (partnerShopMode === 'existing' && selectedPartnerId) {
+        partnerId = Number(selectedPartnerId);
+        partnerName = partnerShops.find((p) => p.id === partnerId)?.name;
+      } else {
+        const cleanShopName = newPartnerName.trim();
+        if (!cleanShopName) {
+          setErrorBanner(tf('Enter the partner shop name.', 'Andika izina ry’iduka dufatanya.'));
+          setSavingPartnerItem(false);
+          return;
+        }
+        const createdPartner = await api.chain.createPartner({
+          name: cleanShopName,
+          contact_person: newPartnerContact.trim() || undefined,
+          phone: newPartnerPhone.trim() || undefined
+        });
+        partnerId = createdPartner.partner?.id;
+        partnerName = createdPartner.partner?.name || cleanShopName;
+      }
+
+      await api.chain.addPartnerItem(partnerModalOrder.id, {
+        partner_shop_id: partnerId,
+        partner_shop_name: partnerName,
+        item_name: cleanItem,
+        quantity: qty,
+        unit: partnerItemUnit.trim() || 'pcs'
+      });
+
+      notify(
+        tf(
+          `Added partner item "${cleanItem}" (${qty} ${partnerItemUnit.trim() || 'pcs'}) from ${partnerName} to ${partnerModalOrder.order_number}.`,
+          `Igicuruzwa "${cleanItem}" cyo mu iduka ${partnerName} cyongewe kuri ${partnerModalOrder.order_number}.`
+        )
+      );
+      setPartnerModalOrder(null);
+      await loadWorkspaceData(true);
+      onDataChanged?.();
+    } catch (err: any) {
+      setErrorBanner(err?.message || tf('Failed to add partner-shop item.', 'Kongeramo igicuruzwa cyo mu iduka dufatanya byanze.'));
+    } finally {
+      setSavingPartnerItem(false);
+    }
+  };
+
+  const handleRemovePartnerItem = async (order: Order, itemId: number) => {
+    try {
+      setBusyActionId(order.id);
+      setErrorBanner('');
+      await api.chain.removePartnerItem(order.id, itemId);
+      notify(tf('Partner-shop item removed from order.', 'Igicuruzwa cyo mu iduka dufatanya cyakuweho.'));
+      await loadWorkspaceData(true);
+      onDataChanged?.();
+    } catch (err: any) {
+      setErrorBanner(err?.message || tf('Failed to remove partner-shop item.', 'Gukuraho igicuruzwa byanze.'));
+    } finally {
+      setBusyActionId(null);
+    }
+  };
+
   const openManagerResolveModal = (order: Order) => {
     setManagerTargetOrder(order);
     setManagerAction(order.chain_status === 'flagged_for_manager' ? 'edit_and_release' : 'approve_as_is');
@@ -696,11 +898,14 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     setManagerEditRows(
       (order.items || []).map((it) => ({
         product_id: it.product_id,
-        product_name: it.product_name || `#${it.product_id}`,
+        product_name: it.product_name || it.custom_product_name || `#${it.product_id || ''}`,
         sold_unit: it.sold_unit || it.product_unit || 'pcs',
         sale_mode: it.sale_mode === 'pack' ? 'pack' : 'retail',
         quantity: Number(it.quantity || 1),
-        leg_type: it.leg_type === 'warehouse' ? 'warehouse' : 'shop'
+        leg_type: it.leg_type === 'warehouse' ? 'warehouse' : it.leg_type === 'partner' ? 'partner' : 'shop',
+        custom_product_name: it.custom_product_name || it.product_name || null,
+        partner_shop_id: it.partner_shop_id || null,
+        partner_shop_name: it.partner_shop_name || null
       }))
     );
   };
@@ -722,7 +927,12 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
             ? managerEditRows.map((r) => ({
                 product_id: r.product_id,
                 quantity: Math.max(1, Math.round(r.quantity)),
-                sale_mode: r.sale_mode
+                sale_mode: r.sale_mode,
+                leg_type: r.leg_type,
+                custom_product_name: r.custom_product_name,
+                partner_shop_id: r.partner_shop_id,
+                partner_shop_name: r.partner_shop_name,
+                sold_unit: r.sold_unit
               }))
             : undefined
       });
@@ -741,6 +951,111 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
     } finally {
       setBusyActionId(null);
     }
+  };
+
+  const getOrderCurrentHolder = (ord: Order) => {
+    const items = ord.items || [];
+    if (ord.chain_status === 'returned_to_seller') {
+      return {
+        stage: 1 as const,
+        holder: tf(
+          `Salesperson (${ord.salesperson_name || 'Seller'})`,
+          `Umucuruzi (${ord.salesperson_name || 'Seller'})`
+        ),
+        detail: ord.resolution_note
+          ? tf(`Returned for edit: ${ord.resolution_note}`, `Yasubijwe ngo ikosorwe: ${ord.resolution_note}`)
+          : tf('Returned by 1st Verificator — waiting for seller edit.', 'Yasubijwe n’Umugenzuzi #1 — itegereje gukosorwa.'),
+        tone: 'border-orange-500/40 bg-orange-500/10 text-orange-200'
+      };
+    }
+    if (ord.chain_status === 'pending_supervisor_1') {
+      return {
+        stage: 1 as const,
+        holder: tf('1st Verificator (Verify #1)', 'Umugenzuzi #1'),
+        detail: tf(
+          'Waiting for handwritten slip cross-check & authorization.',
+          'Itegereje kugenzurwa n’Umugenzuzi #1 mbere yo gusohora ibicuruzwa.'
+        ),
+        tone: 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+      };
+    }
+    if (ord.chain_status === 'flagged_for_manager') {
+      return {
+        stage: 3 as const,
+        holder: tf('Store Manager (Flagged)', 'Umuyobozi (Yashyizweho Ikibazo)'),
+        detail: ord.flag_reason
+          ? tf(`Flagged by ${ord.flagged_by_name || 'Warehouse'}: ${ord.flag_reason}`, `Ikibazo na ${ord.flagged_by_name || 'Ububiko'}: ${ord.flag_reason}`)
+          : tf('Frozen by Warehouse — waiting for Manager resolution.', 'Yafunzwe — itegereje Umuyobozi.'),
+        tone: 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+      };
+    }
+    if (ord.chain_status === 'in_release') {
+      const pendingShop = items.some((it) => it.leg_type === 'shop' && it.leg_status === 'pending');
+      const pendingWh = items.some((it) => it.leg_type === 'warehouse' && it.leg_status === 'pending');
+      const pendingPartner = items.some((it) => it.leg_type === 'partner' && it.leg_status === 'pending');
+      const awaitingVerify2 = items.some(
+        (it) =>
+          it.leg_status === 'seller_released' ||
+          it.leg_status === 'warehouse_released' ||
+          it.leg_status === 'partner_released'
+      );
+
+      const waitingActors: string[] = [];
+      if (pendingShop) waitingActors.push(tf('Main Shop Releaser', 'Utanga ibyo mu Iduka'));
+      if (pendingWh) waitingActors.push(tf('Warehouse Storekeeper', 'Umurinzi w’Ububiko'));
+      if (pendingPartner) waitingActors.push(tf('Verificator (Partner Shop)', 'Umugenzuzi (Iduka Dufatanya)'));
+      if (awaitingVerify2) {
+        waitingActors.push(
+          tf(
+            `2nd Verificator (${ord.first_verified_by_name || 'Verify #1 Supervisor'})`,
+            `Umugenzuzi #2 (${ord.first_verified_by_name || 'Umugenzuzi #1'})`
+          )
+        );
+      }
+
+      const stage = pendingShop || pendingWh || pendingPartner ? (2 as const) : (3 as const);
+      return {
+        stage,
+        holder:
+          waitingActors.length > 0
+            ? waitingActors.join(' + ')
+            : tf(
+                `2nd Verificator (${ord.first_verified_by_name || 'Supervisor'})`,
+                `Umugenzuzi #2 (${ord.first_verified_by_name || 'Umugenzuzi'})`
+              ),
+        detail:
+          stage === 2
+            ? tf(
+                'Physical stock handover in progress before final Verify #2 confirmation.',
+                'Ibicuruzwa birimo gutangwa mbere y’igenzura rya nyuma #2.'
+              )
+            : tf(
+                `All stock handed over — waiting ONLY for ${ord.first_verified_by_name || 'Verificator #1'} to click Confirm #2.`,
+                `Ibicuruzwa byose byasohowe — bitegereje GUSA ko ${ord.first_verified_by_name || 'Umugenzuzi #1'} yemeza #2.`
+              ),
+        tone:
+          stage === 3
+            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+            : 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+      };
+    }
+    if (ord.chain_status === 'completed') {
+      return {
+        stage: 4 as const,
+        holder: tf(
+          `Completed (${ord.final_verified_by_name || ord.first_verified_by_name || 'Supervisor'})`,
+          `Yarangiye (${ord.final_verified_by_name || ord.first_verified_by_name || 'Umugenzuzi'})`
+        ),
+        detail: tf('All items verified & inventory updated.', 'Ibicuruzwa byose byagenzuwe neza.'),
+        tone: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+      };
+    }
+    return {
+      stage: 4 as const,
+      holder: tf('Cancelled', 'Yahagaritswe'),
+      detail: ord.resolution_note || tf('Order was cancelled.', 'Komande yahagaritswe.'),
+      tone: 'border-slate-700 bg-slate-800/60 text-slate-300'
+    };
   };
 
   const renderChainStatusBadge = (status?: string) => {
@@ -787,16 +1102,25 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
   };
 
   const renderLegBadge = (item: OrderItem) => {
+    const isPartner = item.leg_type === 'partner';
     const isWh = item.leg_type === 'warehouse';
-    const depotLabel = isWh ? tf('Warehouse', 'Ububiko Bukuru') : tf('Main Shop', 'Iduka');
+    const depotLabel = isPartner
+      ? `${tf('Partner:', 'Iduka Dufatanya:')} ${item.partner_shop_name || item.source_stock_name || 'Partner'}`
+      : isWh
+      ? item.source_stock_name || tf('Warehouse', 'Ububiko Bukuru')
+      : item.source_stock_name || tf('Main Shop', 'Iduka');
+
     let statusLabel = tf('Pending Release', 'Irategereje');
     let cls = 'bg-slate-800 text-slate-300 border-slate-700';
 
-    if (item.leg_status === 'seller_released' || item.leg_status === 'warehouse_released') {
+    if (item.leg_status === 'partner_released') {
+      statusLabel = tf('Partner Sourced — Verify #2', 'Byabonetse — Igenzura #2');
+      cls = 'bg-teal-500/20 text-teal-300 border-teal-500/40';
+    } else if (item.leg_status === 'seller_released' || item.leg_status === 'warehouse_released') {
       statusLabel = tf('Released — Needs Verify #2', 'Byasohowe — Itegereje #2');
       cls = 'bg-amber-500/20 text-amber-300 border-amber-500/40';
     } else if (item.leg_status === 'supervisor_confirmed') {
-      statusLabel = tf('Confirmed #2', 'Byemejwe #2');
+      statusLabel = isPartner ? tf('Partner Confirmed', 'Byemejwe (Partner)') : tf('Confirmed #2', 'Byemejwe #2');
       cls = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
     } else if (item.leg_status === 'flagged') {
       statusLabel = tf('Flagged', 'Bifite Ikibazo');
@@ -807,12 +1131,14 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
           className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-            isWh
+            isPartner
+              ? 'bg-teal-500/15 text-teal-300 border-teal-500/30'
+              : isWh
               ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
               : 'bg-sky-500/15 text-sky-300 border-sky-500/30'
           }`}
         >
-          {item.source_stock_name || depotLabel}
+          {depotLabel}
         </span>
         <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>
           {statusLabel}
@@ -833,6 +1159,12 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       count: returnedOrders.length,
       visible: canCreateOrders,
       urgent: returnedOrders.length > 0
+    },
+    {
+      id: 'tracker',
+      label: tf('Track Orders', 'Kurikirana Komande'),
+      count: activeInChainCount,
+      visible: canCreateOrders || canVerifyOrders || canResolveFlagged || canReleaseStock
     },
     {
       id: 'supervisor_1',
@@ -1041,14 +1373,19 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
               <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
                 {filteredProducts.map((p) => {
                   const isWh = (p as any).leg_type === 'warehouse';
-                  const available = Math.max(0, Number(p.available_quantity ?? p.quantity ?? 0));
-                  const reserved = Math.max(0, Number(p.reserved_quantity ?? 0));
+                  const hidden = Boolean(p.stock_levels_hidden || !showStockLevels);
                   const multi = isPackProduct(p);
                   const packSize = getPackSize(p);
                   const packLabel = getPackUnitLabel(p);
                   const retailLabel = getRetailUnitLabel(p);
+
+                  const available = Math.max(0, Number(p.available_quantity ?? p.quantity ?? 0));
+                  const reserved = Math.max(0, Number(p.reserved_quantity ?? 0));
                   const availBreakdown = formatPackStock(available, p.units_per_pack, p.unit, p.pack_unit);
-                  const canAddPack = multi && available >= packSize;
+                  const inStock = hidden ? p.in_stock !== false : available > 0;
+                  const canAddPack = hidden
+                    ? multi && (p.pack_in_stock !== undefined ? Boolean(p.pack_in_stock) : inStock)
+                    : multi && available >= packSize;
 
                   return (
                     <div
@@ -1074,20 +1411,36 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-mono flex-wrap">
-                          <span>
-                            {tf('Physical:', 'Mu bubiko:')} <strong className="text-slate-200">{p.quantity}</strong>
-                          </span>
-                          {reserved > 0 && (
-                            <span className="text-amber-300">
-                              {tf('Reserved:', 'Bifashwe:')} <strong>{reserved}</strong>
+                        {hidden ? (
+                          <div className="flex items-center gap-2 text-[11px] mt-1.5 flex-wrap">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                inStock
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                  : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                              }`}
+                            >
+                              {inStock
+                                ? tf('In Stock (Available)', 'Birahari muri Sitoki')
+                                : tf('Out of Stock — Note Verificator for Partner Shop', 'Byashize — Andikira Umugenzuzi Ashake muri Partner')}
                             </span>
-                          )}
-                          <span className={available > 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                            {tf('Available:', 'Bisigaye:')}{' '}
-                            {multi ? availBreakdown.primary : `${available} ${retailLabel}`}
-                          </span>
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-mono flex-wrap">
+                            <span>
+                              {tf('Physical:', 'Mu bubiko:')} <strong className="text-slate-200">{p.quantity}</strong>
+                            </span>
+                            {reserved > 0 && (
+                              <span className="text-amber-300">
+                                {tf('Reserved:', 'Bifashwe:')} <strong>{reserved}</strong>
+                              </span>
+                            )}
+                            <span className={available > 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                              {tf('Available:', 'Bisigaye:')}{' '}
+                              {multi ? availBreakdown.primary : `${available} ${retailLabel}`}
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
@@ -1103,7 +1456,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                             </button>
                             <button
                               type="button"
-                              disabled={available <= 0}
+                              disabled={!inStock}
                               onClick={() => addToCart(p, 'retail')}
                               className="px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 disabled:opacity-35 text-sky-200 border border-sky-500/40 font-bold text-[11px] transition"
                             >
@@ -1113,7 +1466,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                         ) : (
                           <button
                             type="button"
-                            disabled={available <= 0}
+                            disabled={!inStock}
                             onClick={() => addToCart(p, 'retail')}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-35 text-slate-950 font-bold text-xs transition"
                           >
@@ -1281,15 +1634,27 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
 
               <div>
                 <label className="text-[11px] text-slate-400 font-semibold">
-                  {tf('Notes for Supervisor / Store (Optional)', 'Icyitonderwa (Si ngombwa)')}
+                  {tf(
+                    'Note for Verificators / Partner-Shop Items (Optional)',
+                    'Icyitonderwa cy’Abagenzuzi / Ibicuruzwa byo muri Partner (Si ngombwa)'
+                  )}
                 </label>
-                <input
-                  type="text"
+                <textarea
+                  rows={2}
                   value={orderNotes}
                   onChange={(e) => setOrderNotes(e.target.value)}
-                  placeholder={tf('e.g. Client pickup truck waiting', 'urugero: Imodoka irategereje')}
+                  placeholder={tf(
+                    'e.g. Client also wrote 4x Brass Valves (out of stock — please add from Partner Shop)',
+                    'urugero: Kuri urupapuro handitse n’ibitarimo muri sitoki — mubishake mu iduka dufatanya'
+                  )}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  {tf(
+                    'Include any items from the written order that are missing in our catalog so Verificators add them from Partner Shops.',
+                    'Andikamo ibicuruzwa bitari muri sitoki kugira ngo Abagenzuzi babyongereho bikuwe mu maduka dufatanya.'
+                  )}
+                </p>
               </div>
 
               <div className="border-t border-slate-800 pt-3 space-y-2">
@@ -1423,9 +1788,18 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                   {(ord.items || []).map((it) => (
                     <div
                       key={it.id}
-                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between"
+                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between gap-2"
                     >
-                      <span className="font-semibold text-slate-200 truncate pr-2">{it.product_name}</span>
+                      <div className="min-w-0">
+                        <span className="font-semibold text-slate-200 truncate block">
+                          {it.product_name || it.custom_product_name}
+                        </span>
+                        {it.leg_type === 'partner' && (
+                          <span className="text-[10px] text-teal-300">
+                            {tf('Partner:', 'Iduka Dufatanya:')} {it.partner_shop_name || 'Partner'}
+                          </span>
+                        )}
+                      </div>
                       <span className="font-mono font-black text-amber-400 shrink-0">
                         {it.quantity} {it.sold_unit || it.product_unit}
                       </span>
@@ -1434,6 +1808,175 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                 </div>
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 2B: TRACK ORDERS ("WHO TO ASK RIGHT NOW" LIVE CHAIN PROGRESS)     */}
+      {/* ===================================================================== */}
+      {activeTab === 'tracker' && (canCreateOrders || canVerifyOrders || canResolveFlagged || canReleaseStock) && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-[#121620] border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder={tf(
+                  'Search order #, client, salesperson, verificator...',
+                  'Shakisha komande #, umukiriya, umucuruzi, umugenzuzi...'
+                )}
+                value={trackerSearch}
+                onChange={(e) => setTrackerSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-[11px]">
+              {[
+                { id: 'active', label: tf('Active In Chain', 'Izirimo Gukorwa') },
+                { id: 'returned', label: tf('Returned', 'Izasubijwe') },
+                { id: 'all', label: tf('All Orders', 'Komande Zose') }
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setTrackerFilter(f.id as any)}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition ${
+                    trackerFilter === f.id
+                      ? 'bg-amber-500 text-slate-950'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {trackedOrders.length === 0 ? (
+            <div className="p-10 rounded-2xl bg-[#121620] border border-slate-800 text-center text-xs text-slate-400">
+              <Navigation className="w-7 h-7 mx-auto mb-2 text-slate-500" />
+              {tf('No orders match this tracking filter.', 'Nta komande zihuye n’iki cyiciro ubu.')}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {trackedOrders.map((ord) => {
+                const holderInfo = getOrderCurrentHolder(ord);
+                const stages = [
+                  { n: 1, label: tf('Verify #1', 'Igenzura #1') },
+                  { n: 2, label: tf('Release', 'Isohorwa') },
+                  { n: 3, label: tf('Verify #2', 'Igenzura #2') },
+                  { n: 4, label: tf('Done', 'Yarangiye') }
+                ];
+
+                return (
+                  <div
+                    key={ord.id}
+                    className="p-5 rounded-2xl bg-[#121620] border border-slate-800 space-y-4"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-mono font-black text-amber-400">{ord.order_number}</span>
+                          {renderChainStatusBadge(ord.chain_status)}
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            <Clock className="w-3 h-3 inline mr-1 -mt-0.5" />
+                            {new Date(ord.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {tf('Client:', 'Umukiriya:')}{' '}
+                          <strong className="text-slate-200">{ord.customer_name || tf('Walk-in Client', 'Umukiriya usanzwe')}</strong> &bull;{' '}
+                          {tf('Seller:', 'Umucuruzi:')}{' '}
+                          <strong className="text-slate-200">{ord.salesperson_name}</strong>
+                          {ord.first_verified_by_name && (
+                            <>
+                              {' '}&bull; {tf('Verifier:', 'Umugenzuzi:')}{' '}
+                              <strong className="text-amber-300">{ord.first_verified_by_name}</strong>
+                            </>
+                          )}
+                        </p>
+                      </div>
+
+                      {ord.handwritten_photo_key && (
+                        <button
+                          type="button"
+                          onClick={() => openPhotoViewer(ord)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-sky-300 border border-slate-700 self-start md:self-auto"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>{tf('View Slip Photo', 'Reba Ifoto')}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Who to Ask Right Now callout */}
+                    <div className={`p-3.5 rounded-xl border ${holderInfo.tone} flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-wider opacity-80">
+                          {tf('Who to Ask Right Now (Current Holder)', 'Uwo Wabaza Ubu (Aho Komande Igeze)')}
+                        </p>
+                        <p className="text-sm font-black mt-0.5">{holderInfo.holder}</p>
+                        <p className="text-[11px] opacity-90 mt-0.5">{holderInfo.detail}</p>
+                      </div>
+
+                      {/* 4-Step Chain Progress */}
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                        {stages.map((st) => {
+                          const completedStep = ord.chain_status === 'completed' ? true : holderInfo.stage > st.n;
+                          const activeStep = ord.chain_status !== 'completed' && holderInfo.stage === st.n;
+                          return (
+                            <span
+                              key={st.n}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${
+                                completedStep
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : activeStep
+                                  ? 'bg-amber-500 text-slate-950 border-amber-400'
+                                  : 'bg-slate-900/70 text-slate-400 border-slate-700'
+                              }`}
+                            >
+                              {st.n}. {st.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {ord.notes && (
+                      <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-700/80 text-xs text-slate-300">
+                        <strong className="text-amber-300">{tf('Order Note:', 'Icyitonderwa:')}</strong> {ord.notes}
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      {(ord.items || []).map((it) => (
+                        <div
+                          key={it.id}
+                          className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <span className="font-bold text-white">{it.product_name || it.custom_product_name}</span>
+                            {it.leg_released_by_name && (
+                              <span className="ml-2 text-[10px] text-slate-400">
+                                ({tf('By:', 'Na:')} {it.leg_released_by_name})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            {renderLegBadge(it)}
+                            <span className="font-mono font-black text-amber-400">
+                              {it.quantity} {it.sold_unit || it.product_unit}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -1473,7 +2016,9 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                       {tf('Seller:', 'Umucuruzi:')} <strong className="text-slate-200">{ord.salesperson_name}</strong>
                     </p>
                     {ord.notes && (
-                      <p className="text-[11px] text-slate-300 mt-1 italic">"{ord.notes}"</p>
+                      <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+                        <strong>{tf('Seller Note / Partner Request:', 'Icyitonderwa cy’Umucuruzi:')}</strong> {ord.notes}
+                      </div>
                     )}
                   </div>
 
@@ -1488,6 +2033,15 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                         <span>{tf('Inspect Handwritten Photo', 'Reba Ifoto y’Urupapuro')}</span>
                       </button>
                     )}
+                    <button
+                      type="button"
+                      disabled={busyActionId === ord.id}
+                      onClick={() => openAddPartnerItemModal(ord)}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/40 text-xs font-bold"
+                    >
+                      <Store className="w-3.5 h-3.5" />
+                      <span>{tf('+ Add Partner Item', '+ Iduka Dufatanya')}</span>
+                    </button>
                     <button
                       type="button"
                       disabled={busyActionId === ord.id}
@@ -1517,7 +2071,7 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                     <thead className="bg-slate-900/80 text-[10px] uppercase text-slate-400 border-b border-slate-800">
                       <tr>
                         <th className="py-2 px-3">{tf('Product', 'Igicuruzwa')}</th>
-                        <th className="py-2 px-3">{tf('Depot', 'Ububiko')}</th>
+                        <th className="py-2 px-3">{tf('Depot / Partner', 'Ububiko / Iduka Dufatanya')}</th>
                         <th className="py-2 px-3 text-right">{tf('Quantity Requested', 'Ingano Yasabwe')}</th>
                       </tr>
                     </thead>
@@ -1525,22 +2079,43 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                       {(ord.items || []).map((it) => (
                         <tr key={it.id}>
                           <td className="py-2.5 px-3 font-bold text-slate-100">
-                            {it.product_name}{' '}
-                            <span className="text-[10px] font-mono text-slate-400">({it.product_sku})</span>
+                            {it.product_name || it.custom_product_name}{' '}
+                            {it.leg_type !== 'partner' && (
+                              <span className="text-[10px] font-mono text-slate-400">({it.product_sku})</span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3">
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
-                                it.leg_type === 'warehouse'
+                                it.leg_type === 'partner'
+                                  ? 'bg-teal-500/15 text-teal-300 border-teal-500/30'
+                                  : it.leg_type === 'warehouse'
                                   ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
                                   : 'bg-sky-500/15 text-sky-300 border-sky-500/30'
                               }`}
                             >
-                              {it.source_stock_name || (it.leg_type === 'warehouse' ? 'Warehouse' : 'Main Shop')}
+                              {it.leg_type === 'partner'
+                                ? `${tf('Partner:', 'Iduka Dufatanya:')} ${it.partner_shop_name || 'Partner'}`
+                                : it.source_stock_name || (it.leg_type === 'warehouse' ? 'Warehouse' : 'Main Shop')}
                             </span>
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono font-black text-amber-400">
-                            {it.quantity} {it.sold_unit || it.product_unit}
+                            <div className="inline-flex items-center gap-2">
+                              <span>
+                                {it.quantity} {it.sold_unit || it.product_unit}
+                              </span>
+                              {it.leg_type === 'partner' && it.id && (
+                                <button
+                                  type="button"
+                                  disabled={busyActionId === ord.id}
+                                  onClick={() => handleRemovePartnerItem(ord, it.id!)}
+                                  className="p-1 text-rose-400 hover:bg-rose-500/15 rounded"
+                                  title={tf('Remove partner item', 'Kuraho')}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1725,7 +2300,10 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
             supervisor2Orders.map((ord) => {
               const items = ord.items || [];
               const hasReleasedLeg = items.some(
-                (it) => it.leg_status === 'seller_released' || it.leg_status === 'warehouse_released'
+                (it) =>
+                  it.leg_status === 'seller_released' ||
+                  it.leg_status === 'warehouse_released' ||
+                  it.leg_status === 'partner_released'
               );
               const isSameSupervisor = Number(ord.first_verified_by) === Number(user?.id);
 
@@ -1762,6 +2340,11 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                         {tf('Client:', 'Umukiriya:')} <strong className="text-slate-200">{ord.customer_name}</strong> &bull;{' '}
                         {tf('Seller:', 'Umucuruzi:')} <strong className="text-slate-200">{ord.salesperson_name}</strong>
                       </p>
+                      {ord.notes && (
+                        <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+                          <strong>{tf('Seller Note / Partner Request:', 'Icyitonderwa cy’Umucuruzi:')}</strong> {ord.notes}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -1775,6 +2358,16 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                           <span>{tf('Slip Photo', 'Ifoto')}</span>
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        disabled={busyActionId === ord.id}
+                        onClick={() => openAddPartnerItemModal(ord)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 text-teal-300 border border-teal-500/40 text-xs font-bold"
+                      >
+                        <Store className="w-3.5 h-3.5" />
+                        <span>{tf('+ Add Partner Item', '+ Iduka Dufatanya')}</span>
+                      </button>
 
                       {hasReleasedLeg && isSameSupervisor && (
                         <button
@@ -1822,10 +2415,10 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                         className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                       >
                         <div>
-                          <span className="font-bold text-white">{it.product_name}</span>
+                          <span className="font-bold text-white">{it.product_name || it.custom_product_name}</span>
                           {it.leg_released_by_name && (
                             <span className="ml-2 text-[10px] text-slate-400">
-                              ({tf('Released by:', 'Yasohowe na:')} {it.leg_released_by_name})
+                              ({it.leg_type === 'partner' ? tf('Added by:', 'Byashyizweho na:') : tf('Released by:', 'Yasohowe na:')} {it.leg_released_by_name})
                             </span>
                           )}
                         </div>
@@ -1834,6 +2427,17 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                           <span className="font-mono font-black text-amber-400">
                             {it.quantity} {it.sold_unit || it.product_unit}
                           </span>
+                          {it.leg_type === 'partner' && it.id && (
+                            <button
+                              type="button"
+                              disabled={busyActionId === ord.id}
+                              onClick={() => handleRemovePartnerItem(ord, it.id!)}
+                              className="p-1 text-rose-400 hover:bg-rose-500/15 rounded"
+                              title={tf('Remove partner item', 'Kuraho')}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1901,9 +2505,18 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                   {(ord.items || []).map((it) => (
                     <div
                       key={it.id}
-                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between"
+                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between gap-2"
                     >
-                      <span className="font-semibold text-slate-200 truncate pr-2">{it.product_name}</span>
+                      <div className="min-w-0">
+                        <span className="font-semibold text-slate-200 truncate block">
+                          {it.product_name || it.custom_product_name}
+                        </span>
+                        {it.leg_type === 'partner' && (
+                          <span className="text-[10px] text-teal-300">
+                            {tf('Partner:', 'Iduka Dufatanya:')} {it.partner_shop_name || 'Partner'}
+                          </span>
+                        )}
+                      </div>
                       <span className="font-mono font-black text-amber-400 shrink-0">
                         {it.quantity} {it.sold_unit || it.product_unit}
                       </span>
@@ -1968,10 +2581,18 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                   {(ord.items || []).map((it) => (
                     <div
                       key={it.id}
-                      className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-200"
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] text-slate-200 ${
+                        it.leg_type === 'partner'
+                          ? 'bg-teal-950/30 border-teal-500/30'
+                          : 'bg-slate-900 border-slate-800'
+                      }`}
                     >
-                      <strong>{it.product_name}</strong>: {it.quantity} {it.sold_unit || it.product_unit}{' '}
-                      <span className="text-slate-400">({it.source_stock_name || it.leg_type})</span>
+                      <strong>{it.product_name || it.custom_product_name}</strong>: {it.quantity} {it.sold_unit || it.product_unit}{' '}
+                      <span className={it.leg_type === 'partner' ? 'text-teal-300' : 'text-slate-400'}>
+                        ({it.leg_type === 'partner'
+                          ? `${tf('Partner:', 'Partner:')} ${it.partner_shop_name || 'Partner'}`
+                          : it.source_stock_name || it.leg_type})
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -2067,8 +2688,12 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                     className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center justify-between"
                   >
                     <div>
-                      <p className="font-bold text-white">{it.product_name}</p>
-                      <p className="text-[10px] text-slate-400">{it.source_stock_name || it.leg_type}</p>
+                      <p className="font-bold text-white">{it.product_name || it.custom_product_name}</p>
+                      <p className="text-[10px] text-slate-400">
+                        {it.leg_type === 'partner'
+                          ? `${tf('Partner:', 'Partner:')} ${it.partner_shop_name || 'Partner'}`
+                          : it.source_stock_name || it.leg_type}
+                      </p>
                     </div>
                     <span className="font-mono font-black text-amber-400">
                       {it.quantity} {it.sold_unit || it.product_unit}
@@ -2133,12 +2758,12 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       {/* MODAL: SELLER EDIT RETURNED ORDER                                     */}
       {/* ===================================================================== */}
       {editingReturnedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <form
             onSubmit={handleSaveReturnedOrder}
-            className="w-full max-w-xl rounded-2xl bg-[#131722] border border-slate-700 p-5 space-y-4 my-auto"
+            className="w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden rounded-2xl bg-[#131722] border border-slate-700 shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center justify-between border-b border-slate-800 p-5 pb-3 shrink-0">
               <h3 className="text-sm font-bold text-white">
                 {tf('Edit & Resubmit Order', 'Kosora Komande')} &mdash; {editingReturnedOrder.order_number}
               </h3>
@@ -2147,114 +2772,130 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
               </button>
             </div>
 
-            {editingReturnedOrder.resolution_note && (
-              <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-xs text-orange-200">
-                <strong>{tf('Supervisor Note:', 'Impamvu:')}</strong> {editingReturnedOrder.resolution_note}
-              </div>
-            )}
-
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {returnedDraftItems.map((it, idx) => (
-                <div
-                  key={`${it.product_id}-${it.sale_mode}-${idx}`}
-                  className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs"
-                >
-                  <span className="font-bold text-white truncate">{it.product_name} ({it.sold_unit})</span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={it.quantity}
-                      onChange={(e) => {
-                        const val = Math.max(1, Math.round(Number(e.target.value) || 1));
-                        setReturnedDraftItems((prev) =>
-                          prev.map((row, i) => (i === idx ? { ...row, quantity: val } : row))
-                        );
-                      }}
-                      className="w-20 px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-center font-mono text-white"
-                    />
-                    {returnedDraftItems.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setReturnedDraftItems((prev) => prev.filter((_, i) => i !== idx))
-                        }
-                        className="p-1 text-rose-400 hover:bg-rose-500/10 rounded"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {editingReturnedOrder.resolution_note && (
+                <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 text-xs text-orange-200">
+                  <strong>{tf('Supervisor Note:', 'Impamvu:')}</strong> {editingReturnedOrder.resolution_note}
                 </div>
-              ))}
-            </div>
+              )}
 
-            <div className="flex items-center gap-2">
-              <select
-                value={returnedAddProductId}
-                onChange={(e) => setReturnedAddProductId(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
-              >
-                <option value="">{tf('+ Add missing product...', '+ Ongeramo ikindi gicuruzwa...')}</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.available_quantity ?? p.quantity} {getRetailUnitLabel(p)})
-                  </option>
+              <div className="space-y-2 max-h-56 overflow-y-auto">
+                {returnedDraftItems.map((it, idx) => (
+                  <div
+                    key={`${it.product_id}-${it.sale_mode}-${idx}`}
+                    className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <span className="font-bold text-white truncate">{it.product_name} ({it.sold_unit})</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={it.quantity}
+                        onChange={(e) => {
+                          const val = Math.max(1, Math.round(Number(e.target.value) || 1));
+                          setReturnedDraftItems((prev) =>
+                            prev.map((row, i) => (i === idx ? { ...row, quantity: val } : row))
+                          );
+                        }}
+                        className="w-20 px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-center font-mono text-white"
+                      />
+                      {returnedDraftItems.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setReturnedDraftItems((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                          className="p-1 text-rose-400 hover:bg-rose-500/10 rounded"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
-              </select>
-              <button
-                type="button"
-                disabled={!returnedAddProductId}
-                onClick={() => {
-                  const prod = products.find((p) => p.id === Number(returnedAddProductId));
-                  if (!prod) return;
-                  setReturnedDraftItems((prev) => [
-                    ...prev,
-                    {
-                      product_id: prod.id,
-                      product_name: prod.name,
-                      sold_unit: getRetailUnitLabel(prod),
-                      sale_mode: 'retail',
-                      quantity: 1
-                    }
-                  ]);
-                  setReturnedAddProductId('');
-                }}
-                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-bold text-amber-300 border border-slate-700"
-              >
-                {tf('Add', 'Ongeramo')}
-              </button>
+              </div>
+
+              {(editingReturnedOrder.items || []).some((it) => it.leg_type === 'partner') && (
+                <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/30 text-[11px] text-teal-200">
+                  {tf(
+                    'Partner-shop items attached by Verificators are preserved automatically on resubmit.',
+                    'Ibicuruzwa byo mu maduka dufatanya byashyizweho n’Umugenzuzi bizakomeza kubaho.'
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={returnedAddProductId}
+                  onChange={(e) => setReturnedAddProductId(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                >
+                  <option value="">{tf('+ Add missing product...', '+ Ongeramo ikindi gicuruzwa...')}</option>
+                  {products.map((p) => {
+                    const hidden = Boolean(p.stock_levels_hidden || !showStockLevels);
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {hidden
+                          ? `${p.name} (${p.in_stock === false ? tf('Out of Stock', 'Yashize') : tf('In Stock', 'Birahari')})`
+                          : `${p.name} (${p.available_quantity ?? p.quantity} ${getRetailUnitLabel(p)})`}
+                      </option>
+                    );
+                  })}
+                </select>
+                <button
+                  type="button"
+                  disabled={!returnedAddProductId}
+                  onClick={() => {
+                    const prod = products.find((p) => p.id === Number(returnedAddProductId));
+                    if (!prod) return;
+                    setReturnedDraftItems((prev) => [
+                      ...prev,
+                      {
+                        product_id: prod.id,
+                        product_name: prod.name,
+                        sold_unit: getRetailUnitLabel(prod),
+                        sale_mode: 'retail',
+                        quantity: 1
+                      }
+                    ]);
+                    setReturnedAddProductId('');
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs font-bold text-amber-300 border border-slate-700"
+                >
+                  {tf('Add', 'Ongeramo')}
+                </button>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300">
+                  {tf('Replace Slip Photo (Optional)', 'Simbuza Ifoto y’Urupapuro (Si ngombwa)')}
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setReturnedPhotoFile(f);
+                    if (returnedPhotoPreview) URL.revokeObjectURL(returnedPhotoPreview);
+                    setReturnedPhotoPreview(f ? URL.createObjectURL(f) : null);
+                  }}
+                  className="block w-full mt-1 text-xs text-slate-300"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300">{tf('Notes', 'Inyandiko')}</label>
+                <input
+                  type="text"
+                  value={returnedNotes}
+                  onChange={(e) => setReturnedNotes(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-300">
-                {tf('Replace Slip Photo (Optional)', 'Simbuza Ifoto y’Urupapuro (Si ngombwa)')}
-              </label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const f = e.target.files?.[0] || null;
-                  setReturnedPhotoFile(f);
-                  if (returnedPhotoPreview) URL.revokeObjectURL(returnedPhotoPreview);
-                  setReturnedPhotoPreview(f ? URL.createObjectURL(f) : null);
-                }}
-                className="block w-full mt-1 text-xs text-slate-300"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-300">{tf('Notes', 'Inyandiko')}</label>
-              <input
-                type="text"
-                value={returnedNotes}
-                onChange={(e) => setReturnedNotes(e.target.value)}
-                className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex justify-end gap-2 p-5 pt-3 border-t border-slate-800 shrink-0 bg-[#131722]">
               <button
                 type="button"
                 onClick={() => setEditingReturnedOrder(null)}
@@ -2388,12 +3029,12 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
       {/* MODAL: MANAGER RESOLUTION / EDIT & RELEASE / REASSIGN / CANCEL        */}
       {/* ===================================================================== */}
       {managerTargetOrder && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
           <form
             onSubmit={handleManagerResolveSubmit}
-            className="w-full max-w-2xl rounded-2xl bg-[#131722] border border-slate-700 p-5 space-y-4 my-auto"
+            className="w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden rounded-2xl bg-[#131722] border border-slate-700 shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center justify-between border-b border-slate-800 p-5 pb-3 shrink-0">
               <h3 className="text-sm font-bold text-white">
                 {tf('Manager Resolution', 'Icyemezo cy’Umuyobozi')} &mdash; {managerTargetOrder.order_number}
               </h3>
@@ -2402,150 +3043,159 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
               </button>
             </div>
 
-            {managerTargetOrder.flag_reason && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200">
-                <strong>{tf('Warehouse Flag Reason:', 'Impamvu y’Ububiko:')}</strong> {managerTargetOrder.flag_reason}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              {[
-                { id: 'edit_and_release', label: tf('Edit & Release', 'Hindura & Usohore') },
-                { id: 'approve_as_is', label: tf('Approve As-Is', 'Emeza Uko Biri') },
-                { id: 'reassign_supervisor', label: tf('Reassign Supervisor', 'Simbuza Umugenzuzi') },
-                { id: 'cancel', label: tf('Cancel Order', 'Hagarika Komande') }
-              ].map((act) => (
-                <button
-                  key={act.id}
-                  type="button"
-                  onClick={() => setManagerAction(act.id as any)}
-                  className={`py-2 px-2.5 rounded-xl font-bold border transition ${
-                    managerAction === act.id
-                      ? 'bg-amber-500 text-slate-950 border-amber-400'
-                      : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
-                  }`}
-                >
-                  {act.label}
-                </button>
-              ))}
-            </div>
-
-            {managerAction === 'edit_and_release' && (
-              <div className="space-y-3">
-                <div className="space-y-2 max-h-56 overflow-y-auto">
-                  {managerEditRows.map((row, idx) => (
-                    <div
-                      key={`${row.product_id}-${row.sale_mode}-${idx}`}
-                      className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs"
-                    >
-                      <span className="font-bold text-white truncate">
-                        {row.product_name} ({row.sold_unit})
-                      </span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={row.quantity}
-                          onChange={(e) => {
-                            const val = Math.max(1, Math.round(Number(e.target.value) || 1));
-                            setManagerEditRows((prev) =>
-                              prev.map((r, i) => (i === idx ? { ...r, quantity: val } : r))
-                            );
-                          }}
-                          className="w-20 px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-center font-mono text-white"
-                        />
-                        {managerEditRows.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setManagerEditRows((prev) => prev.filter((_, i) => i !== idx))
-                            }
-                            className="p-1 text-rose-400 hover:bg-rose-500/10 rounded"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {managerTargetOrder.flag_reason && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200">
+                  <strong>{tf('Warehouse Flag Reason:', 'Impamvu y’Ububiko:')}</strong> {managerTargetOrder.flag_reason}
                 </div>
+              )}
 
-                <div className="flex items-center gap-2">
-                  <select
-                    value={managerAddProductId}
-                    onChange={(e) => setManagerAddProductId(e.target.value)}
-                    className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                {[
+                  { id: 'edit_and_release', label: tf('Edit & Release', 'Hindura & Usohore') },
+                  { id: 'approve_as_is', label: tf('Approve As-Is', 'Emeza Uko Biri') },
+                  { id: 'reassign_supervisor', label: tf('Reassign Supervisor', 'Simbuza Umugenzuzi') },
+                  { id: 'cancel', label: tf('Cancel Order', 'Hagarika Komande') }
+                ].map((act) => (
+                  <button
+                    key={act.id}
+                    type="button"
+                    onClick={() => setManagerAction(act.id as any)}
+                    className={`py-2 px-2.5 rounded-xl font-bold border transition ${
+                      managerAction === act.id
+                        ? 'bg-amber-500 text-slate-950 border-amber-400'
+                        : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+                    }`}
                   >
-                    <option value="">{tf('+ Add product to order...', '+ Ongeramo igicuruzwa...')}</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.stock_name || 'Main'})
+                    {act.label}
+                  </button>
+                ))}
+              </div>
+
+              {managerAction === 'edit_and_release' && (
+                <div className="space-y-3">
+                  <div className="space-y-2 max-h-56 overflow-y-auto">
+                    {managerEditRows.map((row, idx) => (
+                      <div
+                        key={`${row.product_id || row.custom_product_name}-${row.sale_mode}-${idx}`}
+                        className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-bold text-white truncate block">
+                            {row.product_name} ({row.sold_unit})
+                          </span>
+                          {row.leg_type === 'partner' && (
+                            <span className="text-[10px] text-teal-300">
+                              {tf('Partner:', 'Iduka Dufatanya:')} {row.partner_shop_name || 'Partner'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <input
+                            type="number"
+                            min={1}
+                            step={1}
+                            value={row.quantity}
+                            onChange={(e) => {
+                              const val = Math.max(1, Math.round(Number(e.target.value) || 1));
+                              setManagerEditRows((prev) =>
+                                prev.map((r, i) => (i === idx ? { ...r, quantity: val } : r))
+                              );
+                            }}
+                            className="w-20 px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-center font-mono text-white"
+                          />
+                          {managerEditRows.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setManagerEditRows((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              className="p-1 text-rose-400 hover:bg-rose-500/10 rounded"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={managerAddProductId}
+                      onChange={(e) => setManagerAddProductId(e.target.value)}
+                      className="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                    >
+                      <option value="">{tf('+ Add product to order...', '+ Ongeramo igicuruzwa...')}</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.stock_name || 'Main'})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={!managerAddProductId}
+                      onClick={() => {
+                        const prod = products.find((p) => p.id === Number(managerAddProductId));
+                        if (!prod) return;
+                        setManagerEditRows((prev) => [
+                          ...prev,
+                          {
+                            product_id: prod.id,
+                            product_name: prod.name,
+                            sold_unit: getRetailUnitLabel(prod),
+                            sale_mode: 'retail',
+                            quantity: 1,
+                            leg_type: (prod as any).leg_type === 'warehouse' ? 'warehouse' : 'shop'
+                          }
+                        ]);
+                        setManagerAddProductId('');
+                      }}
+                      className="px-3 py-2 rounded-xl bg-slate-800 text-xs font-bold text-amber-300 border border-slate-700"
+                    >
+                      {tf('Add', 'Ongeramo')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {managerAction === 'reassign_supervisor' && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">
+                    {tf('Assign New Step-2 Supervisor *', 'Hitamo Umugenzuzi Mushya wa #2 *')}
+                  </label>
+                  <select
+                    required
+                    value={managerReassignSupId}
+                    onChange={(e) => setManagerReassignSupId(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                  >
+                    <option value="">{tf('Select active supervisor...', 'Hitamo umugenzuzi...')}</option>
+                    {activeSupervisors.map((sup) => (
+                      <option key={sup.id} value={sup.id}>
+                        {sup.name} ({sup.job_title || sup.role})
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    disabled={!managerAddProductId}
-                    onClick={() => {
-                      const prod = products.find((p) => p.id === Number(managerAddProductId));
-                      if (!prod) return;
-                      setManagerEditRows((prev) => [
-                        ...prev,
-                        {
-                          product_id: prod.id,
-                          product_name: prod.name,
-                          sold_unit: getRetailUnitLabel(prod),
-                          sale_mode: 'retail',
-                          quantity: 1,
-                          leg_type: (prod as any).leg_type === 'warehouse' ? 'warehouse' : 'shop'
-                        }
-                      ]);
-                      setManagerAddProductId('');
-                    }}
-                    className="px-3 py-2 rounded-xl bg-slate-800 text-xs font-bold text-amber-300 border border-slate-700"
-                  >
-                    {tf('Add', 'Ongeramo')}
-                  </button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {managerAction === 'reassign_supervisor' && (
               <div>
                 <label className="text-xs font-semibold text-slate-300">
-                  {tf('Assign New Step-2 Supervisor *', 'Hitamo Umugenzuzi Mushya wa #2 *')}
+                  {tf('Resolution Note', 'Inyandiko y’Umwanzuro')}
                 </label>
-                <select
-                  required
-                  value={managerReassignSupId}
-                  onChange={(e) => setManagerReassignSupId(e.target.value)}
+                <input
+                  type="text"
+                  value={managerNote}
+                  onChange={(e) => setManagerNote(e.target.value)}
+                  placeholder={tf('Document what was checked or changed...', 'Andika ibyakosowe cyangwa ibyemejwe...')}
                   className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
-                >
-                  <option value="">{tf('Select active supervisor...', 'Hitamo umugenzuzi...')}</option>
-                  {activeSupervisors.map((sup) => (
-                    <option key={sup.id} value={sup.id}>
-                      {sup.name} ({sup.job_title || sup.role})
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
-            )}
-
-            <div>
-              <label className="text-xs font-semibold text-slate-300">
-                {tf('Resolution Note', 'Inyandiko y’Umwanzuro')}
-              </label>
-              <input
-                type="text"
-                value={managerNote}
-                onChange={(e) => setManagerNote(e.target.value)}
-                placeholder={tf('Document what was checked or changed...', 'Andika ibyakosowe cyangwa ibyemejwe...')}
-                className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
-              />
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+            <div className="flex justify-end gap-2 p-5 pt-3 border-t border-slate-800 shrink-0 bg-[#131722]">
               <button
                 type="button"
                 onClick={() => setManagerTargetOrder(null)}
@@ -2559,6 +3209,180 @@ export const StrictChainWorkspace: React.FC<StrictChainWorkspaceProps> = ({
                 className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs"
               >
                 {tf('Apply Manager Action', 'Emeza Icyemezo')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL: VERIFICATOR ADD PARTNER-SHOP ITEM (OUT-OF-STOCK SOURCING)      */}
+      {/* ===================================================================== */}
+      {partnerModalOrder && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <form
+            onSubmit={handleAddPartnerItemSubmit}
+            className="w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden rounded-2xl bg-[#131722] border border-teal-500/40 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 p-5 pb-3 shrink-0">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-teal-400" />
+                  <span>{tf('Add Partner-Shop Item', 'Ongeramo Igicuruzwa cyo mu Iduka Dufatanya')}</span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {partnerModalOrder.order_number} &bull; {tf('External item not deducted from internal inventory', 'Ntibikurwa muri sitoki yacu y’imbere')}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPartnerModalOrder(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {partnerModalOrder.notes && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+                  <strong>{tf('Seller Note:', 'Icyitonderwa cy’Umucuruzi:')}</strong> {partnerModalOrder.notes}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-300 block">
+                  {tf('Partner Shop Source *', 'Iduka Dufatanya *')}
+                </label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <button
+                    type="button"
+                    disabled={partnerShops.length === 0}
+                    onClick={() => setPartnerShopMode('existing')}
+                    className={`py-2 px-3 rounded-xl font-bold border transition ${
+                      partnerShopMode === 'existing'
+                        ? 'bg-teal-500 text-slate-950 border-teal-400'
+                        : 'bg-slate-900 text-slate-300 border-slate-800 disabled:opacity-40'
+                    }`}
+                  >
+                    {tf('Existing Partner', 'Iduka Risanzwe')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPartnerShopMode('new')}
+                    className={`py-2 px-3 rounded-xl font-bold border transition ${
+                      partnerShopMode === 'new'
+                        ? 'bg-teal-500 text-slate-950 border-teal-400'
+                        : 'bg-slate-900 text-slate-300 border-slate-800'
+                    }`}
+                  >
+                    {tf('+ New Partner Shop', '+ Iduka Rishya')}
+                  </button>
+                </div>
+
+                {partnerShopMode === 'existing' && partnerShops.length > 0 ? (
+                  <select
+                    required
+                    value={selectedPartnerId}
+                    onChange={(e) => setSelectedPartnerId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                  >
+                    {partnerShops.map((ps) => (
+                      <option key={ps.id} value={ps.id}>
+                        {ps.name}{ps.contact_person ? ` (${ps.contact_person})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div className="sm:col-span-2">
+                      <input
+                        type="text"
+                        required
+                        value={newPartnerName}
+                        onChange={(e) => setNewPartnerName(e.target.value)}
+                        placeholder={tf('Partner Shop Name * (e.g. Kigali Hardware Partners)', 'Izina ry’iduka dufatanya *')}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={newPartnerContact}
+                      onChange={(e) => setNewPartnerContact(e.target.value)}
+                      placeholder={tf('Contact Person (Optional)', 'Umuntu uvugana nawe')}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                    />
+                    <input
+                      type="text"
+                      value={newPartnerPhone}
+                      onChange={(e) => setNewPartnerPhone(e.target.value)}
+                      placeholder={tf('Phone (Optional)', 'Telefoni')}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300">
+                  {tf('Product / Item Name *', 'Izina ry’Igicuruzwa *')}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={partnerItemName}
+                  onChange={(e) => setPartnerItemName(e.target.value)}
+                  placeholder={tf('e.g. Brass Valve 1 inch', 'urugero: Brass Valve 1 inch')}
+                  className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-teal-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">
+                    {tf('Quantity *', 'Ingano *')}
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    step={1}
+                    value={partnerItemQty}
+                    onChange={(e) => setPartnerItemQty(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-300">
+                    {tf('Unit', 'Igipimo')}
+                  </label>
+                  <input
+                    type="text"
+                    value={partnerItemUnit}
+                    onChange={(e) => setPartnerItemUnit(e.target.value)}
+                    placeholder="pcs / bags / boxes"
+                    className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 p-5 pt-3 border-t border-slate-800 shrink-0 bg-[#131722]">
+              <button
+                type="button"
+                onClick={() => setPartnerModalOrder(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300"
+              >
+                {tf('Cancel', 'Hagarika')}
+              </button>
+              <button
+                type="submit"
+                disabled={savingPartnerItem}
+                className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-40 text-slate-950 font-black text-xs"
+              >
+                {savingPartnerItem
+                  ? tf('Saving...', 'Birimo kubikwa...')
+                  : tf('Add Partner Item to Order', 'Ongeramo kuri Komande')}
               </button>
             </div>
           </form>

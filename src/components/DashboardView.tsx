@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { DashboardStats, Order, ProductWatchAlert, Shop, User } from '../types';
-import { hasPermission } from '../utils/permissions';
+import { hasPermission, canViewStockLevels } from '../utils/permissions';
 import { api } from '../services/api';
 import { 
   TrendingUp, 
@@ -54,6 +54,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const canResolveFlagged = hasPermission(user, 'can_resolve_flagged_orders');
   const canAuditWatch = isStrictChain && (canViewReports || canResolveFlagged);
   const canViewCustomers = hasPermission(user, 'can_manage_customers') || hasPermission(user, 'can_process_payments') || canCreateOrders;
+  const showStockLevels = !isStrictChain || canViewStockLevels(user);
 
   const [watchAlerts, setWatchAlerts] = useState<ProductWatchAlert[]>([]);
   const [unauditedCount, setUnauditedCount] = useState<number>(0);
@@ -237,23 +238,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <div className={`p-5 rounded-2xl border transition ${stats.lowStockCount > 0 ? 'bg-amber-950/20 border-amber-500/40' : 'bg-[#12161F] border-slate-800'}`}>
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider">{tf('Running Low', 'Ibigiye Gushira')}</span>
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${stats.lowStockCount > 0 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
-                <AlertTriangle className="w-5 h-5" />
+          {showStockLevels ? (
+            <div className={`p-5 rounded-2xl border transition ${stats.lowStockCount > 0 ? 'bg-amber-950/20 border-amber-500/40' : 'bg-[#12161F] border-slate-800'}`}>
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">{tf('Running Low', 'Ibigiye Gushira')}</span>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${stats.lowStockCount > 0 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-amber-300 mt-3 font-sans">
+                {tf(`${stats.lowStockCount} Item(s)`, `Ibicuruzwa ${stats.lowStockCount}`)}
+              </p>
+              <div className="flex items-center justify-between text-xs mt-2 text-slate-400">
+                <span>{tf(`${stats.productCount} products tracked`, `Ibicuruzwa ${stats.productCount} bikurikiranwa`)}</span>
+                <button onClick={() => onNavigate('products')} className="text-amber-400 hover:underline font-semibold">
+                  {tf('Check Stock', 'Reba Sitoki')} &rarr;
+                </button>
               </div>
             </div>
-            <p className="text-2xl font-black text-amber-300 mt-3 font-sans">
-              {tf(`${stats.lowStockCount} Item(s)`, `Ibicuruzwa ${stats.lowStockCount}`)}
-            </p>
-            <div className="flex items-center justify-between text-xs mt-2 text-slate-400">
-              <span>{tf(`${stats.productCount} products tracked`, `Ibicuruzwa ${stats.productCount} bikurikiranwa`)}</span>
-              <button onClick={() => onNavigate('products')} className="text-amber-400 hover:underline font-semibold">
-                {tf('Check Stock', 'Reba Sitoki')} &rarr;
-              </button>
+          ) : (
+            <div className="p-5 rounded-2xl border bg-[#12161F] border-slate-800 transition">
+              <div className="flex items-center justify-between text-slate-400">
+                <span className="text-xs font-semibold uppercase tracking-wider">{tf('Catalog Products', 'Urutonde rw’Ibicuruzwa')}</span>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-800 text-slate-300">
+                  <Package className="w-5 h-5" />
+                </div>
+              </div>
+              <p className="text-2xl font-black text-white mt-3 font-sans">
+                {tf(`${stats.productCount} Item(s)`, `Ibicuruzwa ${stats.productCount}`)}
+              </p>
+              <div className="flex items-center justify-between text-xs mt-2 text-slate-400">
+                <span>{tf('Quantities hidden for this role', 'Imibare ya sitoki ihishwe')}</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -584,7 +602,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Bottom Section: Recent Orders Table & Low Stock Urgent List */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Orders Stream */}
-        <div className="lg:col-span-2 p-6 rounded-2xl bg-[#12161F] border border-slate-800">
+        <div className={`${showStockLevels ? 'lg:col-span-2' : 'lg:col-span-3'} p-6 rounded-2xl bg-[#12161F] border border-slate-800`}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-base font-bold text-white">{tf('Recent Orders', 'Amategeko Aheruka')}</h2>
@@ -683,42 +701,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Low Stock Fast Reorder Card */}
-        <div className="p-6 rounded-2xl bg-[#12161F] border border-slate-800">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-base font-bold text-white">{tf('Items to Restock', 'Ibicuruzwa Bikeneye Kurangurwa')}</h2>
-              <p className="text-xs text-slate-400">{tf('Running low in store', 'Birabura gushira mu bubiko')}</p>
+        {showStockLevels && (
+          <div className="p-6 rounded-2xl bg-[#12161F] border border-slate-800">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-bold text-white">{tf('Items to Restock', 'Ibicuruzwa Bikeneye Kurangurwa')}</h2>
+                <p className="text-xs text-slate-400">{tf('Running low in store', 'Birabura gushira mu bubiko')}</p>
+              </div>
+              <span className="text-xs font-bold text-amber-400 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                {tf(`${stats.lowStockProducts.length} Items`, `Ibicuruzwa ${stats.lowStockProducts.length}`)}
+              </span>
             </div>
-            <span className="text-xs font-bold text-amber-400 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
-              {tf(`${stats.lowStockProducts.length} Items`, `Ibicuruzwa ${stats.lowStockProducts.length}`)}
-            </span>
-          </div>
 
-          <div className="space-y-2.5 overflow-y-auto max-h-72 pr-1">
-            {stats.lowStockProducts.map((p) => (
-              <div key={p.id} className="p-3 rounded-xl bg-slate-900/90 border border-slate-800/80 flex items-center justify-between">
-                <div className="truncate pr-2">
-                  <p className="text-xs font-bold text-slate-200 truncate">{p.name}</p>
-                  <p className="text-[10px] text-slate-400 font-mono">{tf('Code:', 'Kode:')} {p.sku} • {p.category}</p>
+            <div className="space-y-2.5 overflow-y-auto max-h-72 pr-1">
+              {stats.lowStockProducts.map((p) => (
+                <div key={p.id} className="p-3 rounded-xl bg-slate-900/90 border border-slate-800/80 flex items-center justify-between">
+                  <div className="truncate pr-2">
+                    <p className="text-xs font-bold text-slate-200 truncate">{p.name}</p>
+                    <p className="text-[10px] text-slate-400 font-mono">{tf('Code:', 'Kode:')} {p.sku} • {p.category}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-xs font-black text-rose-400 font-mono">
+                      {p.quantity} {p.unit}
+                    </span>
+                    <p className="text-[10px] text-slate-400">{tf('Min:', 'Ntarengwa:')} {p.low_stock_threshold}</p>
+                  </div>
                 </div>
-                <div className="text-right shrink-0">
-                  <span className="text-xs font-black text-rose-400 font-mono">
-                    {p.quantity} {p.unit}
-                  </span>
-                  <p className="text-[10px] text-slate-400">{tf('Min:', 'Ntarengwa:')} {p.low_stock_threshold}</p>
-                </div>
-              </div>
-            ))}
+              ))}
 
-            {stats.lowStockProducts.length === 0 && (
-              <div className="p-6 text-center text-xs text-slate-400">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                <p className="font-semibold text-slate-300">{tf('All Stock Levels Good', 'Ububiko Bwose Buhagije')}</p>
-                <p className="text-[11px] text-slate-400 mt-1">{tf('No items are running low right now.', 'Nta bicuruzwa biri gushira ubu.')}</p>
-              </div>
-            )}
+              {stats.lowStockProducts.length === 0 && (
+                <div className="p-6 text-center text-xs text-slate-400">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                  <p className="font-semibold text-slate-300">{tf('All Stock Levels Good', 'Ububiko Bwose Buhagije')}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">{tf('No items are running low right now.', 'Nta bicuruzwa biri gushira ubu.')}</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

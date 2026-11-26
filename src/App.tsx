@@ -21,7 +21,7 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AiHelpModal } from './components/AiHelpModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { Sparkles } from 'lucide-react';
-import { hasPermission } from './utils/permissions';
+import { hasPermission, canAccessStrictChainDashboard } from './utils/permissions';
 import { useLanguage } from './i18n/LanguageContext';
 
 export const App: React.FC = () => {
@@ -111,6 +111,9 @@ export const App: React.FC = () => {
         setIsSuperAdmin(Boolean(res.isSuperAdmin || res.user.role === 'superadmin' || res.user.email === 'rwemera30@gmail.com'));
         setDbPersistent(res.dbPersistent);
         setIsServerless(Boolean(res.isServerless));
+        if (res.shop?.workflow_mode === 'strict_chain' && !canAccessStrictChainDashboard(res.user)) {
+          setActiveTab((prev) => (prev === 'dashboard' || prev === 'pos' || prev === 'orders' ? 'chain' : prev));
+        }
         await loadDashboardStats();
       } else {
         setUser(null);
@@ -154,10 +157,11 @@ export const App: React.FC = () => {
         setShop(res.shop);
         if (activeTab === 'chain' && res.shop?.workflow_mode !== 'strict_chain') {
           setActiveTab('dashboard');
-        } else if ((activeTab === 'pos' || activeTab === 'orders') && res.shop?.workflow_mode === 'strict_chain') {
+        } else if (
+          res.shop?.workflow_mode === 'strict_chain' &&
+          (activeTab === 'pos' || activeTab === 'orders' || (activeTab === 'dashboard' && !canAccessStrictChainDashboard(user)))
+        ) {
           setActiveTab('chain');
-        } else if (activeTab === 'partners' && res.shop?.pricing_mode === 'stock_only') {
-          setActiveTab('dashboard');
         }
         showToast(tf(`Switched to shop: ${res.shop.name}`, `Wahinduye iduka: ${res.shop.name}`));
         loadDashboardStats();
@@ -219,6 +223,11 @@ export const App: React.FC = () => {
           onLoginSuccess={(u, s) => {
             setUser(u);
             setShop(s);
+            if (s?.workflow_mode === 'strict_chain' && !canAccessStrictChainDashboard(u)) {
+              setActiveTab('chain');
+            } else {
+              setActiveTab('dashboard');
+            }
             loadDashboardStats();
           }}
           onOpenAiHelp={() => setIsAiHelpOpen(true)}
@@ -289,7 +298,7 @@ export const App: React.FC = () => {
 
         {/* Content View Area */}
         <main className={`flex-1 overflow-y-auto min-h-0 pb-20 lg:pb-0 ${isDarkMode ? 'bg-[#090d16]' : 'bg-slate-50'}`}>
-          {activeTab === 'dashboard' && (
+          {activeTab === 'dashboard' && (shop?.workflow_mode !== 'strict_chain' || canAccessStrictChainDashboard(user)) && (
             <DashboardView
               user={user}
               shop={shop}
@@ -301,7 +310,7 @@ export const App: React.FC = () => {
             />
           )}
 
-          {activeTab === 'chain' && shop?.workflow_mode === 'strict_chain' && (
+          {(activeTab === 'chain' || (activeTab === 'dashboard' && shop?.workflow_mode === 'strict_chain' && !canAccessStrictChainDashboard(user))) && shop?.workflow_mode === 'strict_chain' && (
             <StrictChainWorkspace
               user={user}
               shop={shop}
@@ -346,7 +355,7 @@ export const App: React.FC = () => {
           )}
 
           {activeTab === 'partners' && (
-            <PartnersView user={user} />
+            <PartnersView user={user} shop={shop} />
           )}
 
           {activeTab === 'users' && (

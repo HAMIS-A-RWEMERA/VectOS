@@ -1,6 +1,6 @@
 import React from 'react';
 import { User, Shop } from '../types';
-import { hasPermission } from '../utils/permissions';
+import { hasPermission, canViewStockLevels, canAccessStrictChainDashboard } from '../utils/permissions';
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -61,12 +61,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canVerifyOrders = hasPermission(user, 'can_verify_orders');
   const canResolveFlagged = hasPermission(user, 'can_resolve_flagged_orders');
 
+  const canSeeChainDashboard = !isStrictChain || canAccessStrictChainDashboard(user);
+  const canSeeStockLevels = !isStrictChain || canViewStockLevels(user);
   const canSeeChain = isStrictChain && (canCreateOrders || canReleaseStock || canVerifyOrders || canResolveFlagged);
-  const canSeeProducts = canCreateOrders || canManageStock || canImportExportStock || canReleaseStock || canVerifyOrders;
+  const canSeeProducts = isStrictChain
+    ? (canSeeChainDashboard || canManageStock || canImportExportStock || canReleaseStock || canVerifyOrders || hasPermission(user, 'can_view_stock_levels'))
+    : (canCreateOrders || canManageStock || canImportExportStock || canReleaseStock || canVerifyOrders);
   const canSeeOrders = canCreateOrders || canProcessPayments || canReleaseStock || canVoidOrders || canViewReports;
+  const visibleLowStockCount = canSeeStockLevels ? lowStockCount : 0;
 
   const navItems = [
-    { id: 'dashboard', label: t('nav.home'), icon: LayoutDashboard, visible: true },
+    { id: 'dashboard', label: t('nav.home'), icon: LayoutDashboard, visible: canSeeChainDashboard },
     { id: 'chain', label: tf('Verification Chain', 'Uruhererekane rw’Igenzura'), icon: ShieldCheck, visible: canSeeChain, highlight: true },
     { id: 'pos', label: t('nav.makeSalePos'), icon: ShoppingBag, visible: !isStrictChain && canCreateOrders, highlight: true },
     { 
@@ -74,13 +79,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: isStockOnly ? tf('Products & Stock', 'Ibicuruzwa & Sitoki') : t('nav.productsStock'), 
       icon: Package, 
       visible: canSeeProducts,
-      badge: lowStockCount > 0 ? `${lowStockCount}` : undefined,
+      badge: visibleLowStockCount > 0 ? `${visibleLowStockCount}` : undefined,
       badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
     },
-    { id: 'stocks', label: t('nav.storesWarehouses'), icon: Boxes, visible: canManageStock || canReleaseStock || canCreateOrders || canVerifyOrders },
+    { id: 'stocks', label: t('nav.storesWarehouses'), icon: Boxes, visible: isStrictChain ? (canSeeChainDashboard || canManageStock || canReleaseStock) : (canManageStock || canReleaseStock || canCreateOrders || canVerifyOrders) },
     { id: 'orders', label: t('nav.ordersReceipts'), icon: FileText, visible: !isStrictChain && canSeeOrders },
-    { id: 'customers', label: isStockOnly ? tf('Clients / Buyers', 'Abakiriya') : t('nav.customersDebt'), icon: Users, visible: canManageCustomers || canCreateOrders || (!isStockOnly && canProcessPayments) },
-    { id: 'partners', label: t('nav.partnerShops'), icon: Handshake, visible: !isStockOnly && canManagePartners },
+    { id: 'customers', label: isStockOnly ? tf('Clients / Buyers', 'Abakiriya') : t('nav.customersDebt'), icon: Users, visible: isStrictChain ? canSeeChainDashboard : (canManageCustomers || canCreateOrders || (!isStockOnly && canProcessPayments)) },
+    { id: 'partners', label: t('nav.partnerShops'), icon: Handshake, visible: isStrictChain ? (canManagePartners || canVerifyOrders || canResolveFlagged) : (!isStockOnly && canManagePartners) },
     { id: 'reports', label: isStockOnly ? tf('Stock & Audit Reports', 'Raporo za Sitoki & Igenzura') : t('nav.salesProfitReports'), icon: BarChart3, visible: canViewReports },
     { id: 'shop_settings', label: t('nav.businessInfoTin'), icon: Building, visible: canEditCompanySettings },
     { id: 'users', label: t('nav.staffDuties'), icon: Settings, visible: canManageUsers },
@@ -138,14 +143,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Low Stock Warning Box if any */}
-        {lowStockCount > 0 && (
+        {visibleLowStockCount > 0 && (
           <div className="p-3 mx-3 mb-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-xs">
             <div className="flex items-center gap-2 text-amber-400 font-bold">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{tf('Low Stock Warning', 'Ibicuruzwa Bigiye Gushira')}</span>
             </div>
             <p className="text-[11px] text-amber-200/80 mt-1">
-              {tf(`${lowStockCount} item(s) running low in the store.`, `Ibicuruzwa ${lowStockCount} birabura gushira mu bubiko.`)}
+              {tf(`${visibleLowStockCount} item(s) running low in the store.`, `Ibicuruzwa ${visibleLowStockCount} birabura gushira mu bubiko.`)}
             </p>
             <button
               onClick={() => setActiveTab('products')}
@@ -270,16 +275,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* 3. Mobile Bottom Navigation Bar (< lg) */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0F131A]/95 backdrop-blur-md border-t border-slate-800/90 px-2 py-1.5 flex items-center justify-around select-none">
         {/* 1. Dashboard */}
-        <button
-          type="button"
-          onClick={() => setActiveTab('dashboard')}
-          className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition ${
-            activeTab === 'dashboard' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <LayoutDashboard className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5">{t('nav.mobileHome')}</span>
-        </button>
+        {canSeeChainDashboard && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex flex-col items-center justify-center py-1 px-2.5 rounded-xl transition ${
+              activeTab === 'dashboard' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LayoutDashboard className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">{t('nav.mobileHome')}</span>
+          </button>
+        )}
 
         {/* 2. Verification Chain OR POS Counter (Center highlighted action) */}
         {canSeeChain ? (
@@ -321,7 +328,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Package className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">{t('nav.mobileStock')}</span>
-            {lowStockCount > 0 && (
+            {visibleLowStockCount > 0 && (
               <span className="absolute top-0.5 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#0F131A]" />
             )}
           </button>

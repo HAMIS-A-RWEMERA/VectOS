@@ -23,7 +23,8 @@ export type PermissionKey =
   | 'can_manage_subscriptions'
   | 'can_verify_orders'
   | 'can_resolve_flagged_orders'
-  | 'can_upload_photos';
+  | 'can_upload_photos'
+  | 'can_view_stock_levels';
 
 export function isFullAccessRole(user: User | null | undefined): boolean {
   if (!user) return false;
@@ -39,6 +40,25 @@ export function hasPermission(user: User | null | undefined, perm: PermissionKey
   if (isFullAccessRole(user)) return true;
   const val = (user as any)[perm];
   return val === true || Number(val) === 1;
+}
+
+export function canViewStockLevels(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return (
+    hasPermission(user, 'can_view_stock_levels') ||
+    hasPermission(user, 'can_release_stock') ||
+    hasPermission(user, 'can_manage_stock')
+  );
+}
+
+export function canAccessStrictChainDashboard(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return (
+    isFullAccessRole(user) ||
+    hasPermission(user, 'can_manage_users') ||
+    hasPermission(user, 'can_edit_company_settings') ||
+    hasPermission(user, 'can_view_reports')
+  );
 }
 
 export function isSoloAllInOneUser(user: User | null | undefined): boolean {

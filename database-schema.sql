@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS users (
   can_reset_passwords INTEGER DEFAULT 0,
   can_view_all_tenants INTEGER DEFAULT 0,
   can_manage_subscriptions INTEGER DEFAULT 0,
+  can_verify_orders INTEGER DEFAULT 0,
+  can_resolve_flagged_orders INTEGER DEFAULT 0,
+  can_upload_photos INTEGER DEFAULT 1,
+  can_view_stock_levels INTEGER DEFAULT 0,
   force_password_change INTEGER DEFAULT 0,
   twofa_secret TEXT,
   twofa_enabled INTEGER DEFAULT 0,
@@ -153,7 +157,7 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS order_items (
   id SERIAL PRIMARY KEY,
   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  product_id INTEGER NOT NULL REFERENCES products(id),
+  product_id INTEGER REFERENCES products(id),
   quantity INTEGER NOT NULL CHECK(quantity > 0),
   sale_mode VARCHAR(20) DEFAULT 'retail',
   sold_unit VARCHAR(50),
@@ -165,7 +169,9 @@ CREATE TABLE IF NOT EXISTS order_items (
   fulfillment_source VARCHAR(100) DEFAULT 'Store',
   item_status VARCHAR(50) DEFAULT 'pending_store' CHECK(item_status IN ('pending_store', 'approved', 'rejected', 'partner_fulfilled', 'unavailable')),
   rejection_reason TEXT,
-  partner_shop_id INTEGER REFERENCES partner_shops(id)
+  partner_shop_id INTEGER REFERENCES partner_shops(id),
+  custom_product_name VARCHAR(255),
+  partner_shop_name VARCHAR(255)
 );
 
 -- 9. PAYMENTS

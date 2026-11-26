@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PartnerShop, User } from '../types';
+import { PartnerShop, Shop, User } from '../types';
 import { api } from '../services/api';
 import { hasPermission } from '../utils/permissions';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -16,10 +16,16 @@ import {
 
 interface PartnersViewProps {
   user: User | null;
+  shop?: Shop | null;
 }
 
-export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
+export const PartnersView: React.FC<PartnersViewProps> = ({ user, shop }) => {
   const { tf } = useLanguage();
+  const isStockOnly = shop?.pricing_mode === 'stock_only';
+  const isStrictChain = shop?.workflow_mode === 'strict_chain';
+  const canAddPartner =
+    hasPermission(user, 'can_manage_partners') ||
+    (isStrictChain && (hasPermission(user, 'can_verify_orders') || hasPermission(user, 'can_resolve_flagged_orders')));
   const [partners, setPartners] = useState<PartnerShop[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -42,7 +48,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
   const fetchPartners = async () => {
     try {
       setLoading(true);
-      const res = await api.getPartners();
+      const res = isStrictChain ? await api.chain.getPartners() : await api.getPartners();
       setPartners(res.partners || []);
     } catch (err: any) {
       if (err?.message?.includes('log in') || err?.message?.includes('Authentication Required')) {
@@ -64,7 +70,11 @@ export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
     try {
       setIsSubmitting(true);
       setModalError('');
-      await api.createPartner(newPartner);
+      if (isStrictChain) {
+        await api.chain.createPartner(newPartner);
+      } else {
+        await api.createPartner(newPartner);
+      }
       setIsAddModalOpen(false);
       setNewPartner({ name: '', contact_person: '', phone: '', address: 'Kigali Commercial District' });
       fetchPartners();
@@ -95,7 +105,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
           </p>
         </div>
 
-        {hasPermission(user, 'can_manage_partners') && (
+        {canAddPartner && (
           <button
             onClick={() => {
               setModalError('');
@@ -143,12 +153,14 @@ export const PartnersView: React.FC<PartnersViewProps> = ({ user }) => {
               </div>
             </div>
 
-            <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs">
-              <span className="text-slate-400">{tf('Current Borrow Balance', 'Ideni ry’Ibyatijwe Ubu')}</span>
-              <span className="font-mono font-bold text-amber-400">
-                {formatRwf(partner.current_balance || 0)}
-              </span>
-            </div>
+            {!isStockOnly && (
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-400">{tf('Current Borrow Balance', 'Ideni ry’Ibyatijwe Ubu')}</span>
+                <span className="font-mono font-bold text-amber-400">
+                  {formatRwf(partner.current_balance || 0)}
+                </span>
+              </div>
+            )}
           </div>
         ))}
 

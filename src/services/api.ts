@@ -602,7 +602,7 @@ export const api = {
     getOrderPhotoViewUrl: (orderId: number) =>
       request<{ success: boolean; viewUrl: string; photoKey: string; expiresInSeconds: number }>(`/api/chain/orders/${orderId}/photo-url`),
     getProductsAvailability: () =>
-      request<{ products: Product[]; pricing_mode: string }>('/api/chain/products-availability'),
+      request<{ products: Product[]; pricing_mode: string; stock_levels_hidden?: boolean }>('/api/chain/products-availability'),
     getOrders: (queue: string = 'all') =>
       request<{ orders: Order[]; pricing_mode: string }>(`/api/chain/orders?queue=${encodeURIComponent(queue)}`),
     createOrder: (payload: {
@@ -634,7 +634,7 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(payload)
       }),
-    releaseLeg: (orderId: number, leg: 'shop' | 'warehouse') =>
+    releaseLeg: (orderId: number, leg: 'shop' | 'warehouse' | 'partner') =>
       request<{ success: boolean; leg: string; leg_status: string }>(`/api/chain/orders/${orderId}/release-leg`, {
         method: 'POST',
         body: JSON.stringify({ leg })
@@ -644,7 +644,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ reason })
       }),
-    verifyStep2: (orderId: number, leg?: 'shop' | 'warehouse', override_reason?: string) =>
+    verifyStep2: (orderId: number, leg?: 'shop' | 'warehouse' | 'partner', override_reason?: string) =>
       request<{ success: boolean; completed: boolean; chain_status: string }>(`/api/chain/orders/${orderId}/verify-2`, {
         method: 'POST',
         body: JSON.stringify({ leg, override_reason })
@@ -655,7 +655,16 @@ export const api = {
         action: 'edit_and_release' | 'approve_as_is' | 'reassign_supervisor' | 'cancel';
         resolution_note?: string;
         reassign_supervisor_id?: number;
-        items?: { product_id: number; quantity: number; sale_mode?: 'retail' | 'pack' }[];
+        items?: {
+          product_id: number | null;
+          quantity: number;
+          sale_mode?: 'retail' | 'pack';
+          leg_type?: 'shop' | 'warehouse' | 'partner';
+          custom_product_name?: string | null;
+          partner_shop_id?: number | null;
+          partner_shop_name?: string | null;
+          sold_unit?: string;
+        }[];
       }
     ) =>
       request<{ success: boolean; chain_status: string }>(`/api/chain/orders/${orderId}/manager-resolve`, {
@@ -668,6 +677,31 @@ export const api = {
       request<{ success: boolean }>(`/api/chain/watch-alerts/${alertId}/audit`, {
         method: 'POST',
         body: JSON.stringify({ audit_note })
+      }),
+    getPartners: () =>
+      request<{ partners: PartnerShop[] }>('/api/chain/partners'),
+    createPartner: (payload: { name: string; contact_person?: string; phone?: string; address?: string }) =>
+      request<{ success: boolean; partner: PartnerShop }>('/api/chain/partners', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    addPartnerItem: (
+      orderId: number,
+      payload: {
+        partner_shop_id?: number | null;
+        partner_shop_name?: string;
+        item_name: string;
+        quantity: number;
+        unit?: string;
+      }
+    ) =>
+      request<{ success: boolean; item: any }>(`/api/chain/orders/${orderId}/partner-items`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    removePartnerItem: (orderId: number, itemId: number) =>
+      request<{ success: boolean }>(`/api/chain/orders/${orderId}/partner-items/${itemId}`, {
+        method: 'DELETE'
       })
   }
 };

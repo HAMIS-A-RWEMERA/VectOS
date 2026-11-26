@@ -48,7 +48,8 @@ const ALL_SHOP_PERMISSION_KEYS = [
   'can_edit_company_settings',
   'can_verify_orders',
   'can_resolve_flagged_orders',
-  'can_upload_photos'
+  'can_upload_photos',
+  'can_view_stock_levels'
 ] as const;
 
 type ShopPermissionKey = (typeof ALL_SHOP_PERMISSION_KEYS)[number];
@@ -96,6 +97,7 @@ const PERMISSION_GROUPS: {
     items: [
       { key: 'can_release_stock', label: 'Hand out / release items from the store' },
       { key: 'can_manage_stock', label: 'Add products & adjust stock counts' },
+      { key: 'can_view_stock_levels', label: 'See remaining stock counts & low-stock alerts' },
       { key: 'can_import_export_stock', label: 'Upload / download stock lists (Excel/CSV)' },
       { key: 'can_partner_borrow', label: 'Borrow items from partner shops' }
     ]
@@ -209,6 +211,7 @@ const ROLE_TEMPLATES: RoleTemplate[] = [
     permissions: buildPermissionMap({
       can_release_stock: true,
       can_manage_stock: true,
+      can_view_stock_levels: true,
       can_import_export_stock: true,
       can_partner_borrow: true,
       can_manage_partners: true,
@@ -228,11 +231,13 @@ const ROLE_TEMPLATES: RoleTemplate[] = [
     title: 'Supervisor (Verify #1 & #2)',
     role: 'employee',
     job_title: 'Order Supervisor',
-    desc: 'Performs Step-1 authorization against handwritten photo and Step-2 final release check',
+    desc: 'Performs Step-1 authorization against handwritten photo, sources partner-shop items & runs Step-2 check',
     permissions: buildPermissionMap({
       can_verify_orders: true,
+      can_manage_partners: true,
       can_print_delivery_note: true,
-      can_view_reports: true
+      can_view_reports: false,
+      can_view_stock_levels: false
     }),
     strictChainOnly: true
   },
@@ -241,9 +246,10 @@ const ROLE_TEMPLATES: RoleTemplate[] = [
     title: 'Warehouse Officer',
     role: 'storekeeper',
     job_title: 'Warehouse Officer',
-    desc: 'Sees warehouse items only, confirms physical pickup or flags discrepancies to Manager',
+    desc: 'Sees warehouse items & remaining counts, confirms physical pickup or flags discrepancies to Manager',
     permissions: buildPermissionMap({
       can_release_stock: true,
+      can_view_stock_levels: true,
       can_print_delivery_note: true
     }),
     strictChainOnly: true
@@ -317,6 +323,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser, shop }) => {
         it.key === 'can_view_buying_prices' ? tf('See supplier buying prices & profit', 'Kureba ibiciro biranguza n’inyungu') :
         it.key === 'can_release_stock' ? tf('Hand out / release items from the store', 'Gusohora ibicuruzwa muri sitoki') :
         it.key === 'can_manage_stock' ? tf('Add products & adjust stock counts', 'Kongera ibicuruzwa no guhindura umubare muri sitoki') :
+        it.key === 'can_view_stock_levels' ? tf('See remaining stock counts & low-stock alerts', 'Kureba imibare y’ibisigaye muri sitoki') :
         it.key === 'can_import_export_stock' ? tf('Upload / download stock lists (Excel/CSV)', 'Kwinjiza / gukuramo urutonde rwa sitoki (Excel/CSV)') :
         it.key === 'can_partner_borrow' ? tf('Borrow items from partner shops', 'Gutira ibicuruzwa ku maduka dutiranaho') :
         it.key === 'can_manage_customers' ? tf('Add & edit customers', 'Kongera no guhindura abakiriya') :
@@ -899,6 +906,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser, shop }) => {
                       )}
                       {(isFullRole || u.can_manage_stock) && (
                         <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">{tf('Manage Stock', 'Gucunga Sitoki')}</span>
+                      )}
+                      {(isFullRole || u.can_view_stock_levels || u.can_release_stock || u.can_manage_stock) && (
+                        <span className="px-1.5 py-0.5 rounded bg-teal-950/60 text-teal-300 text-[10px] border border-teal-800/40">{tf('Stock Counts', 'Imibare ya Sitoki')}</span>
                       )}
                       {(isFullRole || u.can_view_reports) && (
                         <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">{tf('Sales Reports', 'Raporo')}</span>
